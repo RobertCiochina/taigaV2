@@ -18,7 +18,13 @@
 
 #pragma once
 
+#include <optional>
+
+#include <QJsonObject>
 #include <QString>
+
+#include "media/anime.hpp"
+#include "media/anime_list.hpp"
 
 namespace anime {
 enum class AgeRating;
@@ -42,5 +48,8 @@ QString fromListDate(const QString& value);
 std::time_t parseListLastUpdated(const QString& value);
 anime::list::Status parseListStatus(const QString& value);
 QString fromListStatus(const anime::list::Status value);
+
+std::optional<Anime> parseAnimeResource(const QJsonObject& data);
+std::optional<ListEntry> parseLibraryEntryResource(const QJsonObject& data);
 
 }  // namespace sync::kitsu

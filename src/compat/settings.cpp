@@ -34,6 +34,7 @@ namespace compat::v1 {
 
 void parseAccountElement(QXmlStreamReader&, const taiga::Settings&, const taiga::Accounts&);
 void parseAnimeElement(QXmlStreamReader&, const taiga::Settings&);
+void parseProgramElement(QXmlStreamReader&, const taiga::Settings&);
 void parseRecognitionElement(QXmlStreamReader&, const taiga::Settings&);
 
 void readSettings(const std::string& path, const taiga::Settings& settings,
@@ -54,10 +55,12 @@ void readSettings(const std::string& path, const taiga::Settings& settings,
       parseAccountElement(xml, settings, accounts);
     } else if (xml.name() == u"anime") {
       parseAnimeElement(xml, settings);
+    } else if (xml.name() == u"program") {
+      parseProgramElement(xml, settings);
     } else if (xml.name() == u"recognition") {
       parseRecognitionElement(xml, settings);
     } else {
-      // @TODO: program, announce, rss
+      // @TODO: announce, rss
       xml.skipCurrentElement();
     }
   }
@@ -117,6 +120,19 @@ void parseAnimeElement(QXmlStreamReader& xml, const taiga::Settings& settings) {
   }
 
   settings.setLibraryFolders(libraryFolders);
+}
+
+void parseProgramElement(QXmlStreamReader& xml, const taiga::Settings& settings) {
+  while (xml.readNextStartElement()) {
+    if (xml.name() == u"proxy") {
+      settings.setProxyHost(XML_ATTR_STR(u"host"));
+      settings.setProxyUsername(XML_ATTR_STR(u"username"));
+      settings.setProxyPassword(XML_ATTR_STR(u"password"));
+      xml.skipCurrentElement();
+    } else {
+      xml.skipCurrentElement();
+    }
+  }
 }
 
 void parseRecognitionElement(QXmlStreamReader& xml, const taiga::Settings& settings) {

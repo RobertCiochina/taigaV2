@@ -19,6 +19,10 @@
 #include "kitsu_parsers.hpp"
 
 #include <QDateTime>
+#include "base/chrono.hpp"
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QJsonValue>
 #include <QMap>
 
 #include "media/anime.hpp"
@@ -108,6 +112,72 @@ QString fromListStatus(const anime::list::Status value) {
   }
   // clang-format on
   return "";
+}
+
+std::optional<Anime> parseAnimeResource(const QJsonObject& data) {
+  const int id = data["id"].toString().toInt();
+  if (!id) return std::nullopt;
+
+  const QJsonObject a = data["attributes"].toObject();
+  Anime item{
+      .id = id,
+      .last_modified = QDateTime::currentSecsSinceEpoch(),
+      .episode_count = a["episodeCount"].isNull() ? anime::kUnknownEpisodeCount : a["episodeCount"].toInt(),
+      .episode_length = a["episodeLength"].isNull() ? anime::kUnknownEpisodeLength : a["episodeLength"].toInt(),
+      .age_rating = parseAgeRating(a["ageRating"].toString()),
+      .status = parseStatus(a["status"].toString()),
+      .type = parseType(a["subtype"].toString()),
+      .date_started = FuzzyDate(parseListDate(a["startDate"].toString()).toStdString()),
+      .date_finished = FuzzyDate(parseListDate(a["endDate"].toString()).toStdString()),
+      .score = static_cast<float>(parseScore(a["averageRating"].toString())),
+      .popularity_rank = a["popularityRank"].toInt(),
+      .image_url = a["posterImage"].toObject()["small"].toString().toStdString(),
+      .slug = a["slug"].toString().toStdString(),
+      .synopsis = a["synopsis"].toString().toStdString(),
+      .trailer_id = a["youtubeVideoId"].toString().toStdString(),
+      .titles{.romaji = a["canonicalTitle"].toString().toStdString()},
+  };
+
+  const QJsonObject titles = a["titles"].toObject();
+  if (titles.contains("en_jp")) item.titles.romaji = titles["en_jp"].toString().toStdString();
+  if (titles.contains("en")) item.titles.english = titles["en"].toString().toStdString();
+  if (titles.contains("ja_jp")) item.titles.japanese = titles["ja_jp"].toString().toStdString();
+
+  for (const QJsonValue& t : a["abbreviatedTitles"].toArray()) {
+    if (!t.isString()) continue;
+    const std::string s = t.toString().toStdString();
+    if (!s.empty()) item.titles.synonyms.push_back(s);
+  }
+
+  return item;
+}
+
+std::optional<ListEntry> parseLibraryEntryResource(const QJsonObject& data) {
+  const QString libIdStr = data["id"].toString();
+  const qint64 libId = libIdStr.toLongLong();
+  if (!libId) return std::nullopt;
+
+  const int anime_id = data["relationships"].toObject()["anime"].toObject()["data"].toObject()["id"]
+                           .toString()
+                           .toInt();
+  if (!anime_id) return std::nullopt;
+
+  const QJsonObject attrs = data["attributes"].toObject();
+  ListEntry e{};
+  e.id = libId;
+  e.anime_id = anime_id;
+  e.watched_episodes = attrs["progress"].toInt();
+  const int r20 = attrs["ratingTwenty"].toInt();
+  e.score = (r20 > 0) ? (r20 * anime::list::kScoreMax / 20) : 0;
+  e.status = parseListStatus(attrs["status"].toString());
+  e.is_private = attrs["private"].toBool();
+  e.rewatched_times = attrs["reconsumeCount"].toInt();
+  e.rewatching = attrs["reconsuming"].toBool();
+  e.date_started = FuzzyDate(parseListDate(attrs["startedAt"].toString()).toStdString());
+  e.date_completed = FuzzyDate(parseListDate(attrs["finishedAt"].toString()).toStdString());
+  e.last_updated = parseListLastUpdated(attrs["updatedAt"].toString());
+  e.notes = attrs["notes"].toString().toStdString();
+  return e;
 }
 
 }  // namespace sync::kitsu

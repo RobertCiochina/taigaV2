@@ -99,16 +99,19 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
     const QString user =
         QString::fromStdString(taiga::accounts.serviceUsername(taiga::settings.service()));
     const bool has_anilist_token = !taiga::accounts.anilistToken().empty();
+    const bool has_mal_token = !taiga::accounts.myanimelistAccessToken().empty();
     ui_->accountsInfoLabel->setTextFormat(Qt::RichText);
     ui_->accountsInfoLabel->setText(
         tr("<p><b>Active service:</b> %1<br/>"
            "<b>Username:</b> %2<br/>"
-           "<b>AniList token:</b> %3</p>"
-           "<p>For AniList, use <i>Open AniList authorization…</i> in the browser, then ensure your "
-           "token is saved (e.g. via migration from Taiga v1 or manual <code>accounts.json</code>).</p>")
+           "<b>AniList token:</b> %3<br/>"
+           "<b>MyAnimeList token:</b> %4</p>"
+           "<p>Use <i>Open AniList authorization…</i> for AniList, or migrate from Taiga v1 / edit "
+           "<code>accounts.json</code> for any service.</p>")
             .arg(svc.toHtmlEscaped())
             .arg(user.isEmpty() ? tr("(not set)").toHtmlEscaped() : user.toHtmlEscaped())
-            .arg(has_anilist_token ? tr("Present").toHtmlEscaped() : tr("Missing").toHtmlEscaped()));
+            .arg(has_anilist_token ? tr("Present").toHtmlEscaped() : tr("Missing").toHtmlEscaped())
+            .arg(has_mal_token ? tr("Present").toHtmlEscaped() : tr("Missing").toHtmlEscaped()));
 
     auto* auth_btn = new QPushButton(tr("Open AniList authorization…"), ui_->accountsPage);
     connect(auth_btn, &QPushButton::clicked, this, []() {

@@ -40,7 +40,6 @@
 #include "media/anime_db.hpp"
 #include "media/anime_list.hpp"
 #include "media/anime_utils.hpp"
-#include "sync/anilist.hpp"
 #include "sync/service.hpp"
 #include "taiga/accounts.hpp"
 #include "taiga/settings.hpp"
@@ -57,9 +56,7 @@ int64_t localListEntryId(const int anime_id) {
 
 void commitListEntry(const ListEntry& entry) {
   anime::db.updateEntry(entry);
-  if (sync::currentServiceId() != sync::ServiceId::AniList) return;
-  if (taiga::accounts.anilistToken().empty()) return;
-  sync::anilist::Service::instance()->saveListEntry(entry);
+  sync::saveListEntry(entry);
 }
 
 }  // namespace
@@ -229,11 +226,7 @@ void MediaMenu::removeFromList() const {
 
   if (msgBox.clickedButton() == reinterpret_cast<QAbstractButton*>(removeButton)) {
     for (const auto& item : m_items) {
-      if (sync::currentServiceId() == sync::ServiceId::AniList) {
-        sync::anilist::Service::instance()->deleteListEntry(item.id);
-      } else {
-        anime::db.deleteEntry(item.id);
-      }
+      sync::deleteListEntry(item.id);
     }
   }
 }

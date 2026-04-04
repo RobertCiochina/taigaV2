@@ -20,15 +20,18 @@
 
 #include <QDir>
 #include <QFileInfo>
+#include <QLocalSocket>
 #include <QTranslator>
 #include <format>
 
 #include "base/log.hpp"
+#include "base/string.hpp"
 #include "gui/main/main_window.hpp"
 #include "gui/utils/theme.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_history.hpp"
 #include "taiga/config.h"
+#include "taiga/network.hpp"
 #include "taiga/path.hpp"
 #include "taiga/settings.hpp"
 #include "taiga/version.hpp"
@@ -38,6 +41,7 @@ namespace taiga {
 
 Application::Application(int argc, char* argv[])
     : QApplication(argc, argv), shared_memory_("Taiga") {
+  instance_server_.setParent(this);
   setApplicationName("taiga");
   setApplicationDisplayName("Taiga");
   setApplicationVersion(QString::fromStdString(taiga::version().to_string()));
@@ -66,12 +70,12 @@ int Application::run() {
   }
 
   if (hasPreviousInstance()) {
-    // @TODO: Activate previous instance
-    LOGD("Another instance of Taiga is running.");
+    tryActivateRunningInstance();
     return 0;
   }
 
   taiga::settings.init();
+  taiga::network()->applyProxyFromSettings();
   anime::db.init();
   anime::history.init();
   track::media::detection()->init();
@@ -87,6 +91,7 @@ int Application::run() {
   window_ = new gui::MainWindow();
   window_->init();
   window_->show();
+  startInstanceServer();
 
   return QApplication::exec();
 }
@@ -105,6 +110,34 @@ gui::MainWindow* Application::mainWindow() const {
 
 bool Application::hasPreviousInstance() {
   return !shared_memory_.create(1);
+}
+
+QString Application::instanceServerName() {
+  return u"%1_instance"_s.arg(QCoreApplication::applicationName());
+}
+
+void Application::tryActivateRunningInstance() const {
+  QLocalSocket socket;
+  socket.connectToServer(instanceServerName());
+  if (socket.waitForConnected(1500)) {
+    socket.write("x");
+    socket.waitForBytesWritten(500);
+  }
+}
+
+void Application::startInstanceServer() {
+  QLocalServer::removeServer(instanceServerName());
+  if (!instance_server_.listen(instanceServerName())) return;
+
+  connect(&instance_server_, &QLocalServer::newConnection, this, [this] {
+    while (QLocalSocket* socket = instance_server_.nextPendingConnection()) {
+      connect(socket, &QLocalSocket::disconnected, socket, &QLocalSocket::deleteLater);
+      if (gui::MainWindow* w = mainWindow()) {
+        QMetaObject::invokeMethod(w, "displayWindow", Qt::QueuedConnection);
+      }
+      socket->disconnectFromServer();
+    }
+  });
 }
 
 void Application::initLogger() const {

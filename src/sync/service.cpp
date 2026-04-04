@@ -24,8 +24,11 @@
 
 #include "sync/anilist.hpp"
 #include "sync/anilist_utils.hpp"
+#include "sync/kitsu_service.hpp"
 #include "sync/kitsu_utils.hpp"
+#include "sync/myanimelist_service.hpp"
 #include "sync/myanimelist_utils.hpp"
+#include "taiga/accounts.hpp"
 #include "taiga/network.hpp"
 #include "taiga/settings.hpp"
 
@@ -74,8 +77,10 @@ QString serviceSlug(const ServiceId serviceId) {
 void fetchAnime(const int id) {
   switch (currentServiceId()) {
     case ServiceId::MyAnimeList:
+      myanimelist::Service::instance()->fetchAnime(id);
       break;
     case ServiceId::Kitsu:
+      kitsu::Service::instance()->fetchAnime(id);
       break;
     case ServiceId::AniList:
       anilist::Service::instance()->fetchAnime(id);
@@ -83,13 +88,43 @@ void fetchAnime(const int id) {
   }
 }
 
+void saveListEntry(const ListEntry& entry) {
+  switch (currentServiceId()) {
+    case ServiceId::MyAnimeList:
+      myanimelist::Service::instance()->saveListEntry(entry);
+      break;
+    case ServiceId::Kitsu:
+      kitsu::Service::instance()->saveListEntry(entry);
+      break;
+    case ServiceId::AniList:
+      if (!taiga::accounts.anilistToken().empty()) {
+        anilist::Service::instance()->saveListEntry(entry);
+      }
+      break;
+  }
+}
+
+void deleteListEntry(const int anime_id) {
+  switch (currentServiceId()) {
+    case ServiceId::MyAnimeList:
+      myanimelist::Service::instance()->deleteListEntry(anime_id);
+      break;
+    case ServiceId::Kitsu:
+      kitsu::Service::instance()->deleteListEntry(anime_id);
+      break;
+    case ServiceId::AniList:
+      anilist::Service::instance()->deleteListEntry(anime_id);
+      break;
+  }
+}
+
 void fetchListEntries(std::function<void(bool ok, QString message)> on_complete) {
   switch (currentServiceId()) {
     case ServiceId::MyAnimeList:
+      myanimelist::Service::instance()->fetchListEntries(std::move(on_complete));
+      break;
     case ServiceId::Kitsu:
-      if (on_complete) {
-        on_complete(false, QStringLiteral("List sync is not implemented for this service yet."));
-      }
+      kitsu::Service::instance()->fetchListEntries(std::move(on_complete));
       break;
     case ServiceId::AniList:
       anilist::Service::instance()->fetchListEntries(std::move(on_complete));

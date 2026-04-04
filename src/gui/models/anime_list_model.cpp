@@ -31,9 +31,7 @@
 #include "gui/utils/image_provider.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_season.hpp"
-#include "sync/anilist.hpp"
 #include "sync/service.hpp"
-#include "taiga/accounts.hpp"
 
 namespace gui {
 
@@ -41,9 +39,7 @@ namespace {
 
 void commitListEntry(const ListEntry& entry) {
   anime::db.updateEntry(entry);
-  if (sync::currentServiceId() != sync::ServiceId::AniList) return;
-  if (taiga::accounts.anilistToken().empty()) return;
-  sync::anilist::Service::instance()->saveListEntry(entry);
+  sync::saveListEntry(entry);
 }
 
 }  // namespace

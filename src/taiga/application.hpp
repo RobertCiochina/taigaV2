@@ -20,6 +20,7 @@
 
 #include <QApplication>
 #include <QCommandLineParser>
+#include <QLocalServer>
 #include <QPointer>
 #include <QSharedMemory>
 
@@ -46,8 +47,11 @@ public:
 
 private:
   bool hasPreviousInstance();
+  void tryActivateRunningInstance() const;
   void initLogger() const;
   void parseCommandLine();
+  void startInstanceServer();
+  static QString instanceServerName();
 
   struct Options {
     bool debug = false;
@@ -56,6 +60,7 @@ private:
 
   QCommandLineParser parser_;
   QSharedMemory shared_memory_;
+  QLocalServer instance_server_;
   QPointer<gui::MainWindow> window_;
 };
 

@@ -54,6 +54,8 @@ target_sources(taiga PRIVATE
 	sync/anilist_utils.hpp
 	sync/kitsu_parsers.cpp
 	sync/kitsu_parsers.hpp
+	sync/kitsu_service.cpp
+	sync/kitsu_service.hpp
 	sync/kitsu_ratings.cpp
 	sync/kitsu_ratings.hpp
 	sync/kitsu_utils.cpp
@@ -61,6 +63,8 @@ target_sources(taiga PRIVATE
 	sync/myanimelist.hpp
 	sync/myanimelist_parsers.cpp
 	sync/myanimelist_parsers.hpp
+	sync/myanimelist_service.cpp
+	sync/myanimelist_service.hpp
 	sync/myanimelist_utils.cpp
 	sync/myanimelist_utils.hpp
 	sync/service.cpp

@@ -3,3 +3,7 @@
 /.vscode/
 /bin/
 /build/
+
+# Parent-folder convenience runners (local only)
+/build-and-run-taiga.cmd
+/runTaiga

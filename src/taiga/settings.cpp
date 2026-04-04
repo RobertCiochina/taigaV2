@@ -74,6 +74,18 @@ std::chrono::milliseconds Settings::mediaDetectionInterval() const {
   return std::chrono::milliseconds{interval};
 }
 
+std::string Settings::proxyHost() const {
+  return value("program.proxy.host").toString().toStdString();
+}
+
+std::string Settings::proxyUsername() const {
+  return value("program.proxy.username").toString().toStdString();
+}
+
+std::string Settings::proxyPassword() const {
+  return value("program.proxy.password").toString().toStdString();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 void Settings::setAppColorScheme(const Qt::ColorScheme scheme) const {
@@ -94,6 +106,18 @@ void Settings::setLibraryFolders(std::vector<std::string> folders) const {
 
 void Settings::setMediaDetectionInterval(const std::chrono::milliseconds interval) const {
   setValue("track.detection.interval", interval.count());
+}
+
+void Settings::setProxyHost(const std::string& host) const {
+  setValue("program.proxy.host", host);
+}
+
+void Settings::setProxyUsername(const std::string& username) const {
+  setValue("program.proxy.username", username);
+}
+
+void Settings::setProxyPassword(const std::string& password) const {
+  setValue("program.proxy.password", password);
 }
 
 }  // namespace taiga

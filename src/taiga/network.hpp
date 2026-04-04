@@ -22,6 +22,8 @@
 #include <QHttpHeaders>
 #include <QNetworkAccessManager>
 
+class QNetworkRequest;
+
 namespace taiga {
 
 class NetworkAccessManager final : public QNetworkAccessManager {
@@ -33,7 +35,11 @@ public:
   ~NetworkAccessManager() = default;
 
   static QHttpHeaders commonHeaders();
+
+  void applyProxyFromSettings();
 };
+
+void applyCommonHeaders(QNetworkRequest& request);
 
 inline NetworkAccessManager* network() {
   static auto manager = new NetworkAccessManager{qApp};

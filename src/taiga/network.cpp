@@ -18,19 +18,20 @@
 
 #include "network.hpp"
 
+#include <QNetworkProxy>
 #include <QNetworkReply>
+#include <QNetworkRequest>
 
 #include "base/string.hpp"
 #include "taiga/application.hpp"
 #include "taiga/config.h"
+#include "taiga/settings.hpp"
 
 namespace taiga {
 
 NetworkAccessManager::NetworkAccessManager(QObject* parent) : QNetworkAccessManager{parent} {
   setAutoDeleteReplies(true);
   setTransferTimeout(std::chrono::seconds{10});
-
-  // @TODO: Set proxy
 
   connect(this, &QNetworkAccessManager::finished, this, [](QNetworkReply* reply) {
     if (!app()->isDebug()) return;
@@ -52,6 +53,39 @@ QHttpHeaders NetworkAccessManager::commonHeaders() {
   headers.append(QHttpHeaders::WellKnownHeader::UserAgent, userAgentString());
 
   return headers;
+}
+
+void NetworkAccessManager::applyProxyFromSettings() {
+  const auto host = QString::fromStdString(taiga::settings.proxyHost()).trimmed();
+  if (host.isEmpty()) {
+    setProxy(QNetworkProxy{QNetworkProxy::NoProxy});
+    return;
+  }
+
+  QString hostName = host;
+  int port = 8080;
+  if (const int colon = hostName.lastIndexOf(':'); colon > 0) {
+    bool ok = false;
+    const int p = hostName.mid(colon + 1).toInt(&ok);
+    if (ok && p > 0 && p <= 65535) {
+      port = p;
+      hostName = hostName.first(colon);
+    }
+  }
+
+  QNetworkProxy proxy{QNetworkProxy::HttpProxy, hostName, static_cast<quint16>(port)};
+  proxy.setUser(QString::fromStdString(taiga::settings.proxyUsername()));
+  proxy.setPassword(QString::fromStdString(taiga::settings.proxyPassword()));
+  setProxy(proxy);
+}
+
+void applyCommonHeaders(QNetworkRequest& request) {
+  const QHttpHeaders headers = NetworkAccessManager::commonHeaders();
+  for (qsizetype i = 0; i < headers.size(); ++i) {
+    const QLatin1StringView name = headers.nameAt(i);
+    request.setRawHeader(QByteArray(name.data(), static_cast<int>(name.size())),
+                         QByteArray(headers.valueAt(i)));
+  }
 }
 
 }  // namespace taiga

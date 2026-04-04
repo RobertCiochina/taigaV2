@@ -18,7 +18,13 @@
 
 #pragma once
 
+#include <optional>
+
+#include <QJsonObject>
 #include <QString>
+
+#include "media/anime.hpp"
+#include "media/anime_list.hpp"
 
 namespace base {
 class FuzzyDate;
@@ -44,5 +50,10 @@ anime::Type parseType(const QString& value);
 std::time_t parseListLastUpdated(const QString& value);
 int parseListScore(int value);
 anime::list::Status parseListStatus(const QString& value);
+
+/// Parses an anime `node` object from `/users/.../animelist` (MAL API v2).
+std::optional<Anime> parseAnimeNode(const QJsonObject& node);
+/// Parses `list_status` for one entry; `anime_id` is the MAL anime id (list row id is not used on MAL).
+std::optional<ListEntry> parseLibraryListStatus(const QJsonObject& list_status, int anime_id);
 
 }  // namespace sync::myanimelist
