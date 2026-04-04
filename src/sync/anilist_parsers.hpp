@@ -22,6 +22,9 @@
 #include <optional>
 #include <string>
 
+#include "media/anime_list.hpp"
+
+#include <QJsonObject>
 class QJsonValue;
 
 namespace base {
@@ -47,5 +50,7 @@ anime::Status parseStatus(const QString& value);
 anime::Type parseType(const QString& value);
 
 std::optional<anime::Details> parseMedia(const QJsonValue& json);
+
+std::optional<ListEntry> parseMediaListEntry(const QJsonObject& json, int media_id_fallback = 0);
 
 }  // namespace sync::anilist

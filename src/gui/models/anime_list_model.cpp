@@ -18,6 +18,8 @@
 
 #include "anime_list_model.hpp"
 
+#include <ctime>
+
 #include <QApplication>
 #include <QColor>
 #include <QDateTime>
@@ -29,8 +31,22 @@
 #include "gui/utils/image_provider.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_season.hpp"
+#include "sync/anilist.hpp"
+#include "sync/service.hpp"
+#include "taiga/accounts.hpp"
 
 namespace gui {
+
+namespace {
+
+void commitListEntry(const ListEntry& entry) {
+  anime::db.updateEntry(entry);
+  if (sync::currentServiceId() != sync::ServiceId::AniList) return;
+  if (taiga::accounts.anilistToken().empty()) return;
+  sync::anilist::Service::instance()->saveListEntry(entry);
+}
+
+}  // namespace
 
 AnimeListModel::AnimeListModel(QObject* parent) : QAbstractListModel(parent) {
   beginInsertRows({}, 0, anime::db.items().size());
@@ -175,15 +191,27 @@ QVariant AnimeListModel::data(const QModelIndex& index, int role) const {
   return {};
 }
 
-bool AnimeListModel::setData(const QModelIndex& index, const QVariant&, int role) {
-  if (index.isValid() && role == Qt::EditRole) {
-    if (index.column() == COLUMN_SCORE) {
-      // const int id = m_ids.at(index.row());
-      // @TODO: Add to queue
-      return true;
-    }
-  }
-  return false;
+bool AnimeListModel::setData(const QModelIndex& index, const QVariant& value, int role) {
+  if (!index.isValid() || role != Qt::EditRole) return false;
+  if (index.column() != COLUMN_SCORE) return false;
+
+  const int id = m_ids.at(index.row());
+  const auto it = anime::db.entries().find(id);
+  if (it == anime::db.entries().end()) return false;
+
+  ListEntry entry = *it;
+  entry.score = value.toInt();
+  entry.last_updated = static_cast<std::time_t>(QDateTime::currentSecsSinceEpoch());
+  commitListEntry(entry);
+
+  emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
+  return true;
+}
+
+void AnimeListModel::reloadFromDatabase() {
+  beginResetModel();
+  m_ids = anime::db.items().keys();
+  endResetModel();
 }
 
 QVariant AnimeListModel::headerData(int section, Qt::Orientation orientation, int role) const {

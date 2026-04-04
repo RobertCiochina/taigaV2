@@ -19,6 +19,7 @@
 #include "anime_list_export.hpp"
 
 #include <QDateTime>
+#include <QString>
 #include <QXmlStreamWriter>
 #include <algorithm>
 #include <format>
@@ -31,7 +32,8 @@
 #include "media/anime.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_list.hpp"
-#include "sync/myanimelist_utils.hpp"
+#include "taiga/accounts.hpp"
+#include "taiga/settings.hpp"
 #include "taiga/version.hpp"
 
 namespace anime::list {
@@ -47,7 +49,9 @@ bool exportAsMarkdown(const std::string& path) {
   }
 
   for (auto& [status, list] : status_lists) {
-    std::ranges::sort(list);  // @TODO: case insensitive
+    std::ranges::sort(list, [](const std::string& a, const std::string& b) {
+      return QString::fromStdString(a).compare(QString::fromStdString(b), Qt::CaseInsensitive) < 0;
+    });
   }
 
   QFile file(QString::fromStdString(path));
@@ -115,17 +119,28 @@ bool exportAsXml(const std::string& path) {
 
   xml.writeStartElement("myanimelist");
 
+  const auto count_status = [](const anime::list::Status want) {
+    int n = 0;
+    for (const auto& e : anime::db.entries()) {
+      if (e.status == want) ++n;
+    }
+    return n;
+  };
+
+  const auto user_name =
+      QString::fromStdString(taiga::accounts.serviceUsername(taiga::settings.service()));
+
   xml.writeStartElement("myinfo");
   xml.writeNumberElement("user_id", 0);
-  xml.writeTextElement("user_name", "");          // @TODO
+  xml.writeTextElement("user_name", user_name);
   xml.writeNumberElement("user_export_type", 1);  // anime
   xml.writeNumberElement("user_total_anime", anime::db.entries().count());
-  xml.writeNumberElement("user_total_watching", 0);     // @TODO: anime::list::Status::Watching
-  xml.writeNumberElement("user_total_completed", 0);    // @TODO: anime::list::Status::Completed
-  xml.writeNumberElement("user_total_onhold", 0);       // @TODO: anime::list::Status::OnHold
-  xml.writeNumberElement("user_total_dropped", 0);      // @TODO: anime::list::Status::Dropped
-  xml.writeNumberElement("user_total_plantowatch", 0);  // @TODO: anime::list::Status::PlanToWatch
-  xml.writeEndElement();                                // myinfo
+  xml.writeNumberElement("user_total_watching", count_status(anime::list::Status::Watching));
+  xml.writeNumberElement("user_total_completed", count_status(anime::list::Status::Completed));
+  xml.writeNumberElement("user_total_onhold", count_status(anime::list::Status::OnHold));
+  xml.writeNumberElement("user_total_dropped", count_status(anime::list::Status::Dropped));
+  xml.writeNumberElement("user_total_plantowatch", count_status(anime::list::Status::PlanToWatch));
+  xml.writeEndElement();  // myinfo
 
   for (const auto& entry : anime::db.entries()) {
     const auto item = anime::db.item(entry.anime_id);
@@ -134,13 +149,14 @@ bool exportAsXml(const std::string& path) {
     xml.writeTextElement("series_title", item->titles.romaji);
     xml.writeTextElement("series_type", format_series_type(item->type));
     xml.writeNumberElement("series_episodes", item->episode_count);
-    xml.writeTextElement("my_id", 0);
+    xml.writeTextElement("my_id", QString::number(entry.id));
     xml.writeNumberElement("my_watched_episodes", entry.watched_episodes);
     xml.writeTextElement("my_start_date", entry.date_started.to_string());
     xml.writeTextElement("my_finish_date", entry.date_completed.to_string());
     xml.writeTextElement("my_fansub_group", "");
     xml.writeTextElement("my_rated", "");
-    xml.writeNumberElement("my_score", entry.score);  // @TODO: translate
+    // MAL export convention: score 0–10 (local DB uses 0–100)
+    xml.writeNumberElement("my_score", std::clamp(entry.score / 10, 0, 10));
     xml.writeTextElement("my_dvd", "");
     xml.writeTextElement("my_storage", "");
     xml.writeTextElement("my_status", format_my_status(entry.status));

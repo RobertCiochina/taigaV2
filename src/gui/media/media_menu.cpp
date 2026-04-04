@@ -18,26 +18,51 @@
 
 #include "media_menu.hpp"
 
+#include <QDate>
+#include <QDateTime>
 #include <QDesktopServices>
 #include <QInputDialog>
 #include <QItemSelectionModel>
 #include <QMessageBox>
+#include <QRandomGenerator>
 #include <QUrl>
 #include <QUrlQuery>
+#include <chrono>
 #include <ranges>
 
+#include "base/chrono.hpp"
 #include "base/string.hpp"
 #include "gui/main/main_window.hpp"
 #include "gui/media/media_dialog.hpp"
 #include "gui/utils/format.hpp"
 #include "gui/utils/theme.hpp"
 #include "media/anime.hpp"
+#include "media/anime_db.hpp"
 #include "media/anime_list.hpp"
 #include "media/anime_utils.hpp"
+#include "sync/anilist.hpp"
 #include "sync/service.hpp"
+#include "taiga/accounts.hpp"
 #include "taiga/settings.hpp"
+#include "track/media.hpp"
 #include "track/play.hpp"
 #include "track/scanner.hpp"
+
+namespace {
+
+// Temporary id for entries created offline until sync assigns an AniList list entry id.
+int64_t localListEntryId(const int anime_id) {
+  return -static_cast<int64_t>(anime_id);
+}
+
+void commitListEntry(const ListEntry& entry) {
+  anime::db.updateEntry(entry);
+  if (sync::currentServiceId() != sync::ServiceId::AniList) return;
+  if (taiga::accounts.anilistToken().empty()) return;
+  sync::anilist::Service::instance()->saveListEntry(entry);
+}
+
+}  // namespace
 
 namespace gui {
 
@@ -72,12 +97,23 @@ bool MediaMenu::isInList() const {
 }
 
 bool MediaMenu::isNowPlaying() const {
-  return false;  // @TODO
+  const auto ep = track::media::detection()->getCurrentEpisode();
+  if (!ep || m_items.empty()) return false;
+  return ep->animeId() == m_items.front().id;
 }
 
 void MediaMenu::addToList(const anime::list::Status status) const {
-  QMessageBox::information(nullptr, "TODO",
-                           u"Status: %1"_s.arg(formatListStatus(status)));  // @TODO
+  const auto now = QDateTime::currentSecsSinceEpoch();
+  for (const auto& item : m_items) {
+    anime::db.updateItem(item);
+    ListEntry entry{};
+    entry.id = localListEntryId(item.id);
+    entry.anime_id = item.id;
+    entry.status = status;
+    entry.watched_episodes = 0;
+    entry.last_updated = static_cast<std::time_t>(now);
+    commitListEntry(entry);
+  }
 }
 
 void MediaMenu::editEpisode() const {
@@ -95,20 +131,54 @@ void MediaMenu::editEpisode() const {
   const auto value = QInputDialog::getInt(parentWidget(), tr("Edit Episodes Watched"),
                                           tr("Enter a number:"), initalValue, 0, maxValue, 1, &ok);
   if (!ok) return;
-  QMessageBox::information(nullptr, "TODO", QString::number(value));  // @TODO
+
+  const auto now = static_cast<std::time_t>(QDateTime::currentSecsSinceEpoch());
+  for (const auto& item : m_items) {
+    const auto it = m_entries.find(item.id);
+    if (it == m_entries.end()) continue;
+    ListEntry e = *it;
+    e.watched_episodes = value;
+    e.last_updated = now;
+    commitListEntry(e);
+  }
 }
 
 void MediaMenu::editNotes() const {
+  QString initial;
+  if (m_items.size() == 1) {
+    if (const auto* e = getEntry(m_items.front().id)) {
+      initial = QString::fromStdString(e->notes);
+    }
+  }
+
   bool ok = false;
   const auto notes =
-      QInputDialog::getMultiLineText(parentWidget(), tr("Edit Notes"), tr("Enter notes:"), "", &ok);
+      QInputDialog::getMultiLineText(parentWidget(), tr("Edit Notes"), tr("Enter notes:"), initial,
+                                     &ok);
   if (!ok) return;
-  QMessageBox::information(nullptr, "TODO", notes);  // @TODO
+
+  const auto now = static_cast<std::time_t>(QDateTime::currentSecsSinceEpoch());
+  const auto notes_std = notes.toStdString();
+  for (const auto& item : m_items) {
+    const auto it = m_entries.find(item.id);
+    if (it == m_entries.end()) continue;
+    ListEntry e = *it;
+    e.notes = notes_std;
+    e.last_updated = now;
+    commitListEntry(e);
+  }
 }
 
 void MediaMenu::editStatus(const anime::list::Status status) const {
-  QMessageBox::information(nullptr, "TODO",
-                           u"Status: %1"_s.arg(formatListStatus(status)));  // @TODO
+  const auto now = static_cast<std::time_t>(QDateTime::currentSecsSinceEpoch());
+  for (const auto& item : m_items) {
+    const auto it = m_entries.find(item.id);
+    if (it == m_entries.end()) continue;
+    ListEntry e = *it;
+    e.status = status;
+    e.last_updated = now;
+    commitListEntry(e);
+  }
 }
 
 void MediaMenu::openFolder() const {
@@ -158,7 +228,13 @@ void MediaMenu::removeFromList() const {
   msgBox.exec();
 
   if (msgBox.clickedButton() == reinterpret_cast<QAbstractButton*>(removeButton)) {
-    // @TODO: Add to queue
+    for (const auto& item : m_items) {
+      if (sync::currentServiceId() == sync::ServiceId::AniList) {
+        sync::anilist::Service::instance()->deleteListEntry(item.id);
+      } else {
+        anime::db.deleteEntry(item.id);
+      }
+    }
   }
 }
 
@@ -264,17 +340,87 @@ void MediaMenu::torrents() const {
   mainWindow()->searchBox()->setText(QString::fromStdString(item.titles.romaji));
 }
 
-void MediaMenu::test() const {
-  const auto action = reinterpret_cast<QAction*>(QObject::sender())->text();
-
-  QList<QString> titles;
+void MediaMenu::batchSetScore(const int score) const {
+  const auto now = static_cast<std::time_t>(QDateTime::currentSecsSinceEpoch());
   for (const auto& item : m_items) {
-    titles.push_back(QString::fromStdString(item.titles.romaji));
+    const auto it = m_entries.find(item.id);
+    if (it == m_entries.end()) continue;
+    ListEntry e = *it;
+    e.score = score;
+    e.last_updated = now;
+    commitListEntry(e);
   }
+}
 
-  const auto text = u"Action: %1\n\n%2"_s.arg(action).arg(titles.join("\n"));
+void MediaMenu::clearDateStarted() const {
+  const auto now = static_cast<std::time_t>(QDateTime::currentSecsSinceEpoch());
+  for (const auto& item : m_items) {
+    const auto it = m_entries.find(item.id);
+    if (it == m_entries.end()) continue;
+    ListEntry e = *it;
+    e.date_started = FuzzyDate{};
+    e.last_updated = now;
+    commitListEntry(e);
+  }
+}
 
-  QMessageBox::information(nullptr, "TODO", text);
+void MediaMenu::setDateStartedToAiring() const {
+  const auto now = static_cast<std::time_t>(QDateTime::currentSecsSinceEpoch());
+  for (const auto& item : m_items) {
+    const auto it = m_entries.find(item.id);
+    if (it == m_entries.end()) continue;
+    ListEntry e = *it;
+    e.date_started = item.date_started;
+    e.last_updated = now;
+    commitListEntry(e);
+  }
+}
+
+void MediaMenu::clearDateCompleted() const {
+  const auto now = static_cast<std::time_t>(QDateTime::currentSecsSinceEpoch());
+  for (const auto& item : m_items) {
+    const auto it = m_entries.find(item.id);
+    if (it == m_entries.end()) continue;
+    ListEntry e = *it;
+    e.date_completed = FuzzyDate{};
+    e.last_updated = now;
+    commitListEntry(e);
+  }
+}
+
+void MediaMenu::setDateCompletedToAiring() const {
+  const auto now = static_cast<std::time_t>(QDateTime::currentSecsSinceEpoch());
+  for (const auto& item : m_items) {
+    const auto it = m_entries.find(item.id);
+    if (it == m_entries.end()) continue;
+    ListEntry e = *it;
+    e.date_completed = item.date_finished;
+    e.last_updated = now;
+    commitListEntry(e);
+  }
+}
+
+void MediaMenu::setDateCompletedToLastUpdated() const {
+  const auto now = static_cast<std::time_t>(QDateTime::currentSecsSinceEpoch());
+  for (const auto& item : m_items) {
+    const auto it = m_entries.find(item.id);
+    if (it == m_entries.end()) continue;
+    ListEntry e = *it;
+    if (e.last_updated <= 0) continue;
+    const QDate d = QDateTime::fromSecsSinceEpoch(static_cast<qint64>(e.last_updated)).date();
+    const Date ymd{std::chrono::year{d.year()}, std::chrono::month{static_cast<unsigned>(d.month())},
+                   std::chrono::day{static_cast<unsigned>(d.day())}};
+    e.date_completed = FuzzyDate{ymd};
+    e.last_updated = now;
+    commitListEntry(e);
+  }
+}
+
+void MediaMenu::setAsNowPlaying() const {
+  QMessageBox::information(
+      parentWidget(), tr("Now playing"),
+      tr("Manual selection of the active title is not available in this build. "
+         "Recognition uses the media player automatically."));
 }
 
 void MediaMenu::viewDetails() const {
@@ -355,16 +501,17 @@ void MediaMenu::addListItems() {
 
       menu->addMenu([this]() {
         auto menu = new QMenu(tr("Date started"), this);
-        menu->addAction(tr("Clear"), this, &MediaMenu::test);
-        menu->addAction(tr("Set to date started airing"), this, &MediaMenu::test);
+        menu->addAction(tr("Clear"), this, &MediaMenu::clearDateStarted);
+        menu->addAction(tr("Set to date started airing"), this, &MediaMenu::setDateStartedToAiring);
         return menu;
       }());
 
       menu->addMenu([this]() {
         auto menu = new QMenu(tr("Date completed"), this);
-        menu->addAction(tr("Clear"), this, &MediaMenu::test);
-        menu->addAction(tr("Set to date finished airing"), this, &MediaMenu::test);
-        menu->addAction(tr("Set to last updated"), this, &MediaMenu::test);
+        menu->addAction(tr("Clear"), this, &MediaMenu::clearDateCompleted);
+        menu->addAction(tr("Set to date finished airing"), this,
+                        &MediaMenu::setDateCompletedToAiring);
+        menu->addAction(tr("Set to last updated"), this, &MediaMenu::setDateCompletedToLastUpdated);
         return menu;
       }());
 
@@ -374,7 +521,7 @@ void MediaMenu::addListItems() {
       menu->addMenu([this]() {
         auto menu = new QMenu(tr("Score"), this);
         for (int i = 0; i <= 10; ++i) {
-          menu->addAction(tr("%1").arg(i), this, &MediaMenu::test);
+          menu->addAction(tr("%1").arg(i), this, [this, i]() { batchSetScore(i * 10); });
         }
         return menu;
       }());
@@ -430,8 +577,9 @@ void MediaMenu::addLibraryItems() {
 
     if (total_episodes > 1) {
       // Play random episode
-      menu->addAction(theme.getIcon("shuffle"), tr("Random episode"), this, [this]() {
-        const int number = 3;  // @TODO
+      menu->addAction(theme.getIcon("shuffle"), tr("Random episode"), this, [this, total_episodes]() {
+        const int number =
+            QRandomGenerator::global()->bounded(1, total_episodes + 1);  // [1, total_episodes]
         playEpisode(number);
       });
 
@@ -449,8 +597,6 @@ void MediaMenu::addLibraryItems() {
         return menu;
       }());
     }
-
-    // @TODO: Start new rewatch
 
     return menu;
   }());
@@ -474,7 +620,7 @@ void MediaMenu::addMetaItems() {
   }
 
   if (isNowPlaying() && !isBatch()) {
-    addAction(tr("Set as now playing..."), this, &MediaMenu::test);
+    addAction(tr("Set as now playing..."), this, &MediaMenu::setAsNowPlaying);
   }
 }
 

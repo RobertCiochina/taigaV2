@@ -139,4 +139,8 @@ void SearchWidget::saveState() {
   taiga::session.setSearchListViewMode(m_viewMode);
 }
 
+void SearchWidget::reloadAnimeList() {
+  m_model->reloadFromDatabase();
+}
+
 }  // namespace gui

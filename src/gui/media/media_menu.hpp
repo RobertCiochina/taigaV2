@@ -59,8 +59,15 @@ private slots:
   void searchWikipedia() const;
   void searchYouTube() const;
   void torrents() const;
-  void test() const;  // @TEMP
   void viewDetails() const;
+
+  void batchSetScore(int score) const;
+  void clearDateStarted() const;
+  void setDateStartedToAiring() const;
+  void clearDateCompleted() const;
+  void setDateCompletedToAiring() const;
+  void setDateCompletedToLastUpdated() const;
+  void setAsNowPlaying() const;
 
 private:
   void addMediaItems();

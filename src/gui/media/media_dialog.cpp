@@ -29,7 +29,9 @@
 #include "media/anime_db.hpp"
 #include "media/anime_season.hpp"
 #include "media/anime_utils.hpp"
+#include "sync/anilist.hpp"
 #include "sync/service.hpp"
+#include "taiga/accounts.hpp"
 #include "taiga/session.hpp"
 #include "ui_media_dialog.h"
 
@@ -352,8 +354,11 @@ void MediaDialog::accept() {
   m_entry->notes = ui_->plainTextEditNotes->toPlainText().toStdString();
   m_entry->last_updated = QDateTime::currentSecsSinceEpoch();
 
-  // @TODO: Add to queue instead
   anime::db.updateEntry(*m_entry);
+  if (sync::currentServiceId() == sync::ServiceId::AniList &&
+      !taiga::accounts.anilistToken().empty()) {
+    sync::anilist::Service::instance()->saveListEntry(*m_entry);
+  }
 
   QDialog::accept();
 }

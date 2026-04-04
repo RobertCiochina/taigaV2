@@ -43,6 +43,8 @@ public:
 
   void saveState();
 
+  void reloadAnimeList();
+
 private:
   void initToolbar();
   void initSortMenu();

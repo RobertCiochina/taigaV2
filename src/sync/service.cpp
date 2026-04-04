@@ -18,6 +18,8 @@
 
 #include "service.hpp"
 
+#include <functional>
+
 #include <QMap>
 
 #include "sync/anilist.hpp"
@@ -77,6 +79,25 @@ void fetchAnime(const int id) {
       break;
     case ServiceId::AniList:
       anilist::Service::instance()->fetchAnime(id);
+      break;
+  }
+}
+
+void fetchListEntries(std::function<void(bool ok, QString message)> on_complete) {
+  switch (currentServiceId()) {
+    case ServiceId::MyAnimeList:
+    case ServiceId::Kitsu:
+      if (on_complete) {
+        on_complete(false, QStringLiteral("List sync is not implemented for this service yet."));
+      }
+      break;
+    case ServiceId::AniList:
+      anilist::Service::instance()->fetchListEntries(std::move(on_complete));
+      break;
+    case ServiceId::Unknown:
+      if (on_complete) {
+        on_complete(false, QStringLiteral("No sync service is configured."));
+      }
       break;
   }
 }

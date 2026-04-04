@@ -18,8 +18,16 @@
 
 #include "settings_dialog.hpp"
 
+#include <QDesktopServices>
+#include <QPushButton>
+#include <QUrl>
+
 #include "base/string.hpp"
 #include "gui/utils/theme.hpp"
+#include "sync/anilist_utils.hpp"
+#include "sync/service.hpp"
+#include "taiga/accounts.hpp"
+#include "taiga/settings.hpp"
 #include "ui_settings_dialog.h"
 
 #ifdef Q_OS_WINDOWS
@@ -85,6 +93,29 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
               ui_->titleLabel->setText(text);
             }
           });
+
+  {
+    const QString svc = sync::serviceName(sync::currentServiceId());
+    const QString user =
+        QString::fromStdString(taiga::accounts.serviceUsername(taiga::settings.service()));
+    const bool has_anilist_token = !taiga::accounts.anilistToken().empty();
+    ui_->accountsInfoLabel->setTextFormat(Qt::RichText);
+    ui_->accountsInfoLabel->setText(
+        tr("<p><b>Active service:</b> %1<br/>"
+           "<b>Username:</b> %2<br/>"
+           "<b>AniList token:</b> %3</p>"
+           "<p>For AniList, use <i>Open AniList authorization…</i> in the browser, then ensure your "
+           "token is saved (e.g. via migration from Taiga v1 or manual <code>accounts.json</code>).</p>")
+            .arg(svc.toHtmlEscaped())
+            .arg(user.isEmpty() ? tr("(not set)").toHtmlEscaped() : user.toHtmlEscaped())
+            .arg(has_anilist_token ? tr("Present").toHtmlEscaped() : tr("Missing").toHtmlEscaped()));
+
+    auto* auth_btn = new QPushButton(tr("Open AniList authorization…"), ui_->accountsPage);
+    connect(auth_btn, &QPushButton::clicked, this, []() {
+      QDesktopServices::openUrl(QUrl(QString::fromStdString(sync::anilist::requestTokenUrl())));
+    });
+    ui_->verticalLayout_3->addWidget(auth_btn);
+  }
 }
 
 void SettingsDialog::show(QWidget* parent) {

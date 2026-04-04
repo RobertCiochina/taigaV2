@@ -18,9 +18,16 @@
 
 #pragma once
 
+#include <functional>
+
+#include <QString>
+
+#include "media/anime_list.hpp"
 #include "sync/service.hpp"
 
 namespace sync::anilist {
+
+using ListFetchComplete = std::function<void(bool ok, QString message)>;
 
 class Service final : public sync::Service {
 public:
@@ -31,10 +38,11 @@ public:
   void authenticateUser();
   void fetchAnime(const int id);
   void search(const QString& query);
-  void fetchListEntries();
-  void addListEntry();
-  void deleteListEntry(const int id);
-  void updateListEntry();
+  void fetchListEntries(ListFetchComplete on_complete = {});
+  /// Saves list entry to AniList; updates local DB from the response (resolves temporary negative ids).
+  void saveListEntry(const ListEntry& entry);
+  /// Removes by anime id; deletes locally when offline, local-only entry, or non-AniList service.
+  void deleteListEntry(int anime_id);
 
 private:
   QString gql(const QString& name) const;

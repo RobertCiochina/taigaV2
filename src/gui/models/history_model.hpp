@@ -35,6 +35,9 @@ public:
     NUM_COLUMNS,
   };
 
+  /// Anime id for the row (for context menus).
+  static constexpr int AnimeIdRole = Qt::UserRole;
+
   HistoryModel(QObject* parent);
   ~HistoryModel() = default;
 

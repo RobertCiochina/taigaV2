@@ -20,7 +20,16 @@
 
 #include <QDesktopServices>
 #include <QFileDialog>
+#include <QFont>
+#include <QLabel>
+#include <QMetaObject>
+#include <QPointer>
+#include <QPushButton>
+#include <QUrl>
+#include <QVBoxLayout>
 #include <QtWidgets>
+
+#include <ranges>
 
 #include "base/string.hpp"
 #include "gui/history/history_widget.hpp"
@@ -30,13 +39,18 @@
 #include "gui/main/navigation_widget.hpp"
 #include "gui/main/now_playing_widget.hpp"
 #include "gui/search/search_widget.hpp"
+#include "gui/list/list_widget.hpp"
+#include "gui/search/search_widget.hpp"
 #include "gui/settings/settings_dialog.hpp"
 #include "gui/utils/theme.hpp"
 #include "gui/utils/tray_icon.hpp"
 #include "gui/utils/widgets.hpp"
 #include "sync/service.hpp"
+#include "media/anime_db.hpp"
+#include "taiga/accounts.hpp"
 #include "taiga/application.hpp"
 #include "taiga/session.hpp"
+#include "taiga/settings.hpp"
 #include "ui_main_window.h"
 
 #ifdef Q_OS_WINDOWS
@@ -109,16 +123,16 @@ void MainWindow::initActions() {
   connect(ui_->actionDisplayWindow, &QAction::triggered, this, &MainWindow::displayWindow);
 
   connect(ui_->actionSynchronize, &QAction::triggered, this, [this]() {
-    setEnabled(false);
+    QPointer<MainWindow> guard(this);
     statusBar()->showMessage(
         tr("Synchronizing with %1...").arg(sync::serviceName(sync::currentServiceId())));
-    QEventLoop loop;
-    QTimer::singleShot(3000, &loop, [this, &loop]() {
-      setEnabled(true);
-      statusBar()->clearMessage();
-      loop.quit();
+    ui_->actionSynchronize->setEnabled(false);
+
+    sync::fetchListEntries([guard](const bool ok, const QString& message) {
+      if (!guard) return;
+      QMetaObject::invokeMethod(guard.data(), "handleListSyncFinished", Qt::QueuedConnection,
+                                Q_ARG(bool, ok), Q_ARG(QString, message));
     });
-    loop.exec();
   });
 }
 
@@ -174,8 +188,38 @@ void MainWindow::initPage(MainWindowPage page) {
   };
 
   switch (page) {
-    case MainWindowPage::Home:
+    case MainWindowPage::Home: {
+      if (auto* l = qobject_cast<QVBoxLayout*>(ui_->homePage->layout())) {
+        while (l->count()) {
+          QLayoutItem* it = l->takeAt(0);
+          if (it->widget()) delete it->widget();
+          delete it;
+        }
+        auto* title = new QLabel(tr("Taiga"), ui_->homePage);
+        QFont tf = title->font();
+        tf.setBold(true);
+        tf.setPointSizeF(tf.pointSizeF() + 6);
+        title->setFont(tf);
+        title->setAlignment(Qt::AlignHCenter);
+        auto* body = new QLabel(
+            tr("<p style=\"margin-top:0.5em\">You have <b>%1</b> titles on your list and <b>%2</b> "
+               "anime in the local database.</p>"
+               "<p>Use the sidebar for <b>Anime list</b>, <b>Search</b>, <b>History</b>, and "
+               "<b>Library</b>.</p>"
+               "<p>Toolbar <b>Synchronize</b> downloads your list from the active site (AniList is "
+               "supported).</p>")
+                .arg(anime::db.entries().size())
+                .arg(anime::db.items().size()),
+            ui_->homePage);
+        body->setWordWrap(true);
+        body->setAlignment(Qt::AlignTop | Qt::AlignHCenter);
+        l->addStretch(1);
+        l->addWidget(title);
+        l->addWidget(body);
+        l->addStretch(2);
+      }
       break;
+    }
 
     case MainWindowPage::Search:
       m_searchWidget = new SearchWidget(ui_->searchPage);
@@ -197,11 +241,84 @@ void MainWindow::initPage(MainWindowPage page) {
       init_page(ui_->libraryPage, m_libraryWidget);
       break;
 
-    case MainWindowPage::Torrents:
+    case MainWindowPage::Torrents: {
+      if (auto* l = qobject_cast<QVBoxLayout*>(ui_->torrentsPage->layout())) {
+        while (l->count()) {
+          QLayoutItem* it = l->takeAt(0);
+          if (it->widget()) delete it->widget();
+          delete it;
+        }
+        auto* title = new QLabel(tr("Torrents"), ui_->torrentsPage);
+        QFont tf = title->font();
+        tf.setBold(true);
+        tf.setPointSizeF(tf.pointSizeF() + 4);
+        title->setFont(tf);
+        title->setAlignment(Qt::AlignHCenter);
+        auto* body = new QLabel(
+            tr("<p>RSS feeds and automatic downloads are not available in this build.</p>"
+               "<p>You can open this page from a title’s context menu; the toolbar search box still "
+               "works for manual lookups.</p>"),
+            ui_->torrentsPage);
+        body->setWordWrap(true);
+        body->setAlignment(Qt::AlignTop | Qt::AlignHCenter);
+        l->addStretch(1);
+        l->addWidget(title);
+        l->addWidget(body);
+        l->addStretch(2);
+      }
       break;
+    }
 
-    case MainWindowPage::Profile:
+    case MainWindowPage::Profile: {
+      if (auto* l = qobject_cast<QVBoxLayout*>(ui_->profilePage->layout())) {
+        while (l->count()) {
+          QLayoutItem* it = l->takeAt(0);
+          if (it->widget()) delete it->widget();
+          delete it;
+        }
+        const QString user = QString::fromStdString(
+            taiga::accounts.serviceUsername(taiga::settings.service()));
+        auto* title = new QLabel(tr("Profile"), ui_->profilePage);
+        QFont tf = title->font();
+        tf.setBold(true);
+        tf.setPointSizeF(tf.pointSizeF() + 4);
+        title->setFont(tf);
+        title->setAlignment(Qt::AlignHCenter);
+        auto* info = new QLabel(
+            tr("<p><b>Service:</b> %1<br/><b>Username:</b> %2</p>")
+                .arg(sync::serviceName(sync::currentServiceId()).toHtmlEscaped())
+                .arg(user.isEmpty() ? tr("(not set)").toHtmlEscaped() : user.toHtmlEscaped()),
+            ui_->profilePage);
+        info->setWordWrap(true);
+        info->setAlignment(Qt::AlignTop | Qt::AlignHCenter);
+        info->setTextFormat(Qt::RichText);
+        auto* btn = new QPushButton(tr("Open web profile"), ui_->profilePage);
+        connect(btn, &QPushButton::clicked, [user]() {
+          if (user.isEmpty()) return;
+          QUrl url;
+          switch (sync::currentServiceId()) {
+            case sync::ServiceId::AniList:
+              url = QUrl(u"https://anilist.co/user/%1"_s.arg(user));
+              break;
+            case sync::ServiceId::MyAnimeList:
+              url = QUrl(u"https://myanimelist.net/profile/%1"_s.arg(user));
+              break;
+            case sync::ServiceId::Kitsu:
+              url = QUrl(u"https://kitsu.app/users/%1"_s.arg(user));
+              break;
+            default:
+              return;
+          }
+          QDesktopServices::openUrl(url);
+        });
+        l->addStretch(1);
+        l->addWidget(title);
+        l->addWidget(info);
+        l->addWidget(btn, 0, Qt::AlignHCenter);
+        l->addStretch(2);
+      }
       break;
+    }
   }
 
   initializedPages.insert(page);
@@ -282,9 +399,14 @@ void MainWindow::addNewFolder() {
 
   const auto directory = QFileDialog::getExistingDirectory(this, tr("Add New Folder"), "", options);
 
-  if (!directory.isEmpty()) {
-    QMessageBox::information(this, "New Folder", directory);
-  }
+  if (directory.isEmpty()) return;
+
+  auto folders = taiga::settings.libraryFolders();
+  const auto path = directory.toStdString();
+  if (std::ranges::find(folders, path) != folders.end()) return;
+
+  folders.push_back(path);
+  taiga::settings.setLibraryFolders(std::move(folders));
 }
 
 void MainWindow::navigateTo(MainWindowPage page) {
@@ -329,6 +451,17 @@ void MainWindow::support() const {
 void MainWindow::profile() {
   setPage(MainWindowPage::Profile);
   m_navigationWidget->setCurrentIndex({});
+}
+
+void MainWindow::handleListSyncFinished(bool ok, QString message) {
+  ui_->actionSynchronize->setEnabled(true);
+  if (ok) {
+    if (m_listWidget) m_listWidget->reloadAnimeList();
+    if (m_searchWidget) m_searchWidget->reloadAnimeList();
+    statusBar()->showMessage(message.isEmpty() ? tr("Synchronized.") : message, 5000);
+  } else {
+    statusBar()->showMessage(tr("Synchronization failed: %1").arg(message), 8000);
+  }
 }
 
 }  // namespace gui

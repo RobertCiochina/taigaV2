@@ -141,38 +141,176 @@ void Service::search(const QString& query) {
   manager_.post(api_.createRequest(), data, this, callback);
 }
 
-void Service::fetchListEntries() {
-  // @TODO
-}
+void Service::fetchListEntries(ListFetchComplete on_complete) {
+  const auto finish = [on_complete](const bool ok, QString message) {
+    if (on_complete) on_complete(ok, std::move(message));
+  };
 
-void Service::addListEntry() {
-  updateListEntry();
-}
+  const auto user = QString::fromStdString(taiga::accounts.anilistUsername());
+  if (user.isEmpty()) {
+    finish(false, QStringLiteral("AniList username is missing; sign in first."));
+    return;
+  }
+  if (taiga::accounts.anilistToken().empty()) {
+    finish(false, QStringLiteral("AniList access token is missing."));
+    return;
+  }
 
-void Service::deleteListEntry(const int id) {
-  const auto listEntry = anime::db.entry(id);
-
-  if (!listEntry) return;
-
-  const QJsonDocument data{{
-      {"query", gql("DeleteMediaListEntry")},
-      {"variables", QJsonObject{{"id", listEntry->id}}},
+  const QJsonDocument data{QJsonObject{
+      {"query", gql("MediaListCollection")},
+      {"variables", QJsonObject{{"userName", user}}},
   }};
 
-  const auto callback = [this](QRestReply& reply) {
-    if (isError(reply) && reply.httpStatus() != 404) {
+  const auto callback = [this, finish](QRestReply& reply) {
+    if (isError(reply)) {
       handleError(reply);
+      finish(false, reply.errorString().isEmpty() ? QStringLiteral("Network error") : reply.errorString());
       return;
     }
 
-    // @TODO: anime::db.deleteEntry(id);
+    const auto doc = reply.readJson();
+    if (!doc.has_value()) {
+      finish(false, QStringLiteral("Empty response."));
+      return;
+    }
+
+    const auto root = doc->object();
+    if (const auto errors = root["errors"]; errors.isArray() && !errors.toArray().isEmpty()) {
+      const auto msg = errors.toArray().first().toObject()["message"].toString();
+      handleError(reply, msg);
+      finish(false, msg);
+      return;
+    }
+
+    const auto collection = root["data"].toObject()["MediaListCollection"].toObject();
+    const auto lists = collection["lists"].toArray();
+    int count = 0;
+    for (const auto& listVal : lists) {
+      const auto entries = listVal.toObject()["entries"].toArray();
+      for (const auto& entryVal : entries) {
+        const auto entryObj = entryVal.toObject();
+        if (entryObj.isEmpty()) continue;
+
+        const auto media = entryObj["media"].toObject();
+        if (!media.isEmpty()) {
+          if (const auto item = parseMedia(QJsonValue(media))) {
+            anime::db.updateItem(*item);
+          }
+        }
+
+        if (const auto parsed = parseMediaListEntry(entryObj, 0)) {
+          anime::db.updateEntry(*parsed);
+          ++count;
+        }
+      }
+    }
+
+    finish(true, QStringLiteral("%1 entries updated").arg(count));
   };
 
   manager_.post(api_.createRequest(), data, this, callback);
 }
 
-void Service::updateListEntry() {
-  // @TODO
+void Service::saveListEntry(const ListEntry& entry) {
+  if (taiga::accounts.anilistToken().empty()) return;
+
+  QJsonObject variables;
+  if (entry.id > 0) {
+    variables["id"] = static_cast<int>(entry.id);
+  }
+  variables["mediaId"] = entry.anime_id;
+  variables["status"] = fromListStatus(entry.status);
+  variables["scoreRaw"] = entry.score;
+  variables["progress"] = entry.watched_episodes;
+  variables["repeat"] = entry.rewatched_times;
+  variables["private"] = entry.is_private;
+  variables["notes"] = QString::fromStdString(entry.notes);
+
+  if (static_cast<bool>(entry.date_started)) {
+    variables["startedAt"] = fromFuzzyDate(entry.date_started);
+  } else {
+    variables["startedAt"] = QJsonValue{};
+  }
+  if (static_cast<bool>(entry.date_completed)) {
+    variables["completedAt"] = fromFuzzyDate(entry.date_completed);
+  } else {
+    variables["completedAt"] = QJsonValue{};
+  }
+
+  const QJsonDocument data{QJsonObject{
+      {"query", gql("SaveMediaListEntry")},
+      {"variables", variables},
+  }};
+
+  const auto callback = [this, anime_id = entry.anime_id](QRestReply& reply) {
+    if (isError(reply)) {
+      handleError(reply);
+      return;
+    }
+
+    const auto doc = reply.readJson();
+    if (!doc.has_value()) {
+      handleError(reply, "Empty response.");
+      return;
+    }
+
+    const auto root = doc->object();
+    if (const auto errors = root["errors"]; errors.isArray() && !errors.toArray().isEmpty()) {
+      const auto msg = errors.toArray().first().toObject()["message"].toString();
+      handleError(reply, msg);
+      return;
+    }
+
+    const auto saved = root["data"].toObject()["SaveMediaListEntry"].toObject();
+    if (saved.isEmpty()) {
+      handleError(reply, "SaveMediaListEntry returned no data.");
+      return;
+    }
+
+    const auto parsed = parseMediaListEntry(saved, anime_id);
+    if (!parsed) {
+      handleError(reply, "Could not parse list entry.");
+      return;
+    }
+
+    anime::db.updateEntry(*parsed);
+
+    const auto media = saved["media"].toObject();
+    if (!media.isEmpty()) {
+      if (const auto item = parseMedia(QJsonValue(media))) {
+        anime::db.updateItem(*item);
+      }
+    }
+  };
+
+  manager_.post(api_.createRequest(), data, this, callback);
+}
+
+void Service::deleteListEntry(const int anime_id) {
+  const auto listEntry = anime::db.entry(anime_id);
+
+  if (!listEntry) return;
+
+  if (taiga::accounts.anilistToken().empty() || listEntry->id <= 0) {
+    anime::db.deleteEntry(anime_id);
+    return;
+  }
+
+  const QJsonDocument data{{
+      {"query", gql("DeleteMediaListEntry")},
+      {"variables", QJsonObject{{"id", static_cast<int>(listEntry->id)}}},
+  }};
+
+  const auto callback = [this, anime_id](QRestReply& reply) {
+    if (isError(reply) && reply.httpStatus() != 404) {
+      handleError(reply);
+      return;
+    }
+
+    anime::db.deleteEntry(anime_id);
+  };
+
+  manager_.post(api_.createRequest(), data, this, callback);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

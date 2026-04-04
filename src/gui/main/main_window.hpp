@@ -64,6 +64,7 @@ public:
 public slots:
   void addNewFolder();
   void displayWindow();
+  void handleListSyncFinished(bool ok, QString message);
   void navigateTo(MainWindowPage page);
   void updateTitle();
 

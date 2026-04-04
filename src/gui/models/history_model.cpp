@@ -68,6 +68,9 @@ QVariant HistoryModel::data(const QModelIndex& index, int role) const {
       }
       break;
     }
+
+    case AnimeIdRole:
+      return anime::history.items().at(index.row()).anime_id;
   }
 
   return {};

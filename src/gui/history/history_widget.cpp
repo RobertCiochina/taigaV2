@@ -21,9 +21,14 @@
 #include <QDesktopServices>
 #include <QHeaderView>
 #include <QLayout>
+#include <QLineEdit>
+#include <QMenu>
 #include <QUrl>
 
 #include "gui/main/main_window.hpp"
+#include "gui/media/media_dialog.hpp"
+#include "media/anime_db.hpp"
+#include "media/anime_list.hpp"
 #include "gui/models/history_model.hpp"
 #include "gui/utils/theme.hpp"
 #include "taiga/settings.hpp"
@@ -62,7 +67,24 @@ void HistoryWidget::showContextMenu() const {
 
   if (!index.isValid()) return;
 
-  // @TODO
+  const int anime_id = index.data(HistoryModel::AnimeIdRole).toInt();
+  if (anime_id <= 0) return;
+
+  QMenu menu;
+  menu.addAction(tr("View details..."), [anime_id]() {
+    const auto* item = anime::db.item(anime_id);
+    if (!item) return;
+    const auto* entry = anime::db.entry(anime_id);
+    MediaDialog::show(mainWindow(), MediaDialogPage::Details, *item,
+                      entry ? std::optional<ListEntry>{*entry} : std::nullopt);
+  });
+  menu.addAction(tr("Go to anime list"), [anime_id]() {
+    mainWindow()->navigateTo(MainWindowPage::List);
+    if (const auto* item = anime::db.item(anime_id)) {
+      mainWindow()->searchBox()->setText(QString::fromStdString(item->titles.romaji));
+    }
+  });
+  menu.exec(QCursor::pos());
 }
 
 }  // namespace gui

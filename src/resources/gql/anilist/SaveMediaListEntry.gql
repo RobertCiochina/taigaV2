@@ -5,6 +5,7 @@ mutation (
     $scoreRaw: Int,
     $progress: Int,
     $repeat: Int,
+    $private: Boolean,
     $notes: String,
     $startedAt: FuzzyDateInput,
     $completedAt: FuzzyDateInput) {
@@ -15,12 +16,45 @@ mutation (
       scoreRaw: $scoreRaw,
       progress: $progress,
       repeat: $repeat,
+      private: $private,
       notes: $notes,
       startedAt: $startedAt,
       completedAt: $completedAt) {
-    {mediaListFields}
+    id
+    status
+    score(format: POINT_100)
+    progress
+    repeat
+    private
+    notes
+    startedAt { year month day }
+    completedAt { year month day }
+    updatedAt
     media {
-      {mediaFields}
+      id
+      title {
+        romaji(stylised: true)
+        english(stylised: true)
+        native(stylised: true)
+      }
+      format
+      status
+      description
+      startDate { year month day }
+      endDate { year month day }
+      episodes
+      duration
+      countryOfOrigin
+      trailer { id site }
+      updatedAt
+      coverImage { extraLarge }
+      genres
+      synonyms
+      averageScore
+      popularity
+      tags { name isMediaSpoiler }
+      studios { edges { isMain node { name } } }
+      nextAiringEpisode { airingAt episode }
     }
   }
 }

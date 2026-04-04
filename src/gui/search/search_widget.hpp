@@ -38,6 +38,8 @@ public:
 
   void saveState();
 
+  void reloadAnimeList();
+
 private:
   AnimeListModel* m_model = nullptr;
   AnimeListProxyModel* m_proxyModel = nullptr;

@@ -18,6 +18,8 @@
 
 #pragma once
 
+#include <functional>
+
 #include <QNetworkRequestFactory>
 #include <QRestAccessManager>
 #include <QString>
@@ -52,6 +54,9 @@ QString serviceName(const ServiceId serviceId);
 QString serviceSlug(const ServiceId serviceId);
 
 void fetchAnime(const int id);
+/// Downloads remote anime list when supported (AniList). Invokes on_complete on the thread
+/// that receives the HTTP reply (Qt main thread with default QNetworkAccessManager).
+void fetchListEntries(std::function<void(bool ok, QString message)> on_complete = {});
 
 QString animePageUrl(const int id);
 

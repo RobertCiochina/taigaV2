@@ -35,10 +35,13 @@
 namespace sync::anilist {
 
 FuzzyDate parseFuzzyDate(const QJsonValue& json) {
+  if (json.isNull() || !json.isObject()) return FuzzyDate{};
+  const auto o = json.toObject();
+  if (o["year"].isNull() && o["month"].isNull() && o["day"].isNull()) return FuzzyDate{};
   return FuzzyDate{
-      std::chrono::year{json["year"].toInt()},
-      std::chrono::month{json["month"].toVariant().toUInt()},
-      std::chrono::day{json["day"].toVariant().toUInt()},
+      std::chrono::year{o["year"].toInt()},
+      std::chrono::month{o["month"].toVariant().toUInt()},
+      std::chrono::day{o["day"].toVariant().toUInt()},
   };
 }
 
@@ -157,6 +160,30 @@ std::optional<Anime> parseMedia(const QJsonValue& json) {
   // @TODO: Parse `nextAiringEpisode`
 
   return item;
+}
+
+std::optional<ListEntry> parseMediaListEntry(const QJsonObject& json, const int media_id_fallback) {
+  if (json.isEmpty()) return std::nullopt;
+
+  ListEntry e{};
+  e.id = json["id"].toVariant().toLongLong();
+  e.watched_episodes = json["progress"].toInt();
+  e.score = json["score"].toInt();
+  e.status = parseListStatus(json["status"].toString());
+  e.is_private = json["private"].toBool();
+  e.rewatched_times = json["repeat"].toInt();
+  e.notes = json["notes"].toString().toStdString();
+  e.date_started = parseFuzzyDate(json["startedAt"]);
+  e.date_completed = parseFuzzyDate(json["completedAt"]);
+  e.last_updated = static_cast<std::time_t>(json["updatedAt"].toInt());
+
+  const auto media = json["media"].toObject();
+  e.anime_id = media["id"].toInt();
+  if (e.anime_id == 0 && media_id_fallback != 0) {
+    e.anime_id = media_id_fallback;
+  }
+
+  return e;
 }
 
 }  // namespace sync::anilist

@@ -208,4 +208,8 @@ void ListWidget::initMoreMenu() {
                         [this]() { export_as(this, "xml", &anime::list::exportAsXml); });
 }
 
+void ListWidget::reloadAnimeList() {
+  m_model->reloadFromDatabase();
+}
+
 }  // namespace gui
