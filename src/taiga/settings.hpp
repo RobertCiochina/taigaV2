@@ -39,10 +39,12 @@ public:
   std::string proxyUsername() const;
   std::string proxyPassword() const;
 
-  /// When true, fetches the remote anime list once after the main window is shown (Taiga v1 behavior).
+  /// When true, fetches the remote anime list once after the main window is shown (Taiga v1
+  /// behavior).
   bool syncAutoOnStart() const;
 
-  /// When true, synchronizes after the window regains focus if idle for at least syncOnWindowFocusMinutes().
+  /// When true, synchronizes after the window regains focus if idle for at least
+  /// syncOnWindowFocusMinutes().
   bool syncOnWindowFocus() const;
   int syncOnWindowFocusMinutes() const;
 

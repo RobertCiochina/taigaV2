@@ -24,6 +24,8 @@ namespace Ui {
 class SettingsDialog;
 }
 
+class QLineEdit;
+
 namespace gui {
 
 class SettingsDialog final : public QDialog {
@@ -35,12 +37,23 @@ public:
   ~SettingsDialog() = default;
 
   static void show(QWidget* parent);
+  /// Opens Settings with the Accounts page selected (sign-in, MAL/Kitsu fields).
+  static void showAccounts(QWidget* parent);
 
 protected:
   void accept() override;
 
 private:
+  void selectStackPageByRole(int stack_index);
+
   Ui::SettingsDialog* ui_ = nullptr;
+
+  QLineEdit* m_kitsu_email_ = nullptr;
+  QLineEdit* m_kitsu_username_ = nullptr;
+  QLineEdit* m_kitsu_password_ = nullptr;
+  QLineEdit* m_mal_username_ = nullptr;
+  QLineEdit* m_mal_access_ = nullptr;
+  QLineEdit* m_mal_refresh_ = nullptr;
 };
 
 }  // namespace gui

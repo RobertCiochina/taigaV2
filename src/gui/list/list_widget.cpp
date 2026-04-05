@@ -39,6 +39,7 @@
 #include "gui/utils/theme.hpp"
 #include "media/anime_list_export.hpp"
 #include "taiga/session.hpp"
+#include "taiga/user_feedback.hpp"
 
 namespace gui {
 
@@ -191,6 +192,10 @@ void ListWidget::initViewMenu() {
 void ListWidget::initMoreMenu() {
   m_moreMenu->clear();
 
+  m_moreMenu->addAction(tr("Synchronize list from service…"), mainWindow(),
+                        &MainWindow::startListSynchronization);
+  m_moreMenu->addSeparator();
+
   constexpr auto export_as = [](QWidget* parent, const QString& extension, auto export_function) {
     const auto directory = QFileDialog::getExistingDirectory(
         parent, tr("Select Export Location"), {},
@@ -200,7 +205,11 @@ void ListWidget::initMoreMenu() {
 
     const auto timestamp = QDateTime::currentDateTime().toSecsSinceEpoch();
     const auto path = u"{}/animelist_{}.{}"_s.arg(directory).arg(timestamp).arg(extension);
-    export_function(path.toStdString());
+    if (export_function(path.toStdString())) {
+      taiga::userFeedback(tr("Exported list to %1").arg(path), false);
+    } else {
+      taiga::userFeedback(tr("Could not write the export file."), true);
+    }
   };
 
   m_moreMenu->addAction(tr("Export as Markdown..."), this,
@@ -212,6 +221,10 @@ void ListWidget::initMoreMenu() {
 
 void ListWidget::reloadAnimeList() {
   m_model->reloadFromDatabase();
+}
+
+void ListWidget::applyToolbarTextFilter(const QString& text) {
+  m_proxyModel->setTextFilter(text);
 }
 
 std::optional<int> ListWidget::selectedAnimeId() const {

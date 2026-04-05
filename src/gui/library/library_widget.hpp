@@ -18,8 +18,8 @@
 
 #pragma once
 
-#include <optional>
 #include <QTreeView>
+#include <optional>
 
 #include "gui/common/combobox.hpp"
 #include "gui/common/page_widget.hpp"
@@ -38,6 +38,9 @@ public:
 
   /// Recognized anime id for the current file selection, if any.
   std::optional<int> selectedRecognizedAnimeId() const;
+
+  /// Reload root paths after settings change (e.g. Library folders dialog).
+  void refreshRootsFromSettings();
 
 private:
   void showContextMenu() const;

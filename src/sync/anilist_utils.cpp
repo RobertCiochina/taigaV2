@@ -20,6 +20,7 @@
 
 #include <QJsonObject>
 #include <QString>
+#include <QStringView>
 #include <QUrl>
 #include <QUrlQuery>
 
@@ -82,6 +83,82 @@ std::string requestTokenUrl() {
       {"response_type", "token"},
   });
   return url.toString().toStdString();
+}
+
+namespace {
+
+QString extractAccessTokenFromAmpersandPairs(QStringView fragment_or_query) {
+  const QString str = fragment_or_query.toString();
+  for (const QString& part : str.split(u'&', Qt::SkipEmptyParts)) {
+    const int eq = part.indexOf(u'=');
+    if (eq <= 0) continue;
+    const QString key = part.left(eq).trimmed();
+    if (key.compare(u"access_token", Qt::CaseInsensitive) != 0) continue;
+    QString val = part.mid(eq + 1).trimmed();
+    const int amp = val.indexOf(u'&');
+    if (amp >= 0) val = val.left(amp);
+    val = QUrl::fromPercentEncoding(val.toUtf8());
+    if (!val.isEmpty()) return val;
+  }
+  return {};
+}
+
+}  // namespace
+
+std::optional<std::string> extractAnilistAccessToken(const QString& raw) {
+  const QString trimmed = raw.trimmed();
+  if (trimmed.isEmpty()) return std::nullopt;
+
+  const auto try_jwt = [](const QString& s) -> std::optional<std::string> {
+    if (s.contains(u' ') || s.contains(u'\n') || s.contains(u'\t')) return std::nullopt;
+    if (s.count(u'.') != 2) return std::nullopt;
+    if (s.size() < 32) return std::nullopt;
+    return s.toStdString();
+  };
+
+  for (QString line : trimmed.split(u'\n', Qt::SkipEmptyParts)) {
+    line = line.trimmed();
+    if (line.isEmpty()) continue;
+
+    const int hash = line.indexOf(u'#');
+    if (hash >= 0) {
+      if (const QString t = extractAccessTokenFromAmpersandPairs(QStringView{line}.mid(hash + 1));
+          !t.isEmpty()) {
+        return t.toStdString();
+      }
+    }
+
+    if (line.contains(u"access_token=", Qt::CaseInsensitive)) {
+      int pos = line.indexOf(u"access_token=", 0, Qt::CaseInsensitive);
+      pos += QStringLiteral("access_token=").size();
+      QString rest = line.mid(pos);
+      const int amp = rest.indexOf(u'&');
+      if (amp >= 0) rest = rest.left(amp);
+      rest = QUrl::fromPercentEncoding(rest.trimmed().toUtf8());
+      if (!rest.isEmpty()) return rest.toStdString();
+    }
+
+    {
+      const QUrl u = QUrl::fromUserInput(line);
+      if (u.isValid() && !u.fragment().isEmpty()) {
+        if (const QString t = extractAccessTokenFromAmpersandPairs(u.fragment()); !t.isEmpty()) {
+          return t.toStdString();
+        }
+      }
+      const QString q = u.query(QUrl::FullyDecoded);
+      if (!q.isEmpty()) {
+        if (const QString t = extractAccessTokenFromAmpersandPairs(q); !t.isEmpty()) {
+          return t.toStdString();
+        }
+      }
+    }
+
+    if (const auto j = try_jwt(line)) return j;
+  }
+
+  if (const auto j = try_jwt(trimmed)) return j;
+
+  return std::nullopt;
 }
 
 }  // namespace sync::anilist

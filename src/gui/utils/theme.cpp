@@ -50,6 +50,13 @@ void Theme::initStyle() {
 
 #ifdef Q_OS_WINDOWS
   qApp->setStyle("fusion");
+  refreshFromSettings();
+#endif
+}
+
+void Theme::refreshFromSettings() {
+  qApp->styleHints()->setColorScheme(taiga::settings.appColorScheme());
+#ifdef Q_OS_WINDOWS
   const QString mainStylesheet = readStylesheet("main");
   const QString themeStylesheet = readStylesheet(isDark() ? "dark" : "light");
   qApp->setStyleSheet(mainStylesheet + themeStylesheet);

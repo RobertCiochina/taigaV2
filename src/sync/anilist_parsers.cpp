@@ -18,6 +18,8 @@
 
 #include "anilist_parsers.hpp"
 
+#include <cmath>
+
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -54,6 +56,7 @@ anime::list::Status parseListStatus(const QString& value) {
       {"COMPLETED", Status::Completed},
       {"DROPPED",   Status::Dropped},
       {"PAUSED",    Status::OnHold},
+      {"REPEATING", Status::Watching},
   };
   // clang-format on
   return table.value(value, Status::NotInList);
@@ -178,8 +181,15 @@ std::optional<ListEntry> parseMediaListEntry(const QJsonObject& json, const int 
   ListEntry e{};
   e.id = json["id"].toVariant().toLongLong();
   e.watched_episodes = json["progress"].toInt();
-  e.score = json["score"].toInt();
-  e.status = parseListStatus(json["status"].toString());
+  e.score = static_cast<int>(std::lround(json["score"].toDouble()));
+  const QString status_str = json["status"].toString();
+  if (status_str == QStringLiteral("REPEATING")) {
+    e.status = anime::list::Status::Watching;
+    e.rewatching = true;
+  } else {
+    e.status = parseListStatus(status_str);
+    e.rewatching = false;
+  }
   e.is_private = json["private"].toBool();
   e.rewatched_times = json["repeat"].toInt();
   e.notes = json["notes"].toString().toStdString();

@@ -39,6 +39,8 @@ target_sources(taiga-gui PRIVATE
 	main/about_dialog.hpp
 	main/main_window.cpp
 	main/main_window.hpp
+	main/stats_dialog.cpp
+	main/stats_dialog.hpp
 	main/navigation_item_delegate.cpp
 	main/navigation_item_delegate.hpp
 	main/navigation_widget.cpp
@@ -63,6 +65,8 @@ target_sources(taiga-gui PRIVATE
 	search/search_widget.cpp
 	search/search_widget.hpp
 
+	settings/anilist_auth_dialog.cpp
+	settings/anilist_auth_dialog.hpp
 	settings/settings_dialog.cpp
 	settings/settings_dialog.hpp
 

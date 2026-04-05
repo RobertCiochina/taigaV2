@@ -43,6 +43,10 @@ void LibraryMenu::popup() {
   if (m_path.isEmpty()) return;
 
   addAction(QIcon(m_path), tr("Open"), tr("Enter"), this, &LibraryMenu::open);
+  if (QFileInfo info(m_path); info.isFile()) {
+    addAction(theme.getIcon("folder"), tr("Open containing folder"), this,
+              &LibraryMenu::openContainingFolder);
+  }
   addSeparator();
   addAction(theme.getIcon("delete"), tr("Delete"), tr("Del"), this, &LibraryMenu::remove);
   addAction(theme.getIcon("edit"), tr("Rename"), tr("F2"), this, &LibraryMenu::rename);
@@ -59,12 +63,21 @@ void LibraryMenu::open() const {
   QDesktopServices::openUrl(QUrl::fromLocalFile(m_path));
 }
 
+void LibraryMenu::openContainingFolder() const {
+  const QFileInfo info(m_path);
+  const QString dir = info.isFile() ? info.absolutePath() : info.absoluteFilePath();
+  if (dir.isEmpty()) return;
+  QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
+}
+
 void LibraryMenu::remove() const {
   const QFileInfo info(m_path);
-  const auto reply =
-      QMessageBox::question(parentWidget(), tr("Delete folder"),
-                            tr("Move \"%1\" to the Recycle Bin?").arg(info.fileName()),
-                            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+  const bool is_file = info.isFile();
+  const auto reply = QMessageBox::question(
+      parentWidget(), is_file ? tr("Delete file") : tr("Delete folder"),
+      is_file ? tr("Move \"%1\" to the Recycle Bin?").arg(info.fileName())
+              : tr("Move folder \"%1\" to the Recycle Bin?").arg(info.fileName()),
+      QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
   if (reply != QMessageBox::Yes) return;
 
   QFile file(m_path);
@@ -72,7 +85,7 @@ void LibraryMenu::remove() const {
 
   QDir dir(m_path);
   if (!dir.removeRecursively()) {
-    QMessageBox::warning(parentWidget(), tr("Delete folder"),
+    QMessageBox::warning(parentWidget(), is_file ? tr("Delete file") : tr("Delete folder"),
                          tr("Could not delete \"%1\".").arg(info.fileName()));
   }
 }

@@ -1,45 +1,108 @@
 /**
  * Taiga
  * Copyright (C) 2010-2025, Eren Okka
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
 #include "history_widget.hpp"
 
+#include <functional>
+
+#include <QAbstractItemView>
+#include <QClipboard>
 #include <QDesktopServices>
+#include <QGuiApplication>
 #include <QHeaderView>
+#include <QKeyEvent>
 #include <QLayout>
 #include <QLineEdit>
 #include <QMenu>
+#include <QMessageBox>
+#include <QMouseEvent>
+#include <QPaintEvent>
+#include <QSortFilterProxyModel>
+#include <QStatusBar>
 #include <QUrl>
 
 #include "gui/main/main_window.hpp"
 #include "gui/media/media_dialog.hpp"
+#include "gui/models/history_model.hpp"
+#include "gui/utils/painters.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_list.hpp"
-#include "gui/models/history_model.hpp"
-#include "gui/utils/theme.hpp"
-#include "taiga/settings.hpp"
+#include "sync/service.hpp"
+#include "track/play.hpp"
 
 namespace gui {
 
+namespace {
+
+class HistoryTreeView final : public QTreeView {
+public:
+  explicit HistoryTreeView(QWidget* parent = nullptr) : QTreeView(parent) {}
+
+  std::function<void()> onEnterPressed;
+  std::function<void(const QModelIndex&)> onMiddleClick;
+
+protected:
+  void keyPressEvent(QKeyEvent* event) override {
+    if (onEnterPressed && (event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter)) {
+      const QModelIndex idx = currentIndex();
+      if (idx.isValid()) {
+        onEnterPressed();
+        event->accept();
+        return;
+      }
+    }
+    QTreeView::keyPressEvent(event);
+  }
+
+  void mousePressEvent(QMouseEvent* event) override {
+    if (onMiddleClick && event->button() == Qt::MiddleButton) {
+      const QModelIndex idx = indexAt(event->pos());
+      if (idx.isValid()) {
+        setCurrentIndex(idx);
+        onMiddleClick(idx);
+        event->accept();
+        return;
+      }
+    }
+    QTreeView::mousePressEvent(event);
+  }
+
+  void paintEvent(QPaintEvent* event) override {
+    if (model()) {
+      if (const auto* proxy = qobject_cast<const QSortFilterProxyModel*>(model())) {
+        if (proxy->sourceModel()->rowCount() == 0) {
+          paintEmptyListText(
+              this, tr("No history yet.\nTitles appear here after media detection records an "
+                       "episode.\n\n"
+                       "Double-click or Enter: details · Middle-click: play next episode"));
+        } else if (proxy->rowCount() == 0) {
+          paintEmptyListText(
+              this, tr("No entries match the filter.\nTry clearing the toolbar search box."));
+        }
+      }
+    }
+    QTreeView::paintEvent(event);
+  }
+};
+
+}  // namespace
+
 HistoryWidget::HistoryWidget(QWidget* parent)
-    : PageWidget{parent}, m_model(new HistoryModel(parent)), m_view(new QTreeView(parent)) {
+    : PageWidget{parent},
+      m_model(new HistoryModel(parent)),
+      m_proxyModel(new QSortFilterProxyModel(parent)),
+      m_view(new HistoryTreeView(parent)) {
+  m_proxyModel->setSourceModel(m_model);
+  m_proxyModel->setFilterCaseSensitivity(Qt::CaseInsensitive);
+  m_proxyModel->setFilterKeyColumn(HistoryModel::COLUMN_TITLE);
+
+  auto* tree = static_cast<HistoryTreeView*>(m_view);
+
   m_view->setObjectName("historyView");
   m_view->setFrameShape(QFrame::Shape::NoFrame);
-  m_view->setModel(m_model);
+  m_view->setModel(m_proxyModel);
   m_view->setAlternatingRowColors(true);
   m_view->setAllColumnsShowFocus(true);
   m_view->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -60,6 +123,38 @@ HistoryWidget::HistoryWidget(QWidget* parent)
   layout()->addWidget(m_view);
 
   connect(m_view, &QWidget::customContextMenuRequested, this, &HistoryWidget::showContextMenu);
+  connect(m_view, &QAbstractItemView::doubleClicked, this,
+          [this](const QModelIndex& idx) { openDetailsForProxyIndex(idx); });
+
+  tree->onEnterPressed = [this, tree]() {
+    openDetailsForProxyIndex(tree->currentIndex());
+  };
+  tree->onMiddleClick = [this](const QModelIndex& idx) {
+    const int anime_id = idx.data(HistoryModel::AnimeIdRole).toInt();
+    if (anime_id <= 0) return;
+    if (track::playNextEpisode(anime_id)) {
+      mainWindow()->statusBar()->showMessage(tr("Playing next episode…"), 4000);
+    } else {
+      QMessageBox::information(
+          mainWindow(), tr("Taiga"),
+          tr("Could not find the next episode in your library folders for this title."));
+    }
+  };
+}
+
+void HistoryWidget::applyToolbarTextFilter(const QString& text) {
+  m_proxyModel->setFilterFixedString(text);
+}
+
+void HistoryWidget::openDetailsForProxyIndex(const QModelIndex& proxyIndex) const {
+  if (!proxyIndex.isValid()) return;
+  const int anime_id = proxyIndex.data(HistoryModel::AnimeIdRole).toInt();
+  if (anime_id <= 0) return;
+  const auto* item = anime::db.item(anime_id);
+  if (!item) return;
+  const auto* entry = anime::db.entry(anime_id);
+  MediaDialog::show(mainWindow(), MediaDialogPage::Details, *item,
+                    entry ? std::optional<ListEntry>{*entry} : std::nullopt);
 }
 
 void HistoryWidget::showContextMenu() const {
@@ -70,14 +165,34 @@ void HistoryWidget::showContextMenu() const {
   const int anime_id = index.data(HistoryModel::AnimeIdRole).toInt();
   if (anime_id <= 0) return;
 
+  const auto* anime_item = anime::db.item(anime_id);
+
   QMenu menu;
-  menu.addAction(tr("View details..."), [anime_id]() {
-    const auto* item = anime::db.item(anime_id);
-    if (!item) return;
-    const auto* entry = anime::db.entry(anime_id);
-    MediaDialog::show(mainWindow(), MediaDialogPage::Details, *item,
-                      entry ? std::optional<ListEntry>{*entry} : std::nullopt);
+  menu.addAction(tr("View details…"), [this, index]() { openDetailsForProxyIndex(index); });
+  menu.addAction(tr("Play next episode"), [this, anime_id]() {
+    if (track::playNextEpisode(anime_id)) {
+      mainWindow()->statusBar()->showMessage(tr("Playing next episode…"), 4000);
+    } else {
+      QMessageBox::information(
+          mainWindow(), tr("Taiga"),
+          tr("Could not find the next episode in your library folders for this title."));
+    }
   });
+  menu.addSeparator();
+  if (anime_item) {
+    menu.addAction(tr("Copy title"), [this, anime_id]() {
+      if (const auto* a = anime::db.item(anime_id)) {
+        QGuiApplication::clipboard()->setText(QString::fromStdString(a->titles.romaji));
+        mainWindow()->statusBar()->showMessage(tr("Copied title to clipboard."), 2500);
+      }
+    });
+    const QString page = sync::animePageUrl(anime_id);
+    if (!page.isEmpty()) {
+      menu.addAction(tr("Open %1 page…").arg(sync::serviceName(sync::currentServiceId())),
+                     [page]() { QDesktopServices::openUrl(QUrl(page)); });
+    }
+  }
+  menu.addSeparator();
   menu.addAction(tr("Go to anime list"), [anime_id]() {
     mainWindow()->navigateTo(MainWindowPage::List);
     if (const auto* item = anime::db.item(anime_id)) {

@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include <optional>
 #include <QString>
 #include <string>
 
@@ -44,5 +45,8 @@ QString fromSeasonName(const anime::SeasonName name);
 
 std::string animePageUrl(const int id);
 std::string requestTokenUrl();
+
+/// Parses implicit-grant redirect URL, query-style text, or a bare JWT from user paste.
+std::optional<std::string> extractAnilistAccessToken(const QString& raw);
 
 }  // namespace sync::anilist

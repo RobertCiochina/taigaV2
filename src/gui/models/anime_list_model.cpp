@@ -18,14 +18,13 @@
 
 #include "anime_list_model.hpp"
 
-#include <ctime>
-
 #include <QApplication>
 #include <QColor>
 #include <QDateTime>
 #include <QFont>
 #include <QPalette>
 #include <QSize>
+#include <ctime>
 
 #include "gui/utils/format.hpp"
 #include "gui/utils/image_provider.hpp"

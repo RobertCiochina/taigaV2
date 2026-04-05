@@ -21,15 +21,21 @@
 #include <QDate>
 #include <QDateTime>
 #include <QDesktopServices>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
 #include <QEvent>
 #include <QFileDialog>
 #include <QFont>
+#include <QHBoxLayout>
 #include <QLabel>
+#include <QListWidget>
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QPointer>
+#include <QLineEdit>
 #include <QPushButton>
+#include <QShortcut>
 #include <QShowEvent>
 #include <QSignalBlocker>
 #include <QTimer>
@@ -37,6 +43,7 @@
 #include <QVBoxLayout>
 #include <QtWidgets>
 
+#include <algorithm>
 #include <ranges>
 
 #include "base/string.hpp"
@@ -45,9 +52,8 @@
 #include "gui/list/list_widget.hpp"
 #include "gui/main/about_dialog.hpp"
 #include "gui/main/navigation_widget.hpp"
+#include "gui/main/stats_dialog.hpp"
 #include "gui/main/now_playing_widget.hpp"
-#include "gui/search/search_widget.hpp"
-#include "gui/list/list_widget.hpp"
 #include "gui/search/search_widget.hpp"
 #include "gui/settings/settings_dialog.hpp"
 #include "gui/utils/theme.hpp"
@@ -59,8 +65,10 @@
 #include "media/anime_list_export.hpp"
 #include "taiga/accounts.hpp"
 #include "taiga/application.hpp"
+#include "taiga/path.hpp"
 #include "taiga/session.hpp"
 #include "taiga/settings.hpp"
+#include "taiga/stats.hpp"
 #include "taiga/update_check.hpp"
 #include "taiga/user_feedback.hpp"
 #include "track/media.hpp"
@@ -127,6 +135,7 @@ void MainWindow::init() {
   initNavigation();
   initStatusbar();
   initNowPlaying();
+  restoreViewChromeFromSession();
   updateTitle();
   updateToolbarSearchPlaceholder();
 
@@ -141,6 +150,20 @@ void MainWindow::init() {
   }
 
   initFeatureToggleActions();
+
+  {
+    auto* shortcut_find = new QShortcut(QKeySequence::Find, this);
+    shortcut_find->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(shortcut_find, &QShortcut::activated, this, [this]() {
+      if (!m_searchBox) return;
+      m_searchBox->setFocus(Qt::ShortcutFocusReason);
+      m_searchBox->selectAll();
+    });
+    auto* shortcut_settings = new QShortcut(QKeySequence::Preferences, this);
+    shortcut_settings->setContext(Qt::ApplicationShortcut);
+    connect(shortcut_settings, &QShortcut::activated, this,
+            [this]() { SettingsDialog::show(this); });
+  }
 }
 
 void MainWindow::initActions() {
@@ -150,14 +173,23 @@ void MainWindow::initActions() {
 
   connect(ui_->actionAddNewFolder, &QAction::triggered, this, &MainWindow::addNewFolder);
   connect(ui_->actionExit, &QAction::triggered, this, &QApplication::quit, Qt::QueuedConnection);
+  connect(ui_->actionOpenDataFolder, &QAction::triggered, this, &MainWindow::openDataFolder);
   connect(ui_->actionSettings, &QAction::triggered, this, [this]() { SettingsDialog::show(this); });
+  ui_->actionSettings->setToolTip(
+      tr("Preferences (%1)").arg(QKeySequence(QKeySequence::Preferences).toString(QKeySequence::NativeText)));
   connect(ui_->actionAbout, &QAction::triggered, this, &MainWindow::about);
   connect(ui_->actionDonate, &QAction::triggered, this, &MainWindow::donate);
   connect(ui_->actionSupport, &QAction::triggered, this, &MainWindow::support);
   connect(ui_->actionProfile, &QAction::triggered, this, &MainWindow::profile);
+  connect(ui_->actionStatistics, &QAction::triggered, this, &MainWindow::statistics);
   connect(ui_->actionDisplayWindow, &QAction::triggered, this, &MainWindow::displayWindow);
 
   connect(ui_->actionSynchronize, &QAction::triggered, this, &MainWindow::startListSynchronization);
+  ui_->actionSynchronize->setShortcuts({QKeySequence{QKeySequence::Refresh},
+                                        QKeySequence{Qt::CTRL | Qt::Key_S}});
+  ui_->actionSynchronize->setShortcutContext(Qt::ApplicationShortcut);
+  ui_->actionSynchronize->setStatusTip(
+      tr("Download your list from %1 (F5 or Ctrl+S).").arg(sync::serviceName(sync::currentServiceId())));
   connect(ui_->actionCheckForUpdates, &QAction::triggered, this, &MainWindow::checkForUpdatesManually);
   connect(ui_->actionScanAvailableEpisodes, &QAction::triggered, this, [this]() {
     runLibraryScan(false);
@@ -173,6 +205,21 @@ void MainWindow::initActions() {
 
   connect(ui_->actionBack, &QAction::triggered, this, &MainWindow::goBackNavigation);
   connect(ui_->actionForward, &QAction::triggered, this, &MainWindow::goForwardNavigation);
+
+  connect(ui_->actionToggleStatusbar, &QAction::toggled, this, [this](const bool on) {
+    ui_->statusbar->setVisible(on);
+    taiga::session.setMainWindowStatusBarVisible(on);
+  });
+  connect(ui_->actionToggleNowPlaying, &QAction::toggled, this, [this](const bool on) {
+    taiga::session.setMainWindowNowPlayingBarEnabled(on);
+    if (!m_nowPlayingWidget) return;
+    if (on) {
+      m_nowPlayingWidget->syncFromDetection();
+    } else {
+      m_nowPlayingWidget->hide();
+    }
+  });
+  connect(ui_->actionLibraryFolders, &QAction::triggered, this, &MainWindow::showLibraryFoldersDialog);
 }
 
 void MainWindow::initIcons() {
@@ -184,6 +231,7 @@ void MainWindow::initIcons() {
   ui_->actionBack->setIcon(theme.getIcon("arrow_back"));
   ui_->actionCheckForUpdates->setIcon(theme.getIcon("cloud_download"));
   ui_->actionDonate->setIcon(theme.getIcon("favorite"));
+  ui_->actionOpenDataFolder->setIcon(theme.getIcon("folder"));
   ui_->actionExit->setIcon(theme.getIcon("logout"));
   ui_->actionForward->setIcon(theme.getIcon("arrow_forward"));
   ui_->actionLibraryFolders->setIcon(theme.getIcon("folder"));
@@ -195,6 +243,7 @@ void MainWindow::initIcons() {
   ui_->actionSettings->setIcon(theme.getIcon("settings"));
   ui_->actionSupport->setIcon(theme.getIcon("help"));
   ui_->actionSynchronize->setIcon(theme.getIcon("sync"));
+  ui_->actionStatistics->setIcon(theme.getIcon("bar_chart"));
 }
 
 void MainWindow::initNavigation() {
@@ -242,21 +291,31 @@ void MainWindow::initPage(MainWindowPage page) {
         tf.setPointSizeF(tf.pointSizeF() + 6);
         title->setFont(tf);
         title->setAlignment(Qt::AlignHCenter);
-        auto* body = new QLabel(
-            tr("<p style=\"margin-top:0.5em\">You have <b>%1</b> titles on your list and <b>%2</b> "
-               "anime in the local database.</p>"
-               "<p>Use the sidebar for <b>Anime list</b>, <b>Search</b>, <b>History</b>, and "
-               "<b>Library</b>.</p>"
-               "<p>Toolbar <b>Synchronize</b> downloads your list from the active site (AniList, "
-               "MyAnimeList, Kitsu).</p>")
-                .arg(anime::db.entries().size())
-                .arg(anime::db.items().size()),
-            ui_->homePage);
+        auto* body = new QLabel(ui_->homePage);
         body->setWordWrap(true);
         body->setAlignment(Qt::AlignTop | Qt::AlignHCenter);
+        m_homeBodyLabel = body;
+        refreshHomeDashboard();
+
+        auto* actions = new QHBoxLayout();
+        actions->addStretch(1);
+        auto* sync_btn = new QPushButton(tr("Synchronize now"), ui_->homePage);
+        connect(sync_btn, &QPushButton::clicked, this, &MainWindow::startListSynchronization);
+        auto* settings_btn = new QPushButton(tr("Settings…"), ui_->homePage);
+        connect(settings_btn, &QPushButton::clicked, this,
+                [this]() { SettingsDialog::show(this); });
+        auto* acct_btn = new QPushButton(tr("Account && credentials…"), ui_->homePage);
+        connect(acct_btn, &QPushButton::clicked, this,
+                [this]() { SettingsDialog::showAccounts(this); });
+        actions->addWidget(sync_btn);
+        actions->addWidget(settings_btn);
+        actions->addWidget(acct_btn);
+        actions->addStretch(1);
+
         l->addStretch(1);
         l->addWidget(title);
         l->addWidget(body);
+        l->addLayout(actions);
         l->addStretch(2);
       }
       break;
@@ -352,10 +411,14 @@ void MainWindow::initPage(MainWindowPage page) {
           }
           QDesktopServices::openUrl(url);
         });
+        auto* acct_btn = new QPushButton(tr("Account && credentials…"), ui_->profilePage);
+        connect(acct_btn, &QPushButton::clicked, this,
+                [this]() { SettingsDialog::showAccounts(this); });
         l->addStretch(1);
         l->addWidget(title);
         l->addWidget(info);
         l->addWidget(btn, 0, Qt::AlignHCenter);
+        l->addWidget(acct_btn, 0, Qt::AlignHCenter);
         l->addStretch(2);
       }
       break;
@@ -378,11 +441,17 @@ void MainWindow::initToolbar() {
     button->setPopupMode(QToolButton::InstantPopup);
     button->setMenu([this]() {
       auto menu = new QMenu(this);
+      auto* view_menu = menu->addMenu(tr("View"));
+      view_menu->addAction(ui_->actionToggleStatusbar);
+      view_menu->addAction(ui_->actionToggleNowPlaying);
+      menu->addSeparator();
       menu->addAction(ui_->actionToggleDetection);
       menu->addAction(ui_->actionToggleSharing);
       menu->addAction(ui_->actionToggleSynchronization);
       menu->addSeparator();
       menu->addMenu(ui_->menuHelp);
+      menu->addSeparator();
+      menu->addAction(ui_->actionOpenDataFolder);
       menu->addSeparator();
       menu->addAction(ui_->actionExit);
       return menu;
@@ -407,6 +476,8 @@ void MainWindow::initToolbar() {
     insertSpacer(before);
     ui_->toolbar->insertWidget(before, m_searchBox);
     insertSpacer(before);
+
+    connect(m_searchBox, &QLineEdit::textChanged, this, &MainWindow::routeToolbarSearchToActivePage);
   }
 }
 
@@ -416,14 +487,14 @@ void MainWindow::initTrayIcon() {
   menu->setDefaultAction(ui_->actionDisplayWindow);
   menu->addSeparator();
   menu->addAction(ui_->actionSettings);
+  menu->addAction(ui_->actionOpenDataFolder);
   menu->addSeparator();
   menu->addAction(ui_->actionExit);
 
   m_trayIcon = new TrayIcon(this, windowIcon(), menu);
 
   connect(m_trayIcon, &TrayIcon::activated, this, &MainWindow::displayWindow);
-  connect(m_trayIcon, &TrayIcon::messageClicked, this,
-          []() { QMessageBox::information(nullptr, "Taiga", tr("Clicked message")); });
+  connect(m_trayIcon, &TrayIcon::messageClicked, this, &MainWindow::displayWindow);
 }
 
 void MainWindow::showEvent(QShowEvent* event) {
@@ -450,6 +521,14 @@ void MainWindow::closeEvent(QCloseEvent* event) {
   event->accept();
 }
 
+void MainWindow::refreshLibraryRootsFromSettings() {
+  if (m_libraryWidget) m_libraryWidget->refreshRootsFromSettings();
+}
+
+void MainWindow::runInteractiveLibraryScan() {
+  runLibraryScan(false);
+}
+
 void MainWindow::addNewFolder() {
   constexpr auto options =
       QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks | QFileDialog::ReadOnly;
@@ -464,6 +543,7 @@ void MainWindow::addNewFolder() {
 
   folders.push_back(path);
   taiga::settings.setLibraryFolders(std::move(folders));
+  refreshLibraryRootsFromSettings();
 }
 
 void MainWindow::navigateTo(MainWindowPage page) {
@@ -478,6 +558,10 @@ void MainWindow::applyMainPage(const MainWindowPage page) {
   ui_->statusbar->clearMessage();
   ui_->stackedWidget->setCurrentIndex(static_cast<int>(page));
   updateToolbarSearchPlaceholder();
+  routeToolbarSearchToActivePage();
+  if (page == MainWindowPage::Home) {
+    refreshHomeDashboard();
+  }
 }
 
 void MainWindow::recordNavHistory(const MainWindowPage page) {
@@ -565,6 +649,27 @@ void MainWindow::refreshSyncActionState() {
   const bool can_sync = sync::currentServiceId() != sync::ServiceId::Unknown &&
                         taiga::settings.listSynchronizationEnabled();
   ui_->actionSynchronize->setEnabled(can_sync);
+}
+
+void MainWindow::refreshServiceDependentUi() {
+  const QString svc = sync::serviceName(sync::currentServiceId());
+  ui_->actionSynchronize->setToolTip(tr("Synchronize with %1").arg(svc));
+  ui_->actionSynchronize->setStatusTip(
+      tr("Download your list from %1 (F5 or Ctrl+S).").arg(svc));
+  refreshSyncActionState();
+  updateToolbarSearchPlaceholder();
+  if (m_navigationWidget) m_navigationWidget->refresh();
+  refreshHomeDashboard();
+}
+
+void MainWindow::applyListSynchronizationToggleFromSettings() {
+  const QSignalBlocker b(ui_->actionToggleSynchronization);
+  ui_->actionToggleSynchronization->setChecked(taiga::settings.listSynchronizationEnabled());
+}
+
+void MainWindow::applyMediaDetectionToggleFromSettings() {
+  const QSignalBlocker b(ui_->actionToggleDetection);
+  ui_->actionToggleDetection->setChecked(taiga::settings.mediaDetectionEnabled());
 }
 
 std::optional<int> MainWindow::animeIdForPlaybackContext() const {
@@ -672,6 +777,10 @@ void MainWindow::profile() {
   m_navigationWidget->setCurrentIndex({});
 }
 
+void MainWindow::statistics() {
+  StatsDialog::show(this);
+}
+
 void MainWindow::startListSynchronization() {
   if (sync::currentServiceId() == sync::ServiceId::Unknown) {
     return;
@@ -699,6 +808,7 @@ void MainWindow::handleListSyncFinished(bool ok, QString message) {
     if (m_navigationWidget) m_navigationWidget->refresh();
     if (m_listWidget) m_listWidget->reloadAnimeList();
     if (m_searchWidget) m_searchWidget->reloadAnimeList();
+    refreshHomeDashboard();
     statusBar()->showMessage(message.isEmpty() ? tr("Synchronized.") : message, 5000);
   } else {
     statusBar()->showMessage(tr("Synchronization failed: %1").arg(message), 8000);
@@ -741,7 +851,7 @@ void MainWindow::maybeShowWelcomeSetup() {
                                "Settings to add credentials?"),
                             QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
   taiga::settings.setWelcomeSetupPromptDismissed(true);
-  if (answer == QMessageBox::Yes) SettingsDialog::show(this);
+  if (answer == QMessageBox::Yes) SettingsDialog::showAccounts(this);
 }
 
 void MainWindow::trySyncAfterFocusReturn() {
@@ -785,6 +895,137 @@ void MainWindow::runLibraryScan(const bool startup_silent) {
   if (!startup_silent) {
     QMessageBox::information(this, tr("Taiga"), msg);
   }
+}
+
+void MainWindow::refreshHomeDashboard() {
+  if (!m_homeBodyLabel) return;
+  const taiga::ListStatistics st = taiga::computeListStatistics();
+  const QString spent = [&] {
+    if (st.spent_watch_seconds <= 0) return tr("—");
+    const int d = st.spent_watch_seconds / 86400;
+    const int h = (st.spent_watch_seconds % 86400) / 3600;
+    if (d > 0) return tr("%1 d %2 h").arg(d).arg(h);
+    if (h > 0) return tr("%1 h").arg(h);
+    const int m = (st.spent_watch_seconds % 3600) / 60;
+    return tr("%1 min").arg(std::max(1, m));
+  }();
+  const QString mean =
+      st.scored_title_count > 0
+          ? tr("%1 / 10").arg(QString::number(static_cast<double>(st.mean_score_0_100) / 10.0, 'f', 1))
+          : tr("—");
+
+  m_homeBodyLabel->setText(
+      tr("<p style=\"margin-top:0.5em\">You have <b>%1</b> titles on your list and <b>%2</b> "
+         "anime in the local database.</p>"
+         "<p><b>Est. time spent watching:</b> %3 · <b>Mean score:</b> %4 "
+         "<span style=\"color:#666;font-size:small\">(%5 scored)</span></p>"
+         "<p>Use the sidebar for <b>Anime list</b>, <b>Search</b>, <b>History</b>, and "
+         "<b>Library</b>. <b>Tools → Statistics</b> shows the full breakdown (as in Taiga v1).</p>"
+         "<p>Toolbar <b>Synchronize</b> downloads your list from the active site (AniList, "
+         "MyAnimeList, Kitsu).</p>")
+          .arg(anime::db.entries().size())
+          .arg(anime::db.items().size())
+          .arg(spent)
+          .arg(mean)
+          .arg(st.scored_title_count));
+}
+
+void MainWindow::restoreViewChromeFromSession() {
+  ui_->statusbar->setVisible(taiga::session.mainWindowStatusBarVisible());
+  {
+    const QSignalBlocker b(ui_->actionToggleStatusbar);
+    ui_->actionToggleStatusbar->setChecked(taiga::session.mainWindowStatusBarVisible());
+  }
+  {
+    const QSignalBlocker b(ui_->actionToggleNowPlaying);
+    ui_->actionToggleNowPlaying->setChecked(taiga::session.mainWindowNowPlayingBarEnabled());
+  }
+  if (!taiga::session.mainWindowNowPlayingBarEnabled() && m_nowPlayingWidget) {
+    m_nowPlayingWidget->hide();
+  }
+}
+
+void MainWindow::routeToolbarSearchToActivePage() {
+  if (!m_searchBox) return;
+  const QString text = m_searchBox->text();
+  switch (m_activePage) {
+    case MainWindowPage::List:
+      if (m_listWidget) m_listWidget->applyToolbarTextFilter(text);
+      break;
+    case MainWindowPage::Search:
+      if (m_searchWidget) m_searchWidget->applyToolbarTextFilter(text);
+      break;
+    case MainWindowPage::History:
+      if (m_historyWidget) m_historyWidget->applyToolbarTextFilter(text);
+      break;
+    default:
+      break;
+  }
+}
+
+void MainWindow::openDataFolder() {
+  const QString path = QDir::fromNativeSeparators(QString::fromStdString(taiga::get_data_path()));
+  if (!QDir{}.mkpath(path)) {
+    QMessageBox::warning(this, tr("Taiga"), tr("Could not create the data folder."));
+    return;
+  }
+  const QUrl url = QUrl::fromLocalFile(path.endsWith(u'/') ? path : path + u'/');
+  if (!QDesktopServices::openUrl(url)) {
+    QMessageBox::warning(this, tr("Taiga"), tr("Could not open the data folder."));
+    return;
+  }
+  statusBar()->showMessage(tr("Opened data folder."), 4000);
+}
+
+void MainWindow::showLibraryFoldersDialog() {
+  QDialog dlg(this);
+  dlg.setWindowTitle(tr("Library folders"));
+  dlg.resize(520, 360);
+
+  auto* layout = new QVBoxLayout(&dlg);
+  auto* list = new QListWidget(&dlg);
+  for (const auto& folder : taiga::settings.libraryFolders()) {
+    list->addItem(QString::fromStdString(folder));
+  }
+  layout->addWidget(list);
+
+  auto* row = new QHBoxLayout();
+  auto* add_btn = new QPushButton(tr("Add folder…"), &dlg);
+  auto* remove_btn = new QPushButton(tr("Remove"), &dlg);
+  row->addWidget(add_btn);
+  row->addWidget(remove_btn);
+  row->addStretch();
+  layout->addLayout(row);
+
+  auto* box = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+  layout->addWidget(box);
+  connect(box, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+  connect(box, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+
+  connect(add_btn, &QPushButton::clicked, &dlg, [&dlg, list]() {
+    constexpr auto options =
+        QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks | QFileDialog::ReadOnly;
+    const QString directory =
+        QFileDialog::getExistingDirectory(&dlg, tr("Add library folder"), {}, options);
+    if (directory.isEmpty()) return;
+    const auto matches = list->findItems(directory, Qt::MatchFixedString);
+    if (!matches.isEmpty()) return;
+    list->addItem(directory);
+  });
+  connect(remove_btn, &QPushButton::clicked, &dlg, [list]() {
+    delete list->takeItem(list->currentRow());
+  });
+
+  if (dlg.exec() != QDialog::Accepted) return;
+
+  std::vector<std::string> folders;
+  folders.reserve(static_cast<size_t>(list->count()));
+  for (int i = 0; i < list->count(); ++i) {
+    folders.push_back(list->item(i)->text().toStdString());
+  }
+  taiga::settings.setLibraryFolders(std::move(folders));
+  refreshLibraryRootsFromSettings();
+  statusBar()->showMessage(tr("Library folders updated."), 4000);
 }
 
 }  // namespace gui

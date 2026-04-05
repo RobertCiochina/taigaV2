@@ -19,6 +19,7 @@
 #include "anime_list_view_cards.hpp"
 
 #include <QKeyEvent>
+#include <QMouseEvent>
 #include <QScrollBar>
 #include <QWheelEvent>
 
@@ -44,6 +45,19 @@ ListViewCards::ListViewCards(QWidget* parent, AnimeListModel* model,
   setWordWrap(true);
 }
 
+void ListViewCards::mousePressEvent(QMouseEvent* event) {
+  if (event->button() == Qt::MouseButton::MiddleButton) {
+    const QModelIndex index = indexAt(event->pos());
+    if (index.isValid()) {
+      setCurrentIndex(index);
+      m_base->playNextEpisode(index);
+      return;
+    }
+  }
+
+  QListView::mousePressEvent(event);
+}
+
 void ListViewCards::keyPressEvent(QKeyEvent* event) {
   if (event->key() == Qt::Key::Key_Return || event->key() == Qt::Key::Key_Enter) {
     const auto indexes = selectionModel()->selectedIndexes();
@@ -58,7 +72,8 @@ void ListViewCards::keyPressEvent(QKeyEvent* event) {
 
 void ListViewCards::paintEvent(QPaintEvent* event) {
   if (model() && model()->rowCount() == 0) {
-    paintEmptyListText(this, tr("No items found."));
+    paintEmptyListText(this, tr("No items found.\nDouble-click or Enter: details · Middle-click: "
+                                "play next episode"));
   }
 
   QListView::paintEvent(event);

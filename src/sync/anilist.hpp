@@ -36,7 +36,8 @@ public:
 
   static Service* instance();
 
-  void authenticateUser();
+  void reloadBearerFromAccounts();
+  void authenticateUser(ListFetchComplete on_complete = {});
   void fetchAnime(const int id);
   void search(const QString& query);
   void fetchSeasonBrowse(anime::SeasonName season, int year, ListFetchComplete on_complete = {});

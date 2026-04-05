@@ -47,6 +47,8 @@ public:
 	bool init();
 	void poll();
 	void setPollingEnabled(bool on);
+	/// Re-read interval and on/off from settings (e.g. after Settings dialog OK).
+	void refreshPollingFromSettings();
 
 signals:
 	void currentEpisodeChanged(std::optional<Episode> media) const;

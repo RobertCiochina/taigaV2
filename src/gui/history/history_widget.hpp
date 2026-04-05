@@ -18,9 +18,13 @@
 
 #pragma once
 
+#include <QString>
 #include <QTreeView>
 
 #include "gui/common/page_widget.hpp"
+
+class QModelIndex;
+class QSortFilterProxyModel;
 
 namespace gui {
 
@@ -34,10 +38,14 @@ public:
   HistoryWidget(QWidget* parent);
   ~HistoryWidget() = default;
 
+  void applyToolbarTextFilter(const QString& text);
+
 private:
   void showContextMenu() const;
+  void openDetailsForProxyIndex(const QModelIndex& proxyIndex) const;
 
   HistoryModel* m_model = nullptr;
+  QSortFilterProxyModel* m_proxyModel = nullptr;
   QTreeView* m_view = nullptr;
 };
 

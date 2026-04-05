@@ -34,6 +34,7 @@ public:
   const QIcon& getIcon(const QString& key, const QString& extension = QString{u"svg"},
                        bool useSvgIconEngine = true);
   void initStyle();
+  void refreshFromSettings();
   bool isDark() const;
 
 private:

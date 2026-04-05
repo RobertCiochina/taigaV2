@@ -155,7 +155,8 @@ SearchWidget::SearchWidget(QWidget* parent)
             if (mw->navigation()) mw->navigation()->refresh();
             mw->statusBar()->showMessage(msg.isEmpty() ? tr("Season loaded.") : msg, 6000);
           } else {
-            taiga::userFeedback(msg.isEmpty() ? QStringLiteral("Season request failed.") : msg, true);
+            taiga::userFeedback(msg.isEmpty() ? QStringLiteral("Season request failed.") : msg,
+                                true);
           }
         }
       });
@@ -186,6 +187,10 @@ void SearchWidget::saveState() {
 
 void SearchWidget::reloadAnimeList() {
   m_model->reloadFromDatabase();
+}
+
+void SearchWidget::applyToolbarTextFilter(const QString& text) {
+  m_proxyModel->setTextFilter(text);
 }
 
 }  // namespace gui

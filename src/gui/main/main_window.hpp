@@ -24,6 +24,7 @@
 
 #include "media/anime_list.hpp"
 
+class QLabel;
 class QLineEdit;
 class QEvent;
 class QShowEvent;
@@ -72,16 +73,25 @@ public slots:
   void displayWindow();
   void handleListSyncFinished(bool ok, QString message);
   void navigateTo(MainWindowPage page);
+  void refreshLibraryRootsFromSettings();
+  void runInteractiveLibraryScan();
   void showUserFeedback(QString message, bool error);
+  /// Call after settings change the active list site or sync permissions (toolbar, search hint, nav).
+  void refreshServiceDependentUi();
+  /// Keeps View → Enable synchronization in sync with `taiga::settings` without emitting toggled.
+  void applyListSynchronizationToggleFromSettings();
+  /// Keeps View → Enable media detection in sync after changing recognition options in Settings.
+  void applyMediaDetectionToggleFromSettings();
   void updateTitle();
+  void startListSynchronization();
 
 private slots:
   void about();
   void donate() const;
   void setPage(MainWindowPage page);
-  void startListSynchronization();
   void support() const;
   void profile();
+  void statistics();
 
 protected:
   void changeEvent(QEvent* event) override;
@@ -114,6 +124,11 @@ private:
   void exportAnimeListXml();
   void playNextEpisodeFromMenu();
   void playRandomAnimeFromMenu();
+  void routeToolbarSearchToActivePage();
+  void showLibraryFoldersDialog();
+  void openDataFolder();
+  void restoreViewChromeFromSession();
+  void refreshHomeDashboard();
 
   Ui::MainWindow* ui_ = nullptr;
 
@@ -125,6 +140,7 @@ private:
   QLineEdit* m_searchBox = nullptr;
   SearchWidget* m_searchWidget = nullptr;
   TrayIcon* m_trayIcon = nullptr;
+  QLabel* m_homeBodyLabel = nullptr;
 
   MainWindowPage m_activePage = MainWindowPage::Home;
   bool m_welcomeCheckScheduled = false;

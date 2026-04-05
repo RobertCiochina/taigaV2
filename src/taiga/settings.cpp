@@ -71,8 +71,9 @@ std::vector<std::string> Settings::libraryFolders() const {
 }
 
 std::chrono::milliseconds Settings::mediaDetectionInterval() const {
-  const auto interval = value("track.detection.interval", 3000).toInt();
-  return std::chrono::milliseconds{interval};
+  using rep = std::chrono::milliseconds::rep;
+  const rep ms = static_cast<rep>(value("track.detection.interval", 3000).toInt());
+  return std::chrono::milliseconds{std::clamp(ms, rep{1000}, rep{120000})};
 }
 
 std::string Settings::proxyHost() const {
@@ -144,7 +145,10 @@ void Settings::setLibraryFolders(std::vector<std::string> folders) const {
 }
 
 void Settings::setMediaDetectionInterval(const std::chrono::milliseconds interval) const {
-  setValue("track.detection.interval", interval.count());
+  using rep = std::chrono::milliseconds::rep;
+  const rep c = interval.count();
+  const rep cl = std::clamp(c, rep{1000}, rep{120000});
+  setValue("track.detection.interval", static_cast<int>(cl));
 }
 
 void Settings::setProxyHost(const std::string& host) const {

@@ -54,6 +54,14 @@ QByteArray Session::mainWindowGeometry() const {
   return QByteArray::fromBase64(value("mainWindow.geometry", QByteArray{}).toByteArray());
 }
 
+bool Session::mainWindowStatusBarVisible() const {
+  return value("mainWindow.statusBarVisible", true).toBool();
+}
+
+bool Session::mainWindowNowPlayingBarEnabled() const {
+  return value("mainWindow.nowPlayingBarEnabled", true).toBool();
+}
+
 QByteArray Session::mediaDialogGeometry() const {
   return QByteArray::fromBase64(value("mediaDialog.geometry", QByteArray{}).toByteArray());
 }
@@ -116,6 +124,14 @@ void Session::setAnimeListViewMode(const gui::ListViewMode mode) const {
 
 void Session::setMainWindowGeometry(const QByteArray& geometry) const {
   setValue("mainWindow.geometry", geometry.toBase64().toStdString());
+}
+
+void Session::setMainWindowStatusBarVisible(const bool visible) const {
+  setValue("mainWindow.statusBarVisible", visible);
+}
+
+void Session::setMainWindowNowPlayingBarEnabled(const bool enabled) const {
+  setValue("mainWindow.nowPlayingBarEnabled", enabled);
 }
 
 void Session::setMediaDialogGeometry(const QByteArray& geometry) const {

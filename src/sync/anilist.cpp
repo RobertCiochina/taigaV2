@@ -38,6 +38,37 @@
 
 namespace sync::anilist {
 
+namespace {
+
+QString firstGraphQlErrorMessage(const QJsonObject& root) {
+  const QJsonArray errs = root["errors"].toArray();
+  if (errs.isEmpty()) return {};
+  const QJsonObject e = errs.first().toObject();
+  QString msg = e["message"].toString();
+  if (!msg.isEmpty()) return msg;
+  return e["status"].toString();
+}
+
+/// Qt often leaves errorString() empty for non-2xx HTTP while the body carries GraphQL errors.
+QString restReplyFailureDetail(const QRestReply& reply) {
+  QString s = reply.errorString().trimmed();
+  if (!s.isEmpty()) return s;
+  const int code = reply.httpStatus();
+  if (code > 0) return QStringLiteral("HTTP %1").arg(code);
+  return QStringLiteral("Network error");
+}
+
+/// AniList uses REPEATING (not CURRENT) while the user is rewatching (matches Taiga v1).
+QString mediaListStatusForSave(const ListEntry& entry) {
+  using anime::list::Status;
+  if (entry.rewatching && entry.status == Status::Watching) {
+    return QStringLiteral("REPEATING");
+  }
+  return fromListStatus(entry.status);
+}
+
+}  // namespace
+
 Service::Service() : sync::Service{} {
   api_.setBaseUrl(QUrl{"https://graphql.anilist.co"});
 
@@ -51,34 +82,61 @@ Service* Service::instance() {
   return &service;
 }
 
+void Service::reloadBearerFromAccounts() {
+  if (const auto token = taiga::accounts.anilistToken(); !token.empty()) {
+    api_.setBearerToken(QByteArray::fromStdString(token));
+  } else {
+    api_.setBearerToken({});
+  }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
-void Service::authenticateUser() {
+void Service::authenticateUser(ListFetchComplete on_complete) {
+  const auto finish = [on_complete](const bool ok, QString message) {
+    if (on_complete) on_complete(ok, std::move(message));
+  };
+
+  if (taiga::accounts.anilistToken().empty()) {
+    finish(false, QStringLiteral("AniList access token is missing."));
+    return;
+  }
+
   const QJsonDocument data{QJsonObject{
       {"query", gql("Viewer")},
   }};
 
-  const auto callback = [this](QRestReply& reply) {
+  const auto callback = [this, finish](QRestReply& reply) {
     if (isError(reply)) {
       handleError(reply);
-      // @TODO: Set authenticated state and emit signal
+      finish(false, reply.errorString().isEmpty() ? QStringLiteral("Network error") : reply.errorString());
       return;
     }
 
-    const auto viewer = reply.readJson().and_then([](const QJsonDocument& json) {
-      return std::make_optional(json["data"]["Viewer"].toObject());
-    });
+    const auto doc = reply.readJson();
+    if (!doc.has_value()) {
+      handleError(reply, "Empty response.");
+      finish(false, QStringLiteral("Empty response."));
+      return;
+    }
 
-    if (!viewer) {
+    const QJsonObject root = doc->object();
+    if (const auto errors = root["errors"]; errors.isArray() && !errors.toArray().isEmpty()) {
+      const auto msg = errors.toArray().first().toObject()["message"].toString();
+      handleError(reply, msg);
+      finish(false, msg.isEmpty() ? QStringLiteral("AniList API error") : msg);
+      return;
+    }
+
+    const QJsonObject viewer = root["data"].toObject()["Viewer"].toObject();
+    if (viewer.isEmpty()) {
       handleError(reply, "Could not parse user object.");
-      // @TODO: Set authenticated state and emit signal
+      finish(false, QStringLiteral("Could not parse user profile."));
       return;
     }
 
-    taiga::accounts.setAnilistUsername((*viewer)["name"].toString().toStdString());
-    // @TODO: Set rating system setting using viewer["mediaListOptions"]["scoreFormat"]
-
-    // @TODO: Set authenticated state and emit signal
+    taiga::accounts.setAnilistUsername(viewer["name"].toString().toStdString());
+    finish(true, QString{});
   };
 
   manager_.post(api_.createRequest(), data, this, callback);
@@ -288,22 +346,24 @@ void Service::saveListEntry(const ListEntry& entry) {
     variables["id"] = static_cast<int>(entry.id);
   }
   variables["mediaId"] = entry.anime_id;
-  variables["status"] = fromListStatus(entry.status);
+  const QString status_str = mediaListStatusForSave(entry);
+  if (!status_str.isEmpty()) {
+    variables["status"] = status_str;
+  } else if (entry.id <= 0) {
+    variables["status"] = QStringLiteral("PLANNING");
+  }
   variables["scoreRaw"] = entry.score;
   variables["progress"] = entry.watched_episodes;
   variables["repeat"] = entry.rewatched_times;
   variables["private"] = entry.is_private;
   variables["notes"] = QString::fromStdString(entry.notes);
 
+  // Omit unset dates instead of null — explicit null FuzzyDateInput has triggered AniList 500s; matches v1.
   if (static_cast<bool>(entry.date_started)) {
     variables["startedAt"] = fromFuzzyDate(entry.date_started);
-  } else {
-    variables["startedAt"] = QJsonValue{};
   }
   if (static_cast<bool>(entry.date_completed)) {
     variables["completedAt"] = fromFuzzyDate(entry.date_completed);
-  } else {
-    variables["completedAt"] = QJsonValue{};
   }
 
   const QJsonDocument data{QJsonObject{
@@ -312,27 +372,25 @@ void Service::saveListEntry(const ListEntry& entry) {
   }};
 
   const auto callback = [this, anime_id = entry.anime_id](QRestReply& reply) {
+    const auto doc = reply.readJson();
+    const QJsonObject root = doc.has_value() ? doc->object() : QJsonObject{};
+
+    if (const QString gql_msg = firstGraphQlErrorMessage(root); !gql_msg.isEmpty()) {
+      handleError(reply, gql_msg);
+      taiga::userFeedback(QStringLiteral("Could not update AniList: %1").arg(gql_msg), true);
+      return;
+    }
+
     if (isError(reply)) {
       handleError(reply);
       taiga::userFeedback(
-          QStringLiteral("Could not update AniList: %1")
-              .arg(reply.errorString().isEmpty() ? QStringLiteral("Unknown error") : reply.errorString()),
-          true);
+          QStringLiteral("Could not update AniList: %1").arg(restReplyFailureDetail(reply)), true);
       return;
     }
 
-    const auto doc = reply.readJson();
     if (!doc.has_value()) {
       handleError(reply, "Empty response.");
       taiga::userFeedback(QStringLiteral("Could not update AniList: empty response."), true);
-      return;
-    }
-
-    const auto root = doc->object();
-    if (const auto errors = root["errors"]; errors.isArray() && !errors.toArray().isEmpty()) {
-      const auto msg = errors.toArray().first().toObject()["message"].toString();
-      handleError(reply, msg);
-      taiga::userFeedback(QStringLiteral("Could not update AniList: %1").arg(msg), true);
       return;
     }
 
@@ -351,13 +409,6 @@ void Service::saveListEntry(const ListEntry& entry) {
     }
 
     anime::db.updateEntry(*parsed);
-
-    const auto media = saved["media"].toObject();
-    if (!media.isEmpty()) {
-      if (const auto item = parseMedia(QJsonValue(media))) {
-        anime::db.updateItem(*item);
-      }
-    }
   };
 
   manager_.post(api_.createRequest(), data, this, callback);
@@ -379,12 +430,24 @@ void Service::deleteListEntry(const int anime_id) {
   }};
 
   const auto callback = [this, anime_id](QRestReply& reply) {
-    if (isError(reply) && reply.httpStatus() != 404) {
+    if (reply.httpStatus() == 404) {
+      anime::db.deleteEntry(anime_id);
+      return;
+    }
+
+    const auto doc = reply.readJson();
+    const QJsonObject root = doc.has_value() ? doc->object() : QJsonObject{};
+
+    if (const QString gql_msg = firstGraphQlErrorMessage(root); !gql_msg.isEmpty()) {
+      handleError(reply, gql_msg);
+      taiga::userFeedback(QStringLiteral("Could not remove from AniList: %1").arg(gql_msg), true);
+      return;
+    }
+
+    if (isError(reply)) {
       handleError(reply);
       taiga::userFeedback(
-          QStringLiteral("Could not remove from AniList: %1")
-              .arg(reply.errorString().isEmpty() ? QStringLiteral("Unknown error") : reply.errorString()),
-          true);
+          QStringLiteral("Could not remove from AniList: %1").arg(restReplyFailureDetail(reply)), true);
       return;
     }
 

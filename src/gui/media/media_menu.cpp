@@ -21,6 +21,9 @@
 #include <QDate>
 #include <QDateTime>
 #include <QDesktopServices>
+#include <QClipboard>
+#include <QGuiApplication>
+#include <QStatusBar>
 #include <QInputDialog>
 #include <QItemSelectionModel>
 #include <QMessageBox>
@@ -210,7 +213,7 @@ void MediaMenu::playEpisode(int number) const {
 void MediaMenu::removeFromList() const {
   QMessageBox msgBox;
   msgBox.setIcon(QMessageBox::Icon::Question);
-  msgBox.setText("Do you want to remove selected items from your list?");
+  msgBox.setText(tr("Do you want to remove the selected items from your list?"));
 
   QList<QString> titles;
   for (const auto& item : m_items) {
@@ -603,6 +606,34 @@ void MediaMenu::addTorrentsItems() {
 }
 
 void MediaMenu::addMetaItems() {
+  if (!isBatch()) {
+    addAction(tr("Copy title"), this, [this]() {
+      const QString t = QString::fromStdString(m_items.front().titles.romaji);
+      QGuiApplication::clipboard()->setText(t);
+      if (auto* w = mainWindow()) {
+        w->statusBar()->showMessage(tr("Copied title to clipboard."), 2500);
+      }
+    });
+    const auto& eng = m_items.front().titles.english;
+    if (!eng.empty()) {
+      addAction(tr("Copy English title"), this, [this, eng]() {
+        QGuiApplication::clipboard()->setText(QString::fromStdString(eng));
+        if (auto* w = mainWindow()) {
+          w->statusBar()->showMessage(tr("Copied English title to clipboard."), 2500);
+        }
+      });
+    }
+    const auto& native = m_items.front().titles.japanese;
+    if (!native.empty()) {
+      addAction(tr("Copy native title"), this, [this, native]() {
+        QGuiApplication::clipboard()->setText(QString::fromStdString(native));
+        if (auto* w = mainWindow()) {
+          w->statusBar()->showMessage(tr("Copied native title to clipboard."), 2500);
+        }
+      });
+    }
+  }
+
   if (isBatch() && m_selectionModel) {
     addAction(tr("Invert selection"), this, [this]() {
       for (int row = 0; row < m_selectionModel->model()->rowCount(); ++row) {

@@ -35,6 +35,7 @@ public:
 
 private slots:
   void open() const;
+  void openContainingFolder() const;
   void remove() const;
   void rename() const;
   void viewDetails() const;

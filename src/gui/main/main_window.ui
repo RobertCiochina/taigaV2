@@ -56,7 +56,7 @@
          <item>
           <widget class="QLabel" name="label">
            <property name="text">
-            <string>TODO: Home</string>
+            <string>Home</string>
            </property>
            <property name="alignment">
             <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -74,7 +74,7 @@
          <item>
           <widget class="QLabel" name="label_5">
            <property name="text">
-            <string>TODO: Torrents</string>
+            <string>Torrents are not available in this Qt 6 build.</string>
            </property>
            <property name="alignment">
             <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -88,7 +88,7 @@
          <item>
           <widget class="QLabel" name="label_8">
            <property name="text">
-            <string>TODO: Profile</string>
+            <string>Profile</string>
            </property>
            <property name="alignment">
             <set>Qt::AlignmentFlag::AlignCenter</set>
@@ -115,6 +115,8 @@
     <property name="title">
      <string>&amp;File</string>
     </property>
+    <addaction name="actionOpenDataFolder"/>
+    <addaction name="separator"/>
     <addaction name="actionExit"/>
    </widget>
    <widget class="QMenu" name="menuList">
@@ -132,6 +134,13 @@
     <addaction name="separator"/>
     <addaction name="menuExport"/>
    </widget>
+   <widget class="QMenu" name="menuView">
+    <property name="title">
+     <string>&amp;View</string>
+    </property>
+    <addaction name="actionToggleStatusbar"/>
+    <addaction name="actionToggleNowPlaying"/>
+   </widget>
    <widget class="QMenu" name="menuTools">
     <property name="title">
      <string>&amp;Tools</string>
@@ -140,6 +149,7 @@
     <addaction name="actionToggleSharing"/>
     <addaction name="actionToggleSynchronization"/>
     <addaction name="separator"/>
+    <addaction name="actionStatistics"/>
     <addaction name="actionProfile"/>
     <addaction name="separator"/>
     <addaction name="actionBack"/>
@@ -162,6 +172,8 @@
     <property name="title">
      <string>Library</string>
     </property>
+    <addaction name="actionLibraryFolders"/>
+    <addaction name="separator"/>
     <widget class="QMenu" name="menuLibraryFolders">
      <property name="title">
       <string>Folders</string>
@@ -177,6 +189,7 @@
    <addaction name="menuFile"/>
    <addaction name="menuList"/>
    <addaction name="menuLibrary"/>
+   <addaction name="menuView"/>
    <addaction name="menuTools"/>
    <addaction name="menuHelp"/>
   </widget>
@@ -231,6 +244,14 @@
     <string>Ctrl+R</string>
    </property>
   </action>
+  <action name="actionOpenDataFolder">
+   <property name="text">
+    <string>Open &amp;data folder</string>
+   </property>
+   <property name="statusTip">
+    <string>Open the folder where settings, database, and accounts are stored</string>
+   </property>
+  </action>
   <action name="actionExit">
    <property name="text">
     <string>E&amp;xit</string>
@@ -247,7 +268,7 @@
     <string>Synchronize</string>
    </property>
    <property name="shortcut">
-    <string>Ctrl+S</string>
+    <string>F5</string>
    </property>
   </action>
   <action name="actionAbout">
@@ -380,6 +401,11 @@
    </property>
    <property name="menuRole">
     <enum>QAction::MenuRole::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionStatistics">
+   <property name="text">
+    <string>Statistics...</string>
    </property>
   </action>
   <action name="actionProfile">

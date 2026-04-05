@@ -98,7 +98,8 @@ void ListView::mousePressEvent(QMouseEvent* event) {
 
 void ListView::paintEvent(QPaintEvent* event) {
   if (model() && model()->rowCount() == 0) {
-    paintEmptyListText(this, tr("No items found."));
+    paintEmptyListText(this, tr("No items found.\nDouble-click or Enter: details · Middle-click: "
+                                "play next episode"));
   }
 
   QTreeView::paintEvent(event);

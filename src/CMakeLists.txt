@@ -83,6 +83,8 @@ target_sources(taiga PRIVATE
 	taiga/path.hpp
 	taiga/session.cpp
 	taiga/session.hpp
+	taiga/stats.cpp
+	taiga/stats.hpp
 	taiga/settings.cpp
 	taiga/settings.hpp
 	taiga/update_check.cpp

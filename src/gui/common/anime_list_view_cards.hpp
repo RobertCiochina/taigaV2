@@ -20,6 +20,8 @@
 
 #include <QListView>
 
+class QMouseEvent;
+
 namespace gui {
 
 class AnimeListModel;
@@ -40,6 +42,7 @@ public:
 
 protected:
   void keyPressEvent(QKeyEvent* event) override;
+  void mousePressEvent(QMouseEvent* event) override;
   void paintEvent(QPaintEvent* event) override;
   void wheelEvent(QWheelEvent* event) override;
 

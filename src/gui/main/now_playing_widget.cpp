@@ -27,6 +27,7 @@
 #include "gui/utils/format.hpp"
 #include "gui/utils/theme.hpp"
 #include "media/anime_db.hpp"
+#include "taiga/session.hpp"
 #include "track/episode.hpp"
 #include "track/media.hpp"
 
@@ -89,7 +90,23 @@ void NowPlayingWidget::setPlaying(track::Episode episode) {
   }
 
   refresh();
-  show();
+  if (taiga::session.mainWindowNowPlayingBarEnabled()) {
+    show();
+  } else {
+    hide();
+  }
+}
+
+void NowPlayingWidget::syncFromDetection() {
+  if (!taiga::session.mainWindowNowPlayingBarEnabled()) {
+    hide();
+    return;
+  }
+  if (const auto ep = track::media::detection()->getCurrentEpisode()) {
+    setPlaying(*ep);
+  } else {
+    reset();
+  }
 }
 
 void NowPlayingWidget::refresh() {

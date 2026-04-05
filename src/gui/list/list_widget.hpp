@@ -19,6 +19,7 @@
 #pragma once
 
 #include <QMenu>
+#include <QString>
 #include <optional>
 
 #include "gui/common/anime_list_view_base.hpp"
@@ -48,6 +49,8 @@ public:
 
   /// First selected list row’s anime id, if the list view exists and something is selected.
   std::optional<int> selectedAnimeId() const;
+
+  void applyToolbarTextFilter(const QString& text);
 
 private:
   void initToolbar();

@@ -37,6 +37,7 @@ public:
 
   void reset();
   void setPlaying(track::Episode episode);
+  void syncFromDetection();
 
 private:
   void refresh();

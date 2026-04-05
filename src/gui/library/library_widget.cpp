@@ -112,6 +112,22 @@ LibraryWidget::LibraryWidget(QWidget* parent)
   });
 }
 
+void LibraryWidget::refreshRootsFromSettings() {
+  const auto folders = taiga::settings.libraryFolders();
+  m_comboRoot->clear();
+  m_comboRoot->setDisabled(folders.empty());
+  for (const auto& folder : folders) {
+    m_comboRoot->addItem(QString::fromStdString(folder));
+  }
+  if (folders.empty()) {
+    m_model->setRootPath({});
+    return;
+  }
+  const QString first = QString::fromStdString(folders.front());
+  m_comboRoot->setCurrentText(first);
+  m_model->setRootPath(first);
+}
+
 std::optional<int> LibraryWidget::selectedRecognizedAnimeId() const {
   const auto index = m_view->currentIndex();
   if (!index.isValid()) return std::nullopt;

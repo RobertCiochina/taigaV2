@@ -18,7 +18,6 @@
 
 #include "anime_list_view_base.hpp"
 
-#include <QLineEdit>
 #include <QListView>
 #include <QStatusBar>
 #include <QTreeView>
@@ -46,8 +45,6 @@ ListViewBase::ListViewBase(QWidget* parent, QAbstractItemView* view, AnimeListMo
 
   m_proxyModel->setSourceModel(m_model);
   m_view->setModel(m_proxyModel);
-
-  connect(mainWindow()->searchBox(), &QLineEdit::textChanged, this, &ListViewBase::filterByText);
 
   connect(m_view, &QAbstractItemView::doubleClicked, this, &ListViewBase::showMediaDialog);
 

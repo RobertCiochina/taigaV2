@@ -18,6 +18,8 @@
 
 #pragma once
 
+#include <QString>
+
 #include "gui/common/anime_list_view_base.hpp"
 #include "gui/common/combobox.hpp"
 #include "gui/common/page_widget.hpp"
@@ -39,6 +41,8 @@ public:
   void saveState();
 
   void reloadAnimeList();
+
+  void applyToolbarTextFilter(const QString& text);
 
 private:
   AnimeListModel* m_model = nullptr;
