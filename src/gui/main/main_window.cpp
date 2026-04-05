@@ -38,6 +38,7 @@
 #include <QShortcut>
 #include <QShowEvent>
 #include <QSignalBlocker>
+#include <QSystemTrayIcon>
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -71,6 +72,7 @@
 #include "taiga/stats.hpp"
 #include "taiga/update_check.hpp"
 #include "taiga/user_feedback.hpp"
+#include "track/episode.hpp"
 #include "track/media.hpp"
 #include "track/play.hpp"
 #include "track/scanner.hpp"
@@ -93,6 +95,8 @@ MainWindow::MainWindow() : QMainWindow(), ui_(new Ui::MainWindow) {
 
   if (const auto geometry = taiga::session.mainWindowGeometry(); !geometry.isEmpty()) {
     restoreGeometry(geometry);
+  } else {
+    // First run (or no session): center like v1's CenterOwner() for a new default placement.
     centerWidgetToScreen(this);
   }
 
@@ -133,6 +137,10 @@ void MainWindow::init() {
   initTrayIcon();
   initToolbar();
   initNavigation();
+  if (const QByteArray splitter_state = taiga::session.mainWindowSplitterState();
+      !splitter_state.isEmpty()) {
+    ui_->splitter->restoreState(splitter_state);
+  }
   initStatusbar();
   initNowPlaying();
   restoreViewChromeFromSession();
@@ -149,6 +157,9 @@ void MainWindow::init() {
     QTimer::singleShot(2800, this, [this]() { runLibraryScan(true); });
   }
 
+  connect(track::media::detection(), &track::media::Detection::currentEpisodeChanged, this,
+          &MainWindow::updateTrayTooltip);
+
   initFeatureToggleActions();
 
   {
@@ -164,6 +175,8 @@ void MainWindow::init() {
     connect(shortcut_settings, &QShortcut::activated, this,
             [this]() { SettingsDialog::show(this); });
   }
+
+  updateTrayTooltip();
 }
 
 void MainWindow::initActions() {
@@ -219,6 +232,13 @@ void MainWindow::initActions() {
       m_nowPlayingWidget->hide();
     }
   });
+  ui_->actionToggleNavigationSidebar->setShortcutContext(Qt::ApplicationShortcut);
+  ui_->actionToggleNavigationSidebar->setStatusTip(
+      tr("Show or hide the left navigation pane (Ctrl+B). Matches Taiga v1 View → sidebar."));
+  connect(ui_->actionToggleNavigationSidebar, &QAction::toggled, this, [this](const bool on) {
+    if (m_navigationWidget) m_navigationWidget->setVisible(on);
+    taiga::settings.setNavigationSidebarVisible(on);
+  });
   connect(ui_->actionLibraryFolders, &QAction::triggered, this, &MainWindow::showLibraryFoldersDialog);
 }
 
@@ -244,6 +264,7 @@ void MainWindow::initIcons() {
   ui_->actionSupport->setIcon(theme.getIcon("help"));
   ui_->actionSynchronize->setIcon(theme.getIcon("sync"));
   ui_->actionStatistics->setIcon(theme.getIcon("bar_chart"));
+  ui_->actionToggleNavigationSidebar->setIcon(theme.getIcon("lists"));
 }
 
 void MainWindow::initNavigation() {
@@ -442,6 +463,7 @@ void MainWindow::initToolbar() {
     button->setMenu([this]() {
       auto menu = new QMenu(this);
       auto* view_menu = menu->addMenu(tr("View"));
+      view_menu->addAction(ui_->actionToggleNavigationSidebar);
       view_menu->addAction(ui_->actionToggleStatusbar);
       view_menu->addAction(ui_->actionToggleNowPlaying);
       menu->addSeparator();
@@ -486,6 +508,13 @@ void MainWindow::initTrayIcon() {
   menu->addAction(ui_->actionDisplayWindow);
   menu->setDefaultAction(ui_->actionDisplayWindow);
   menu->addSeparator();
+  menu->addAction(ui_->actionSynchronize);
+  menu->addAction(ui_->actionStatistics);
+  menu->addAction(ui_->actionPlayNextEpisode);
+  menu->addSeparator();
+  menu->addAction(ui_->actionToggleDetection);
+  menu->addAction(ui_->actionToggleSynchronization);
+  menu->addSeparator();
   menu->addAction(ui_->actionSettings);
   menu->addAction(ui_->actionOpenDataFolder);
   menu->addSeparator();
@@ -505,19 +534,39 @@ void MainWindow::showEvent(QShowEvent* event) {
 }
 
 void MainWindow::changeEvent(QEvent* event) {
-  QMainWindow::changeEvent(event);
-  if (event->type() != QEvent::ActivationChange) return;
-  if (!isActiveWindow()) {
-    m_lastDeactivateMs = QDateTime::currentMSecsSinceEpoch();
-    return;
+  if (event->type() == QEvent::WindowStateChange) {
+    if (isMinimized() && taiga::settings.minimizeToTray() &&
+        QSystemTrayIcon::isSystemTrayAvailable()) {
+      QTimer::singleShot(0, this, [this] {
+        if (!taiga::settings.minimizeToTray() || !QSystemTrayIcon::isSystemTrayAvailable()) return;
+        hide();
+      });
+    }
   }
-  trySyncAfterFocusReturn();
+
+  QMainWindow::changeEvent(event);
+
+  if (event->type() == QEvent::ActivationChange) {
+    if (!isActiveWindow()) {
+      m_lastDeactivateMs = QDateTime::currentMSecsSinceEpoch();
+      return;
+    }
+    trySyncAfterFocusReturn();
+  }
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
   taiga::session.setMainWindowGeometry(saveGeometry());
+  taiga::session.setMainWindowSplitterState(ui_->splitter->saveState());
   if (m_listWidget) m_listWidget->saveState();
   if (m_searchWidget) m_searchWidget->saveState();
+
+  if (event->spontaneous() && taiga::settings.closeToTray() &&
+      QSystemTrayIcon::isSystemTrayAvailable()) {
+    event->ignore();
+    hide();
+    return;
+  }
   event->accept();
 }
 
@@ -660,6 +709,14 @@ void MainWindow::refreshServiceDependentUi() {
   updateToolbarSearchPlaceholder();
   if (m_navigationWidget) m_navigationWidget->refresh();
   refreshHomeDashboard();
+  updateTrayTooltip();
+  if (m_listWidget) m_listWidget->refreshListTitleDisplay();
+  if (m_searchWidget) m_searchWidget->refreshListTitleDisplay();
+}
+
+void MainWindow::refreshAnimeListProgressDecorations() {
+  if (m_listWidget) m_listWidget->refreshProgressColumnDisplay();
+  if (m_searchWidget) m_searchWidget->refreshProgressColumnDisplay();
 }
 
 void MainWindow::applyListSynchronizationToggleFromSettings() {
@@ -756,6 +813,10 @@ void MainWindow::updateTitle() {
 }
 
 void MainWindow::displayWindow() {
+  if (isHidden()) {
+    show();
+  }
+  raise();
   setWindowState((windowState() & ~Qt::WindowMinimized) | Qt::WindowActive);
   activateWindow();
 }
@@ -884,9 +945,11 @@ void MainWindow::runLibraryScan(const bool startup_silent) {
   statusBar()->showMessage(tr("Scanning library folders…"));
   const track::LibraryScanSummary sum = track::scanLibraryFolders(folders, kMaxEntries);
 
-  QString msg = tr("Library scan: %1 video file(s), %2 recognized (visited %3 paths).")
+  QString msg = tr("Library scan: %1 video file(s), %2 recognized, %3 series with local episodes "
+                   "(visited %4 paths).")
                     .arg(sum.video_files)
                     .arg(sum.recognized)
+                    .arg(sum.series_with_local_episodes)
                     .arg(sum.entries_visited);
   if (sum.entries_visited >= kMaxEntries) {
     msg += tr(" Scan stopped at safety limit.");
@@ -895,6 +958,45 @@ void MainWindow::runLibraryScan(const bool startup_silent) {
   if (!startup_silent) {
     QMessageBox::information(this, tr("Taiga"), msg);
   }
+  refreshAnimeListProgressDecorations();
+}
+
+void MainWindow::updateTrayTooltip() {
+  if (!m_trayIcon) return;
+
+  QString line1;
+  const auto svc_id = sync::currentServiceId();
+  const QString svc = sync::serviceName(svc_id);
+  if (svc_id != sync::ServiceId::Unknown && !svc.isEmpty()) {
+    line1 = tr("Taiga — %1").arg(svc);
+  } else {
+    line1 = tr("Taiga");
+  }
+
+  QString line2;
+  if (const auto ep = track::media::detection()->getCurrentEpisode()) {
+    if (const auto item = anime::db.item(ep->animeId())) {
+      const QString title = QString::fromStdString(item->titles.romaji);
+      if (item->episode_count > 1) {
+        const QString ep_num =
+            QString::fromStdString(ep->element(anitomy::ElementKind::Episode, "1"));
+        line2 = tr("Watching: %1 #%2").arg(title, ep_num);
+      } else {
+        line2 = tr("Watching: %1").arg(title);
+      }
+    } else {
+      const QString raw = QString::fromStdString(ep->element(anitomy::ElementKind::Title));
+      if (!raw.isEmpty()) line2 = tr("Playing: %1").arg(raw);
+    }
+  }
+
+  QString tip = line2.isEmpty() ? line1 : (line1 + "\n" + line2);
+  // Windows shells often cap tray icon tooltips (~128 characters).
+  constexpr int kMaxLen = 127;
+  if (tip.size() > kMaxLen) {
+    tip = tip.left(kMaxLen - 1) + QChar(0x2026);
+  }
+  m_trayIcon->setToolTip(tip);
 }
 
 void MainWindow::refreshHomeDashboard() {
@@ -931,6 +1033,13 @@ void MainWindow::refreshHomeDashboard() {
 }
 
 void MainWindow::restoreViewChromeFromSession() {
+  const bool nav_visible = taiga::settings.navigationSidebarVisible();
+  if (m_navigationWidget) m_navigationWidget->setVisible(nav_visible);
+  {
+    const QSignalBlocker b(ui_->actionToggleNavigationSidebar);
+    ui_->actionToggleNavigationSidebar->setChecked(nav_visible);
+  }
+
   ui_->statusbar->setVisible(taiga::session.mainWindowStatusBarVisible());
   {
     const QSignalBlocker b(ui_->actionToggleStatusbar);

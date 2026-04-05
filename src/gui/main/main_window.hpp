@@ -78,6 +78,7 @@ public slots:
   void showUserFeedback(QString message, bool error);
   /// Call after settings change the active list site or sync permissions (toolbar, search hint, nav).
   void refreshServiceDependentUi();
+  void refreshAnimeListProgressDecorations();
   /// Keeps View → Enable synchronization in sync with `taiga::settings` without emitting toggled.
   void applyListSynchronizationToggleFromSettings();
   /// Keeps View → Enable media detection in sync after changing recognition options in Settings.
@@ -129,6 +130,7 @@ private:
   void openDataFolder();
   void restoreViewChromeFromSession();
   void refreshHomeDashboard();
+  void updateTrayTooltip();
 
   Ui::MainWindow* ui_ = nullptr;
 

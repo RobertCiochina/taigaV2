@@ -18,8 +18,12 @@
 
 #include "search_widget.hpp"
 
+#include <optional>
+
+#include <QDate>
 #include <QPointer>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QStatusBar>
 #include <QToolBar>
 
@@ -60,7 +64,7 @@ SearchWidget::SearchWidget(QWidget* parent)
 
   // Year
   {
-    m_comboYear->setPlaceholderText("Year");
+    m_comboYear->setPlaceholderText(tr("Year"));
     for (int year = QDate::currentDate().year() + 1; year >= 1940; --year) {
       m_comboYear->addItem(QString::number(year), year);
     }
@@ -74,7 +78,7 @@ SearchWidget::SearchWidget(QWidget* parent)
 
   // Season
   {
-    m_comboSeason->setPlaceholderText("Season");
+    m_comboSeason->setPlaceholderText(tr("Season"));
     const auto seasons = {
         anime::SeasonName::Winter,
         anime::SeasonName::Spring,
@@ -96,7 +100,7 @@ SearchWidget::SearchWidget(QWidget* parent)
 
   // Type
   {
-    m_comboType->setPlaceholderText("Type");
+    m_comboType->setPlaceholderText(tr("Type"));
     for (const auto type : anime::kTypes) {
       m_comboType->addItem(formatType(type), static_cast<int>(type));
     }
@@ -111,7 +115,7 @@ SearchWidget::SearchWidget(QWidget* parent)
 
   // Status
   {
-    m_comboStatus->setPlaceholderText("Status");
+    m_comboStatus->setPlaceholderText(tr("Status"));
     for (const auto status : anime::kStatuses) {
       m_comboStatus->addItem(formatStatus(status), static_cast<int>(status));
     }
@@ -162,6 +166,29 @@ SearchWidget::SearchWidget(QWidget* parent)
       });
     });
     filtersLayout->addWidget(load_season);
+
+    auto* reset_filters = new QPushButton(tr("Reset filters"), this);
+    reset_filters->setToolTip(
+        tr("Clear year, season, format, and airing status filters. The main toolbar search is "
+           "unchanged.\nTip: middle-click or right-click a single filter to clear only that one."));
+    connect(reset_filters, &QPushButton::clicked, this, [this]() {
+      const QSignalBlocker by(m_comboYear);
+      const QSignalBlocker bs(m_comboSeason);
+      const QSignalBlocker bt(m_comboType);
+      const QSignalBlocker bu(m_comboStatus);
+      m_comboYear->setCurrentIndex(-1);
+      m_comboSeason->setCurrentIndex(-1);
+      m_comboType->setCurrentIndex(-1);
+      m_comboStatus->setCurrentIndex(-1);
+      m_proxyModel->setYearFilter(std::nullopt);
+      m_proxyModel->setSeasonFilter(std::nullopt);
+      m_proxyModel->setTypeFilter(std::nullopt);
+      m_proxyModel->setStatusFilter(std::nullopt);
+      if (auto* mw = mainWindow()) {
+        mw->statusBar()->showMessage(tr("Search filters cleared."), 3000);
+      }
+    });
+    filtersLayout->addWidget(reset_filters);
   }
 
   // Toolbar
@@ -187,6 +214,15 @@ void SearchWidget::saveState() {
 
 void SearchWidget::reloadAnimeList() {
   m_model->reloadFromDatabase();
+}
+
+void SearchWidget::refreshListTitleDisplay() {
+  m_model->emitTitleColumnDataChanged();
+  m_proxyModel->invalidate();
+}
+
+void SearchWidget::refreshProgressColumnDisplay() {
+  m_model->emitProgressColumnDataChanged();
 }
 
 void SearchWidget::applyToolbarTextFilter(const QString& text) {

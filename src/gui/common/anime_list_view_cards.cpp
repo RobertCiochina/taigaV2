@@ -19,7 +19,6 @@
 #include "anime_list_view_cards.hpp"
 
 #include <QKeyEvent>
-#include <QMouseEvent>
 #include <QScrollBar>
 #include <QWheelEvent>
 
@@ -28,6 +27,7 @@
 #include "gui/models/anime_list_model.hpp"
 #include "gui/models/anime_list_proxy_model.hpp"
 #include "gui/utils/painters.hpp"
+#include "taiga/settings.hpp"
 
 namespace gui {
 
@@ -45,24 +45,11 @@ ListViewCards::ListViewCards(QWidget* parent, AnimeListModel* model,
   setWordWrap(true);
 }
 
-void ListViewCards::mousePressEvent(QMouseEvent* event) {
-  if (event->button() == Qt::MouseButton::MiddleButton) {
-    const QModelIndex index = indexAt(event->pos());
-    if (index.isValid()) {
-      setCurrentIndex(index);
-      m_base->playNextEpisode(index);
-      return;
-    }
-  }
-
-  QListView::mousePressEvent(event);
-}
-
 void ListViewCards::keyPressEvent(QKeyEvent* event) {
   if (event->key() == Qt::Key::Key_Return || event->key() == Qt::Key::Key_Enter) {
     const auto indexes = selectionModel()->selectedIndexes();
     for (const auto& index : indexes) {
-      m_base->showMediaDialog(index);
+      m_base->runListRowAction(taiga::settings.listDoubleClickAction(), index);
     }
     return;
   }
@@ -72,8 +59,10 @@ void ListViewCards::keyPressEvent(QKeyEvent* event) {
 
 void ListViewCards::paintEvent(QPaintEvent* event) {
   if (model() && model()->rowCount() == 0) {
-    paintEmptyListText(this, tr("No items found.\nDouble-click or Enter: details · Middle-click: "
-                                "play next episode"));
+    paintEmptyListText(
+        this,
+        tr("No items found.\nDouble-click, Enter, and middle-click actions can be changed under "
+           "Settings → Anime List."));
   }
 
   QListView::paintEvent(event);

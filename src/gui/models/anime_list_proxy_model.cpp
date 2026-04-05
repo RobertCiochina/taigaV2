@@ -18,7 +18,10 @@
 
 #include "anime_list_proxy_model.hpp"
 
+#include "taiga/settings.hpp"
+
 #include <ranges>
+#include <string>
 
 #include "base/string.hpp"
 #include "gui/models/anime_list_model.hpp"
@@ -162,9 +165,12 @@ bool AnimeListProxyModel::lessThan(const QModelIndex& lhs, const QModelIndex& rh
   const auto rhs_entry = getListEntry(rhs);
 
   switch (lhs.column()) {
-    case AnimeListModel::COLUMN_TITLE:
-      return compareStrings(lhs_anime->titles.romaji, rhs_anime->titles.romaji,
-                            Qt::CaseInsensitive) < 0;
+    case AnimeListModel::COLUMN_TITLE: {
+      const auto lang = taiga::settings.listTitleLanguage();
+      const std::string l = anime::preferredListTitleString(*lhs_anime, lang);
+      const std::string r = anime::preferredListTitleString(*rhs_anime, lang);
+      return compareStrings(l, r, Qt::CaseInsensitive) < 0;
+    }
 
     case AnimeListModel::COLUMN_DURATION:
       return lhs_anime->episode_length < rhs_anime->episode_length;

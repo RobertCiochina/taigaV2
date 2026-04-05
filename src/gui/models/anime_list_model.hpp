@@ -68,6 +68,11 @@ public:
 
   void reloadFromDatabase();
 
+  /// Call after list title language preference changes (avoids full model reset).
+  void emitTitleColumnDataChanged();
+  /// Repaint progress column after list progress bar display settings change or library scan.
+  void emitProgressColumnDataChanged();
+
 private:
   QList<int> m_ids;
 };

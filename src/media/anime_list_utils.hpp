@@ -28,4 +28,11 @@ struct Entry;
 
 float getProgressRatio(const Details* item, const Entry* entry);
 
+/// Last aired episode number for list progress visuals (Taiga v1–aligned).
+int lastAiredEpisodeForProgress(const Details& item, const Entry* entry);
+
+/// Ratios in 0–1 for the list progress bar: aired vs. total, watched vs. total (v1 `GetProgressRatios`).
+void getProgressBarRatios(const Details* item, const Entry* entry, float& ratio_aired,
+                          float& ratio_watched);
+
 }  // namespace anime::list

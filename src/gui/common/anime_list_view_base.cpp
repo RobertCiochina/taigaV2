@@ -18,9 +18,14 @@
 
 #include "anime_list_view_base.hpp"
 
+#include <QDesktopServices>
+#include <QEvent>
 #include <QListView>
+#include <QMessageBox>
+#include <QMouseEvent>
 #include <QStatusBar>
 #include <QTreeView>
+#include <QUrl>
 
 #include "gui/main/main_window.hpp"
 #include "gui/main/navigation_item_delegate.hpp"
@@ -33,7 +38,10 @@
 #include "gui/utils/format.hpp"
 #include "media/anime.hpp"
 #include "media/anime_list.hpp"
+#include "sync/service.hpp"
+#include "taiga/settings.hpp"
 #include "track/play.hpp"
+#include "track/scanner.hpp"
 
 namespace gui {
 
@@ -46,12 +54,74 @@ ListViewBase::ListViewBase(QWidget* parent, QAbstractItemView* view, AnimeListMo
   m_proxyModel->setSourceModel(m_model);
   m_view->setModel(m_proxyModel);
 
-  connect(m_view, &QAbstractItemView::doubleClicked, this, &ListViewBase::showMediaDialog);
+  m_view->viewport()->installEventFilter(this);
+
+  connect(m_view, &QAbstractItemView::doubleClicked, this,
+          [this](const QModelIndex& index) {
+            runListRowAction(taiga::settings.listDoubleClickAction(), index);
+          });
 
   connect(m_view, &QWidget::customContextMenuRequested, this, &ListViewBase::showMediaMenu);
 
   connect(m_view->selectionModel(), &QItemSelectionModel::selectionChanged, this,
           &ListViewBase::updateSelectionStatus);
+}
+
+bool ListViewBase::eventFilter(QObject* watched, QEvent* event) {
+  if (watched == m_view->viewport() && event->type() == QEvent::MouseButtonPress) {
+    const auto* me = static_cast<QMouseEvent*>(event);
+    if (me->button() == Qt::MiddleButton) {
+      const QModelIndex index = m_view->indexAt(me->pos());
+      if (index.isValid()) {
+        m_view->setCurrentIndex(index);
+        runListRowAction(taiga::settings.listMiddleClickAction(), index);
+        return true;
+      }
+    }
+  }
+  return QObject::eventFilter(watched, event);
+}
+
+void ListViewBase::runListRowAction(const taiga::ListRowAction action, const QModelIndex& proxyIndex) {
+  const auto mappedIndex = m_proxyModel->mapToSource(proxyIndex);
+  const auto anime = m_model->getAnime(mappedIndex);
+  if (!anime) return;
+  const auto entry = m_model->getListEntry(mappedIndex);
+  QWidget* const anchor = m_view->window();
+
+  switch (action) {
+    case taiga::ListRowAction::Nothing:
+      return;
+    case taiga::ListRowAction::EditListEntry:
+      MediaDialog::show(mainWindow(), MediaDialogPage::List, *anime,
+                        entry ? std::optional<ListEntry>{*entry} : std::nullopt);
+      return;
+    case taiga::ListRowAction::OpenFolder: {
+      for (const auto& path : taiga::settings.libraryFolders()) {
+        if (const auto folder = track::findFolder(QString::fromStdString(path), anime->id)) {
+          QDesktopServices::openUrl(QUrl::fromLocalFile(*folder));
+          return;
+        }
+      }
+      QMessageBox::information(anchor, tr("Open folder"),
+                                 tr("Could not find a library folder for this title."));
+      return;
+    }
+    case taiga::ListRowAction::PlayNext:
+      if (!track::playNextEpisode(anime->id)) {
+        QMessageBox::information(anchor, tr("Taiga"),
+                                   tr("Could not find the next episode file in your library "
+                                      "folders for this title."));
+      }
+      return;
+    case taiga::ListRowAction::ShowDetails:
+      MediaDialog::show(mainWindow(), MediaDialogPage::Details, *anime,
+                        entry ? std::optional<ListEntry>{*entry} : std::nullopt);
+      return;
+    case taiga::ListRowAction::OpenAnimePage:
+      QDesktopServices::openUrl(sync::animePageUrl(anime->id));
+      return;
+  }
 }
 
 void ListViewBase::filterByText(const QString& text) {

@@ -23,6 +23,8 @@
 #include <vector>
 
 #include "base/settings.hpp"
+#include "media/anime.hpp"
+#include "taiga/list_row_action.hpp"
 
 namespace taiga {
 
@@ -54,6 +56,9 @@ public:
   bool checkForUpdatesOnStartup() const;
   /// Matches Taiga v1 optional scan (program/startup/checkeps); off by default.
   bool scanLibraryOnStartup() const;
+  /// Taiga v1: program/startup/minimize — start with the window minimized (or hidden to tray if
+  /// minimizeToTray() is also on).
+  bool startMinimized() const;
 
   /// Taiga v1: program/general/enablerecognition
   bool mediaDetectionEnabled() const;
@@ -61,6 +66,23 @@ public:
   bool sharingEnabled() const;
   /// Taiga v1: program/general/enablesync — when false, manual/auto list sync is skipped.
   bool listSynchronizationEnabled() const;
+
+  /// Taiga v1: program/general/close — window close keeps the app running in the tray.
+  bool closeToTray() const;
+  /// Taiga v1: program/general/minimize — minimize sends the window to the tray.
+  bool minimizeToTray() const;
+  /// Taiga v1: inverse of program/general/hidesidebar — left navigation pane visibility.
+  bool navigationSidebarVisible() const;
+  /// Taiga v1: program/list/action/titlelang (romaji | english | native).
+  anime::TitleLanguage listTitleLanguage() const;
+  /// Taiga v1: program/list/action/doubleclick (int 0–5).
+  ListRowAction listDoubleClickAction() const;
+  /// Taiga v1: program/list/action/middleclick (int 0–5).
+  ListRowAction listMiddleClickAction() const;
+  /// Taiga v1: program/list/progress/showaired
+  bool listProgressShowAired() const;
+  /// Taiga v1: program/list/progress/showavailable (uses episode index from last library scan).
+  bool listProgressShowAvailable() const;
 
   void setAppColorScheme(const Qt::ColorScheme scheme) const;
   void setService(const std::string& service) const;
@@ -75,9 +97,18 @@ public:
   void setWelcomeSetupPromptDismissed(bool dismissed) const;
   void setCheckForUpdatesOnStartup(bool enabled) const;
   void setScanLibraryOnStartup(bool enabled) const;
+  void setStartMinimized(bool enabled) const;
   void setMediaDetectionEnabled(bool enabled) const;
   void setSharingEnabled(bool enabled) const;
   void setListSynchronizationEnabled(bool enabled) const;
+  void setCloseToTray(bool enabled) const;
+  void setMinimizeToTray(bool enabled) const;
+  void setNavigationSidebarVisible(bool visible) const;
+  void setListTitleLanguage(anime::TitleLanguage language) const;
+  void setListDoubleClickAction(ListRowAction action) const;
+  void setListMiddleClickAction(ListRowAction action) const;
+  void setListProgressShowAired(bool enabled) const;
+  void setListProgressShowAvailable(bool enabled) const;
 
 private:
   QString fileName() const override;

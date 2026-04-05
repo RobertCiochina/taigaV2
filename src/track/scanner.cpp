@@ -30,10 +30,28 @@
 
 namespace track {
 
+namespace {
+
+std::unordered_map<int, std::unordered_set<int>> g_library_episodes;
+
+}  // namespace
+
+const std::unordered_map<int, std::unordered_set<int>>& libraryEpisodeAvailability() {
+  return g_library_episodes;
+}
+
+bool libraryHasLocalEpisode(const int anime_id, const int episode_number) {
+  if (episode_number < 1) return false;
+  const auto it = g_library_episodes.find(anime_id);
+  return it != g_library_episodes.end() && it->second.contains(episode_number);
+}
+
 LibraryScanSummary scanLibraryFolders(const std::vector<std::string>& folders,
                                       const int max_entries) {
   LibraryScanSummary s;
   if (max_entries <= 0) return s;
+
+  g_library_episodes.clear();
 
   static const QSet<QString> kVideoExt{
       QStringLiteral("mkv"), QStringLiteral("mp4"), QStringLiteral("avi"),
@@ -55,10 +73,17 @@ LibraryScanSummary scanLibraryFolders(const std::vector<std::string>& folders,
       ++s.video_files;
 
       auto episode = recognition::parseFileInfo(fi);
-      if (recognition::identify(episode) != anime::kUnknownId) ++s.recognized;
+      const int aid = recognition::identify(episode);
+      if (aid != anime::kUnknownId) {
+        ++s.recognized;
+        const int ep =
+            QString::fromStdString(episode.element(anitomy::ElementKind::Episode, {})).toInt();
+        if (ep > 0) g_library_episodes[aid].insert(ep);
+      }
     }
   }
 
+  s.series_with_local_episodes = static_cast<int>(g_library_episodes.size());
   return s;
 }
 

@@ -61,11 +61,11 @@ void NavigationWidget::refresh() {
   setUpdatesEnabled(false);
   clear();
 
-  addItem("Home", "home", MainWindowPage::Home);
-  addItem("Search", "search", MainWindowPage::Search);
+  addItem(tr("Home"), "home", MainWindowPage::Home);
+  addItem(tr("Search"), "search", MainWindowPage::Search);
   addSeparator();
 
-  auto listItem = addItem("Anime List", "list_alt", MainWindowPage::List);
+  auto listItem = addItem(tr("Anime List"), "list_alt", MainWindowPage::List);
   listItem->setExpanded(true);
   setItemData(listItem, NavigationItemDataRole::HasChildren, true);
 
@@ -86,10 +86,10 @@ void NavigationWidget::refresh() {
     setItemData(item, NavigationItemDataRole::Counter, statusCounts[status]);
   }
 
-  addItem("History", "history", MainWindowPage::History);
+  addItem(tr("History"), "history", MainWindowPage::History);
   addSeparator();
-  addItem("Library", "folder", MainWindowPage::Library);
-  addItem("Torrents", "rss_feed", MainWindowPage::Torrents);
+  addItem(tr("Library"), "folder", MainWindowPage::Library);
+  addItem(tr("Torrents"), "rss_feed", MainWindowPage::Torrents);
 
   setUpdatesEnabled(true);
 }

@@ -21,6 +21,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QLocalSocket>
+#include <QSystemTrayIcon>
 #include <QTranslator>
 #include <format>
 
@@ -91,6 +92,13 @@ int Application::run() {
   window_ = new gui::MainWindow();
   window_->init();
   window_->show();
+  if (taiga::settings.startMinimized()) {
+    if (taiga::settings.minimizeToTray() && QSystemTrayIcon::isSystemTrayAvailable()) {
+      window_->hide();
+    } else {
+      window_->showMinimized();
+    }
+  }
   startInstanceServer();
 
   return QApplication::exec();

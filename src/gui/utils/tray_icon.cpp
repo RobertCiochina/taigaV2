@@ -20,21 +20,21 @@
 
 #include <QIcon>
 #include <QMenu>
+#include <QString>
 #include <QSystemTrayIcon>
 
 namespace gui {
 
 TrayIcon::TrayIcon(QObject* parent, const QIcon& icon, QMenu* menu) {
+  m_contextMenu = menu;
+
   if (!QSystemTrayIcon::isSystemTrayAvailable()) {
     return;
   }
 
-  m_contextMenu = menu;
-
   m_icon = new QSystemTrayIcon(parent);
   m_icon->setContextMenu(m_contextMenu);
   m_icon->setIcon(icon);
-  m_icon->setToolTip("Taiga");
   m_icon->show();
 
   connect(m_icon, &QSystemTrayIcon::activated, this,
@@ -49,6 +49,12 @@ TrayIcon::TrayIcon(QObject* parent, const QIcon& icon, QMenu* menu) {
           });
 
   connect(m_icon, &QSystemTrayIcon::messageClicked, this, &TrayIcon::messageClicked);
+}
+
+void TrayIcon::setToolTip(const QString& text) {
+  if (m_icon) {
+    m_icon->setToolTip(text);
+  }
 }
 
 }  // namespace gui

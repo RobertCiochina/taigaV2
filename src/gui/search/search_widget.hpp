@@ -42,6 +42,9 @@ public:
 
   void reloadAnimeList();
 
+  void refreshListTitleDisplay();
+  void refreshProgressColumnDisplay();
+
   void applyToolbarTextFilter(const QString& text);
 
 private:

@@ -18,12 +18,15 @@
 
 #include "settings.hpp"
 
+#include <algorithm>
+
 #include <QStringView>
 #include <QXmlStreamReader>
 #include <chrono>
 
 #include "base/log.hpp"
 #include "base/xml.hpp"
+#include "media/anime.hpp"
 #include "taiga/accounts.hpp"
 #include "taiga/settings.hpp"
 
@@ -153,6 +156,18 @@ void parseProgramElement(QXmlStreamReader& xml, const taiga::Settings& settings)
       if (!ey.isEmpty()) {
         settings.setListSynchronizationEnabled(xmlAttrBool(ey, true));
       }
+      const auto close_tray = attrs.value(u"close");
+      if (!close_tray.isEmpty()) {
+        settings.setCloseToTray(xmlAttrBool(close_tray, false));
+      }
+      const auto min_tray = attrs.value(u"minimize");
+      if (!min_tray.isEmpty()) {
+        settings.setMinimizeToTray(xmlAttrBool(min_tray, false));
+      }
+      const auto hide_sb = attrs.value(u"hidesidebar");
+      if (!hide_sb.isEmpty()) {
+        settings.setNavigationSidebarVisible(!xmlAttrBool(hide_sb, false));
+      }
       xml.skipCurrentElement();
     } else if (xml.name() == u"startup") {
       const auto attrs = xml.attributes();
@@ -164,7 +179,67 @@ void parseProgramElement(QXmlStreamReader& xml, const taiga::Settings& settings)
       if (!ce.isEmpty()) {
         settings.setScanLibraryOnStartup(xmlAttrBool(ce, false));
       }
+      const auto start_min = attrs.value(u"minimize");
+      if (!start_min.isEmpty()) {
+        settings.setStartMinimized(xmlAttrBool(start_min, false));
+      }
       xml.skipCurrentElement();
+    } else if (xml.name() == u"list") {
+      while (xml.readNextStartElement()) {
+        if (xml.name() == u"action") {
+          const auto attrs = xml.attributes();
+          const auto tl = attrs.value(u"titlelang");
+          if (!tl.isEmpty()) {
+            const QString s = tl.toString();
+            if (s.compare(u"english", Qt::CaseInsensitive) == 0) {
+              settings.setListTitleLanguage(anime::TitleLanguage::English);
+            } else if (s.compare(u"native", Qt::CaseInsensitive) == 0) {
+              settings.setListTitleLanguage(anime::TitleLanguage::Native);
+            } else {
+              settings.setListTitleLanguage(anime::TitleLanguage::Romaji);
+            }
+          } else {
+            const auto et = attrs.value(u"englishtitles");
+            if (!et.isEmpty() && xmlAttrBool(et, false)) {
+              settings.setListTitleLanguage(anime::TitleLanguage::English);
+            }
+          }
+          {
+            const auto dc = attrs.value(u"doubleclick");
+            if (!dc.isEmpty()) {
+              bool ok = false;
+              const int v = dc.toInt(&ok);
+              if (ok) {
+                settings.setListDoubleClickAction(
+                    static_cast<taiga::ListRowAction>(std::clamp(v, 0, 5)));
+              }
+            }
+            const auto mc = attrs.value(u"middleclick");
+            if (!mc.isEmpty()) {
+              bool ok = false;
+              const int v = mc.toInt(&ok);
+              if (ok) {
+                settings.setListMiddleClickAction(
+                    static_cast<taiga::ListRowAction>(std::clamp(v, 0, 5)));
+              }
+            }
+          }
+          xml.skipCurrentElement();
+        } else if (xml.name() == u"progress") {
+          const auto attrs = xml.attributes();
+          const auto sa = attrs.value(u"showaired");
+          if (!sa.isEmpty()) {
+            settings.setListProgressShowAired(xmlAttrBool(sa, true));
+          }
+          const auto sv = attrs.value(u"showavailable");
+          if (!sv.isEmpty()) {
+            settings.setListProgressShowAvailable(xmlAttrBool(sv, true));
+          }
+          xml.skipCurrentElement();
+        } else {
+          xml.skipCurrentElement();
+        }
+      }
     } else {
       xml.skipCurrentElement();
     }

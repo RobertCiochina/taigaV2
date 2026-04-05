@@ -22,6 +22,7 @@
 
 class QIcon;
 class QMenu;
+class QString;
 class QSystemTrayIcon;
 
 namespace gui {
@@ -33,13 +34,15 @@ class TrayIcon final : public QObject {
 public:
   TrayIcon(QObject* parent, const QIcon& icon, QMenu* menu);
 
+  void setToolTip(const QString& text);
+
 signals:
   void activated();
   void messageClicked();
 
 private:
-  QMenu* m_contextMenu;
-  QSystemTrayIcon* m_icon;
+  QMenu* m_contextMenu = nullptr;
+  QSystemTrayIcon* m_icon = nullptr;
 };
 
 }  // namespace gui

@@ -147,6 +147,36 @@
                 </property>
                </widget>
               </item>
+              <item>
+               <widget class="QCheckBox" name="checkStartMinimized">
+                <property name="text">
+                 <string>Start minimized</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="groupWindowTray">
+             <property name="title">
+              <string>System tray</string>
+             </property>
+             <layout class="QVBoxLayout" name="verticalLayout_windowTray">
+              <item>
+               <widget class="QCheckBox" name="checkCloseToTray">
+                <property name="text">
+                 <string>Close to tray (keep Taiga running in the background)</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QCheckBox" name="checkMinimizeToTray">
+                <property name="text">
+                 <string>Minimize to tray</string>
+                </property>
+               </widget>
+              </item>
              </layout>
             </widget>
            </item>
@@ -486,6 +516,65 @@
                <widget class="QCheckBox" name="checkListUpdatesEnabled">
                 <property name="text">
                  <string>Allow downloading and uploading list changes (same as View → Enable synchronization)</string>
+                </property>
+                <property name="checked">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="groupListDisplay">
+             <property name="title">
+              <string>Display</string>
+             </property>
+             <layout class="QFormLayout" name="formLayout_listDisplay">
+              <item row="0" column="0">
+               <widget class="QLabel" name="labelListTitleLanguage">
+                <property name="text">
+                 <string>Title language:</string>
+                </property>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QComboBox" name="comboListTitleLanguage"/>
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel" name="labelListDoubleClick">
+                <property name="text">
+                 <string>Double-click / Enter:</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QComboBox" name="comboListDoubleClick"/>
+              </item>
+              <item row="2" column="0">
+               <widget class="QLabel" name="labelListMiddleClick">
+                <property name="text">
+                 <string>Middle-click:</string>
+                </property>
+               </widget>
+              </item>
+              <item row="2" column="1">
+               <widget class="QComboBox" name="comboListMiddleClick"/>
+              </item>
+              <item row="3" column="0" colspan="2">
+               <widget class="QCheckBox" name="checkListProgressShowAired">
+                <property name="text">
+                 <string>Show airing progress (thin strip on the progress bar)</string>
+                </property>
+                <property name="checked">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item row="4" column="0" colspan="2">
+               <widget class="QCheckBox" name="checkListProgressShowAvailable">
+                <property name="text">
+                 <string>Show episodes found on disk (orange markers; updated when you scan library folders)</string>
                 </property>
                 <property name="checked">
                  <bool>true</bool>

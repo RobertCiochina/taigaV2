@@ -19,8 +19,11 @@
 #pragma once
 
 #include <QAbstractItemView>
+#include <QEvent>
 #include <QObject>
 #include <QTreeWidget>
+
+#include "taiga/list_row_action.hpp"
 
 namespace gui {
 
@@ -41,12 +44,17 @@ public:
                AnimeListProxyModel* proxyModel);
   ~ListViewBase() = default;
 
+  void runListRowAction(taiga::ListRowAction action, const QModelIndex& proxyIndex);
+
 public slots:
   void filterByText(const QString& text);
   void playNextEpisode(const QModelIndex& index);
   void showMediaDialog(const QModelIndex& index);
   void showMediaMenu();
   void updateSelectionStatus(const QItemSelection& selected, const QItemSelection& deselected);
+
+protected:
+  bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
   QModelIndexList selectedIndexes();

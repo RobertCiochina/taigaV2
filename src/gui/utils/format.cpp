@@ -183,12 +183,18 @@ QString formatListStatus(const anime::list::Status value) {
 
   // clang-format off
   switch (value) {
-    case NotInList: return "Not in list";
-    case Watching: return "Watching";
-    case Completed: return "Completed";
-    case OnHold: return "Paused";
-    case Dropped: return "Dropped";
-    case PlanToWatch: return "Planning";
+    case NotInList:
+      return QCoreApplication::translate("ListStatus", "Not in list");
+    case Watching:
+      return QCoreApplication::translate("ListStatus", "Watching");
+    case Completed:
+      return QCoreApplication::translate("ListStatus", "Completed");
+    case OnHold:
+      return QCoreApplication::translate("ListStatus", "Paused");
+    case Dropped:
+      return QCoreApplication::translate("ListStatus", "Dropped");
+    case PlanToWatch:
+      return QCoreApplication::translate("ListStatus", "Planning");
     default: return "";
   }
   // clang-format on

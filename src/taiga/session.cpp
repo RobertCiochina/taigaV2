@@ -54,6 +54,10 @@ QByteArray Session::mainWindowGeometry() const {
   return QByteArray::fromBase64(value("mainWindow.geometry", QByteArray{}).toByteArray());
 }
 
+QByteArray Session::mainWindowSplitterState() const {
+  return QByteArray::fromBase64(value("mainWindow.splitterState", QByteArray{}).toByteArray());
+}
+
 bool Session::mainWindowStatusBarVisible() const {
   return value("mainWindow.statusBarVisible", true).toBool();
 }
@@ -124,6 +128,10 @@ void Session::setAnimeListViewMode(const gui::ListViewMode mode) const {
 
 void Session::setMainWindowGeometry(const QByteArray& geometry) const {
   setValue("mainWindow.geometry", geometry.toBase64().toStdString());
+}
+
+void Session::setMainWindowSplitterState(const QByteArray& state) const {
+  setValue("mainWindow.splitterState", state.toBase64().toStdString());
 }
 
 void Session::setMainWindowStatusBarVisible(const bool visible) const {

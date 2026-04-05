@@ -36,6 +36,7 @@ public:
   Qt::SortOrder animeListSortOrder() const;
   gui::ListViewMode animeListViewMode() const;
   QByteArray mainWindowGeometry() const;
+  QByteArray mainWindowSplitterState() const;
   bool mainWindowStatusBarVisible() const;
   bool mainWindowNowPlayingBarEnabled() const;
   QByteArray mediaDialogGeometry() const;
@@ -49,6 +50,7 @@ public:
   void setAnimeListSortOrder(const Qt::SortOrder order) const;
   void setAnimeListViewMode(const gui::ListViewMode mode) const;
   void setMainWindowGeometry(const QByteArray& geometry) const;
+  void setMainWindowSplitterState(const QByteArray& state) const;
   void setMainWindowStatusBarVisible(bool visible) const;
   void setMainWindowNowPlayingBarEnabled(bool enabled) const;
   void setMediaDialogGeometry(const QByteArray& geometry) const;

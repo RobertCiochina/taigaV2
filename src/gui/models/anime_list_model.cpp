@@ -20,6 +20,7 @@
 
 #include <QApplication>
 #include <QColor>
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QFont>
 #include <QPalette>
@@ -31,6 +32,7 @@
 #include "media/anime_db.hpp"
 #include "media/anime_season.hpp"
 #include "sync/service.hpp"
+#include "taiga/settings.hpp"
 
 namespace gui {
 
@@ -75,7 +77,8 @@ QVariant AnimeListModel::data(const QModelIndex& index, int role) const {
     case Qt::DisplayRole:
       switch (index.column()) {
         case COLUMN_TITLE:
-          return QString::fromStdString(anime->titles.romaji);
+          return QString::fromStdString(anime::preferredListTitleString(
+              *anime, taiga::settings.listTitleLanguage()));
         case COLUMN_DURATION:
           return formatEpisodeLength(anime->episode_length);
         case COLUMN_REWATCHES:
@@ -107,8 +110,22 @@ QVariant AnimeListModel::data(const QModelIndex& index, int role) const {
 
     case Qt::ToolTipRole:
       switch (index.column()) {
-        case COLUMN_TITLE:
-          return QString::fromStdString(anime->titles.romaji);
+        case COLUMN_TITLE: {
+          QStringList lines;
+          if (!anime->titles.romaji.empty()) {
+            lines += QCoreApplication::translate("AnimeListModel", "Romaji: %1")
+                         .arg(QString::fromStdString(anime->titles.romaji));
+          }
+          if (!anime->titles.english.empty()) {
+            lines += QCoreApplication::translate("AnimeListModel", "English: %1")
+                         .arg(QString::fromStdString(anime->titles.english));
+          }
+          if (!anime->titles.japanese.empty()) {
+            lines += QCoreApplication::translate("AnimeListModel", "Native: %1")
+                         .arg(QString::fromStdString(anime->titles.japanese));
+          }
+          return lines.join(QLatin1Char('\n'));
+        }
         case COLUMN_SEASON:
           return formatFuzzyDate(anime->date_started);
         case COLUMN_LAST_UPDATED:
@@ -207,6 +224,21 @@ void AnimeListModel::reloadFromDatabase() {
   beginResetModel();
   m_ids = anime::db.items().keys();
   endResetModel();
+}
+
+void AnimeListModel::emitTitleColumnDataChanged() {
+  if (m_ids.isEmpty()) return;
+  const QModelIndex top_left = index(0, COLUMN_TITLE);
+  const QModelIndex bottom_right = index(m_ids.size() - 1, COLUMN_TITLE);
+  emit dataChanged(top_left, bottom_right, {Qt::DisplayRole, Qt::ToolTipRole});
+}
+
+void AnimeListModel::emitProgressColumnDataChanged() {
+  if (m_ids.isEmpty()) return;
+  const int last = m_ids.size() - 1;
+  emit dataChanged(index(0, COLUMN_PROGRESS), index(last, COLUMN_PROGRESS), {Qt::DisplayRole});
+  // Card views use column 0 only; table list uses COLUMN_PROGRESS for the bar.
+  emit dataChanged(index(0, 0), index(last, 0), {Qt::DisplayRole});
 }
 
 QVariant AnimeListModel::headerData(int section, Qt::Orientation orientation, int role) const {

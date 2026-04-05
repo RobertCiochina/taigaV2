@@ -223,6 +223,15 @@ void ListWidget::reloadAnimeList() {
   m_model->reloadFromDatabase();
 }
 
+void ListWidget::refreshListTitleDisplay() {
+  m_model->emitTitleColumnDataChanged();
+  m_proxyModel->invalidate();
+}
+
+void ListWidget::refreshProgressColumnDisplay() {
+  m_model->emitProgressColumnDataChanged();
+}
+
 void ListWidget::applyToolbarTextFilter(const QString& text) {
   m_proxyModel->setTextFilter(text);
 }

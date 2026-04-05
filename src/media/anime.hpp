@@ -113,6 +113,21 @@ struct Details {
   std::time_t next_episode_time = 0;
 };
 
+/// Primary string for list display / sorting for the given language (fallback to romaji).
+inline std::string preferredListTitleString(const Details& a, const TitleLanguage lang) {
+  switch (lang) {
+    case TitleLanguage::English:
+      if (!a.titles.english.empty()) return a.titles.english;
+      return a.titles.romaji;
+    case TitleLanguage::Native:
+      if (!a.titles.japanese.empty()) return a.titles.japanese;
+      return a.titles.romaji;
+    case TitleLanguage::Romaji:
+    default:
+      return a.titles.romaji;
+  }
+}
+
 }  // namespace anime
 
 using Anime = anime::Details;

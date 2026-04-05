@@ -138,6 +138,7 @@
     <property name="title">
      <string>&amp;View</string>
     </property>
+    <addaction name="actionToggleNavigationSidebar"/>
     <addaction name="actionToggleStatusbar"/>
     <addaction name="actionToggleNowPlaying"/>
    </widget>
@@ -336,6 +337,23 @@
    </property>
    <property name="text">
     <string>Show Now Playing</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::MenuRole::NoRole</enum>
+   </property>
+  </action>
+  <action name="actionToggleNavigationSidebar">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Show navigation sidebar</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+B</string>
    </property>
    <property name="menuRole">
     <enum>QAction::MenuRole::NoRole</enum>

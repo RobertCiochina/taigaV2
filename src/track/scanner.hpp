@@ -21,6 +21,8 @@
 #include <QString>
 #include <optional>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace track {
@@ -29,7 +31,14 @@ struct LibraryScanSummary {
   int entries_visited = 0;
   int video_files = 0;
   int recognized = 0;
+  /// Anime ids for which at least one local episode path was recorded (same scan as above).
+  int series_with_local_episodes = 0;
 };
+
+/// Episode numbers seen on disk for each anime id during the last `scanLibraryFolders` call.
+const std::unordered_map<int, std::unordered_set<int>>& libraryEpisodeAvailability();
+
+bool libraryHasLocalEpisode(int anime_id, int episode_number);
 
 /// Walks configured library folders, parses filenames, and counts how many match the recognition DB.
 /// Stops after \a max_entries filesystem entries (files only) to keep the UI responsive.

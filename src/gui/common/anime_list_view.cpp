@@ -26,7 +26,7 @@
 #include "gui/models/anime_list_model.hpp"
 #include "gui/models/anime_list_proxy_model.hpp"
 #include "gui/utils/painters.hpp"
-#include "track/play.hpp"
+#include "taiga/settings.hpp"
 
 namespace gui {
 
@@ -75,7 +75,7 @@ void ListView::keyPressEvent(QKeyEvent* event) {
   if (event->key() == Qt::Key::Key_Return || event->key() == Qt::Key::Key_Enter) {
     const auto indexes = selectionModel()->selectedRows();
     for (const auto& index : indexes) {
-      m_base->showMediaDialog(index);
+      m_base->runListRowAction(taiga::settings.listDoubleClickAction(), index);
     }
     return;
   }
@@ -83,23 +83,12 @@ void ListView::keyPressEvent(QKeyEvent* event) {
   QTreeView::keyPressEvent(event);
 }
 
-void ListView::mousePressEvent(QMouseEvent* event) {
-  if (event->button() == Qt::MouseButton::MiddleButton) {
-    const QModelIndex index = indexAt(event->pos());
-    if (index.isValid()) {
-      setCurrentIndex(index);
-      m_base->playNextEpisode(index);
-      return;
-    }
-  }
-
-  QTreeView::mousePressEvent(event);
-}
-
 void ListView::paintEvent(QPaintEvent* event) {
   if (model() && model()->rowCount() == 0) {
-    paintEmptyListText(this, tr("No items found.\nDouble-click or Enter: details · Middle-click: "
-                                "play next episode"));
+    paintEmptyListText(
+        this,
+        tr("No items found.\nDouble-click, Enter, and middle-click actions can be changed under "
+           "Settings → Anime List."));
   }
 
   QTreeView::paintEvent(event);

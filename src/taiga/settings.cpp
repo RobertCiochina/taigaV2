@@ -21,6 +21,7 @@
 #include <QFile>
 #include <QJsonArray>
 #include <algorithm>
+#include <cmath>
 #include <ranges>
 
 #include "base/string.hpp"
@@ -114,6 +115,10 @@ bool Settings::scanLibraryOnStartup() const {
   return value("app.startup.scanLibrary", false).toBool();
 }
 
+bool Settings::startMinimized() const {
+  return value("app.startup.startMinimized", false).toBool();
+}
+
 bool Settings::mediaDetectionEnabled() const {
   return value("track.detection.enabled", true).toBool();
 }
@@ -124,6 +129,43 @@ bool Settings::sharingEnabled() const {
 
 bool Settings::listSynchronizationEnabled() const {
   return value("sync.listUpdates.enabled", true).toBool();
+}
+
+bool Settings::closeToTray() const {
+  return value("app.window.closeToTray", false).toBool();
+}
+
+bool Settings::minimizeToTray() const {
+  return value("app.window.minimizeToTray", false).toBool();
+}
+
+bool Settings::navigationSidebarVisible() const {
+  return value("app.window.navigationSidebarVisible", true).toBool();
+}
+
+anime::TitleLanguage Settings::listTitleLanguage() const {
+  const QString v = value("list.displayTitleLanguage", QStringLiteral("romaji")).toString();
+  if (v.compare(u"english", Qt::CaseInsensitive) == 0) return anime::TitleLanguage::English;
+  if (v.compare(u"native", Qt::CaseInsensitive) == 0) return anime::TitleLanguage::Native;
+  return anime::TitleLanguage::Romaji;
+}
+
+ListRowAction Settings::listDoubleClickAction() const {
+  const int v = value("list.action.doubleClick", static_cast<int>(ListRowAction::ShowDetails)).toInt();
+  return static_cast<ListRowAction>(std::clamp(v, 0, 5));
+}
+
+ListRowAction Settings::listMiddleClickAction() const {
+  const int v = value("list.action.middleClick", static_cast<int>(ListRowAction::PlayNext)).toInt();
+  return static_cast<ListRowAction>(std::clamp(v, 0, 5));
+}
+
+bool Settings::listProgressShowAired() const {
+  return value("list.progress.showAired", true).toBool();
+}
+
+bool Settings::listProgressShowAvailable() const {
+  return value("list.progress.showAvailable", true).toBool();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -187,6 +229,10 @@ void Settings::setScanLibraryOnStartup(const bool enabled) const {
   setValue("app.startup.scanLibrary", enabled);
 }
 
+void Settings::setStartMinimized(const bool enabled) const {
+  setValue("app.startup.startMinimized", enabled);
+}
+
 void Settings::setMediaDetectionEnabled(const bool enabled) const {
   setValue("track.detection.enabled", enabled);
 }
@@ -197,6 +243,50 @@ void Settings::setSharingEnabled(const bool enabled) const {
 
 void Settings::setListSynchronizationEnabled(const bool enabled) const {
   setValue("sync.listUpdates.enabled", enabled);
+}
+
+void Settings::setCloseToTray(const bool enabled) const {
+  setValue("app.window.closeToTray", enabled);
+}
+
+void Settings::setMinimizeToTray(const bool enabled) const {
+  setValue("app.window.minimizeToTray", enabled);
+}
+
+void Settings::setNavigationSidebarVisible(const bool visible) const {
+  setValue("app.window.navigationSidebarVisible", visible);
+}
+
+void Settings::setListTitleLanguage(const anime::TitleLanguage language) const {
+  QString slug = QStringLiteral("romaji");
+  switch (language) {
+    case anime::TitleLanguage::English:
+      slug = QStringLiteral("english");
+      break;
+    case anime::TitleLanguage::Native:
+      slug = QStringLiteral("native");
+      break;
+    case anime::TitleLanguage::Romaji:
+    default:
+      break;
+  }
+  setValue("list.displayTitleLanguage", slug);
+}
+
+void Settings::setListDoubleClickAction(const ListRowAction action) const {
+  setValue("list.action.doubleClick", static_cast<int>(action));
+}
+
+void Settings::setListMiddleClickAction(const ListRowAction action) const {
+  setValue("list.action.middleClick", static_cast<int>(action));
+}
+
+void Settings::setListProgressShowAired(const bool enabled) const {
+  setValue("list.progress.showAired", enabled);
+}
+
+void Settings::setListProgressShowAvailable(const bool enabled) const {
+  setValue("list.progress.showAvailable", enabled);
 }
 
 }  // namespace taiga

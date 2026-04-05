@@ -8,6 +8,7 @@
 #include <chrono>
 
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDesktopServices>
 #include <QFileDialog>
 #include <QFormLayout>
@@ -15,6 +16,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSystemTrayIcon>
 #include <QTreeWidgetItem>
 #include <QUrl>
 
@@ -25,7 +27,9 @@
 #include "track/media.hpp"
 #include "sync/anilist_utils.hpp"
 #include "sync/service.hpp"
+#include "media/anime.hpp"
 #include "taiga/accounts.hpp"
+#include "taiga/list_row_action.hpp"
 #include "taiga/network.hpp"
 #include "taiga/settings.hpp"
 #include "ui_settings_dialog.h"
@@ -189,6 +193,22 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
 
   ui_->checkUpdatesOnStartup->setChecked(taiga::settings.checkForUpdatesOnStartup());
   ui_->checkScanLibraryOnStartup->setChecked(taiga::settings.scanLibraryOnStartup());
+  ui_->checkStartMinimized->setChecked(taiga::settings.startMinimized());
+  ui_->checkStartMinimized->setToolTip(
+      tr("If \"Minimize to tray\" is also enabled, Taiga starts in the tray only (v1 behavior)."));
+
+  ui_->checkCloseToTray->setChecked(taiga::settings.closeToTray());
+  ui_->checkMinimizeToTray->setChecked(taiga::settings.minimizeToTray());
+  {
+    const bool tray = QSystemTrayIcon::isSystemTrayAvailable();
+    ui_->checkCloseToTray->setEnabled(tray);
+    ui_->checkMinimizeToTray->setEnabled(tray);
+    if (!tray) {
+      const QString tip =
+          tr("No system tray is available; these options apply only when the tray is present.");
+      ui_->groupWindowTray->setToolTip(tip);
+    }
+  }
 
   ui_->comboColorScheme->addItem(tr("Follow system"), static_cast<int>(Qt::ColorScheme::Unknown));
   ui_->comboColorScheme->addItem(tr("Light"), static_cast<int>(Qt::ColorScheme::Light));
@@ -282,6 +302,48 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   }
   ui_->checkListUpdatesEnabled->setChecked(taiga::settings.listSynchronizationEnabled());
 
+  ui_->comboListTitleLanguage->addItem(tr("Romaji"), static_cast<int>(anime::TitleLanguage::Romaji));
+  ui_->comboListTitleLanguage->addItem(tr("English"), static_cast<int>(anime::TitleLanguage::English));
+  ui_->comboListTitleLanguage->addItem(tr("Native title"), static_cast<int>(anime::TitleLanguage::Native));
+  ui_->comboListTitleLanguage->setToolTip(
+      tr("Primary title shown in the anime list and search cards. Hover a row to see all title "
+         "variants."));
+  {
+    const int cur = static_cast<int>(taiga::settings.listTitleLanguage());
+    int tidx = ui_->comboListTitleLanguage->findData(cur);
+    if (tidx < 0) tidx = 0;
+    ui_->comboListTitleLanguage->setCurrentIndex(tidx);
+  }
+
+  {
+    const auto fill_row_actions = [this](QComboBox* box) {
+      box->clear();
+      box->addItem(tr("Do nothing"), static_cast<int>(taiga::ListRowAction::Nothing));
+      box->addItem(tr("Edit list entry"), static_cast<int>(taiga::ListRowAction::EditListEntry));
+      box->addItem(tr("Open folder"), static_cast<int>(taiga::ListRowAction::OpenFolder));
+      box->addItem(tr("Play next episode"), static_cast<int>(taiga::ListRowAction::PlayNext));
+      box->addItem(tr("Show details"), static_cast<int>(taiga::ListRowAction::ShowDetails));
+      box->addItem(tr("Open anime page in browser"),
+                   static_cast<int>(taiga::ListRowAction::OpenAnimePage));
+    };
+    fill_row_actions(ui_->comboListDoubleClick);
+    fill_row_actions(ui_->comboListMiddleClick);
+    const int d = static_cast<int>(taiga::settings.listDoubleClickAction());
+    int di = ui_->comboListDoubleClick->findData(d);
+    if (di < 0) di = 0;
+    ui_->comboListDoubleClick->setCurrentIndex(di);
+    const int m = static_cast<int>(taiga::settings.listMiddleClickAction());
+    int mi = ui_->comboListMiddleClick->findData(m);
+    if (mi < 0) mi = 0;
+    ui_->comboListMiddleClick->setCurrentIndex(mi);
+  }
+
+  ui_->checkListProgressShowAired->setChecked(taiga::settings.listProgressShowAired());
+  ui_->checkListProgressShowAvailable->setChecked(taiga::settings.listProgressShowAvailable());
+  ui_->checkListProgressShowAvailable->setToolTip(
+      tr("Requires a library scan (Tools menu or startup option) so Taiga knows which episode "
+         "files exist. No slow disk access while scrolling the list."));
+
   ui_->treeWidget->setCurrentItem(ui_->treeWidget->topLevelItem(0));
 }
 
@@ -298,6 +360,11 @@ void SettingsDialog::accept() {
 
   taiga::settings.setCheckForUpdatesOnStartup(ui_->checkUpdatesOnStartup->isChecked());
   taiga::settings.setScanLibraryOnStartup(ui_->checkScanLibraryOnStartup->isChecked());
+  taiga::settings.setStartMinimized(ui_->checkStartMinimized->isChecked());
+  if (QSystemTrayIcon::isSystemTrayAvailable()) {
+    taiga::settings.setCloseToTray(ui_->checkCloseToTray->isChecked());
+    taiga::settings.setMinimizeToTray(ui_->checkMinimizeToTray->isChecked());
+  }
   taiga::settings.setProxyHost(ui_->lineProxyHost->text().toStdString());
   taiga::settings.setProxyUsername(ui_->lineProxyUsername->text().toStdString());
   taiga::settings.setProxyPassword(ui_->lineProxyPassword->text().toStdString());
@@ -328,10 +395,19 @@ void SettingsDialog::accept() {
 
   taiga::settings.setService(ui_->comboListService->currentData().toString().toStdString());
   taiga::settings.setListSynchronizationEnabled(ui_->checkListUpdatesEnabled->isChecked());
+  taiga::settings.setListTitleLanguage(static_cast<anime::TitleLanguage>(
+      ui_->comboListTitleLanguage->currentData().toInt()));
+  taiga::settings.setListDoubleClickAction(static_cast<taiga::ListRowAction>(
+      ui_->comboListDoubleClick->currentData().toInt()));
+  taiga::settings.setListMiddleClickAction(static_cast<taiga::ListRowAction>(
+      ui_->comboListMiddleClick->currentData().toInt()));
+  taiga::settings.setListProgressShowAired(ui_->checkListProgressShowAired->isChecked());
+  taiga::settings.setListProgressShowAvailable(ui_->checkListProgressShowAvailable->isChecked());
   if (auto* mw = gui::mainWindow()) {
     mw->applyListSynchronizationToggleFromSettings();
     mw->applyMediaDetectionToggleFromSettings();
     mw->refreshServiceDependentUi();
+    mw->refreshAnimeListProgressDecorations();
   }
 
   QDialog::accept();
