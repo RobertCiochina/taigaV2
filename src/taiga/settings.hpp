@@ -39,6 +39,27 @@ public:
   std::string proxyUsername() const;
   std::string proxyPassword() const;
 
+  /// When true, fetches the remote anime list once after the main window is shown (Taiga v1 behavior).
+  bool syncAutoOnStart() const;
+
+  /// When true, synchronizes after the window regains focus if idle for at least syncOnWindowFocusMinutes().
+  bool syncOnWindowFocus() const;
+  int syncOnWindowFocusMinutes() const;
+
+  bool welcomeSetupPromptDismissed() const;
+
+  /// Matches Taiga v1 default (program/startup/checkversion).
+  bool checkForUpdatesOnStartup() const;
+  /// Matches Taiga v1 optional scan (program/startup/checkeps); off by default.
+  bool scanLibraryOnStartup() const;
+
+  /// Taiga v1: program/general/enablerecognition
+  bool mediaDetectionEnabled() const;
+  /// Taiga v1: program/general/enablesharing
+  bool sharingEnabled() const;
+  /// Taiga v1: program/general/enablesync — when false, manual/auto list sync is skipped.
+  bool listSynchronizationEnabled() const;
+
   void setAppColorScheme(const Qt::ColorScheme scheme) const;
   void setService(const std::string& service) const;
   void setLibraryFolders(std::vector<std::string> folders) const;
@@ -46,6 +67,15 @@ public:
   void setProxyHost(const std::string& host) const;
   void setProxyUsername(const std::string& username) const;
   void setProxyPassword(const std::string& password) const;
+  void setSyncAutoOnStart(bool enabled) const;
+  void setSyncOnWindowFocus(bool enabled) const;
+  void setSyncOnWindowFocusMinutes(int minutes) const;
+  void setWelcomeSetupPromptDismissed(bool dismissed) const;
+  void setCheckForUpdatesOnStartup(bool enabled) const;
+  void setScanLibraryOnStartup(bool enabled) const;
+  void setMediaDetectionEnabled(bool enabled) const;
+  void setSharingEnabled(bool enabled) const;
+  void setListSynchronizationEnabled(bool enabled) const;
 
 private:
   QString fileName() const override;

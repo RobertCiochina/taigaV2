@@ -55,11 +55,32 @@ bool Detection::init() {
   }
 
 #ifdef Q_OS_WINDOWS
-  const auto interval = taiga::settings.mediaDetectionInterval();
-  pollTimer_->start(interval);
+  pollTimer_->setInterval(taiga::settings.mediaDetectionInterval());
+  if (taiga::settings.mediaDetectionEnabled()) {
+    pollTimer_->start();
+  }
 #endif
 
   return true;
+}
+
+void Detection::setPollingEnabled(const bool on) {
+#ifdef Q_OS_WINDOWS
+  if (on) {
+    pollTimer_->setInterval(taiga::settings.mediaDetectionInterval());
+    pollTimer_->start();
+  } else {
+    pollTimer_->stop();
+    currentPlayer_.reset();
+    currentMedia_.reset();
+    if (currentEpisode_) {
+      currentEpisode_.reset();
+      emit currentEpisodeChanged(std::nullopt);
+    }
+  }
+#else
+  (void)on;
+#endif
 }
 
 void Detection::poll() {

@@ -19,8 +19,14 @@
 #pragma once
 
 #include <QMainWindow>
+#include <optional>
+#include <vector>
+
+#include "media/anime_list.hpp"
 
 class QLineEdit;
+class QEvent;
+class QShowEvent;
 
 namespace Ui {
 class MainWindow;
@@ -66,17 +72,21 @@ public slots:
   void displayWindow();
   void handleListSyncFinished(bool ok, QString message);
   void navigateTo(MainWindowPage page);
+  void showUserFeedback(QString message, bool error);
   void updateTitle();
 
 private slots:
   void about();
   void donate() const;
   void setPage(MainWindowPage page);
+  void startListSynchronization();
   void support() const;
   void profile();
 
 protected:
+  void changeEvent(QEvent* event) override;
   void closeEvent(QCloseEvent *event) override;
+  void showEvent(QShowEvent* event) override;
 
 private:
   void initActions();
@@ -87,6 +97,23 @@ private:
   void initStatusbar();
   void initToolbar();
   void initTrayIcon();
+  void maybeShowWelcomeSetup();
+  void trySyncAfterFocusReturn();
+  void updateToolbarSearchPlaceholder();
+  void checkForUpdatesManually();
+  void runLibraryScan(bool startup_silent);
+  void initFeatureToggleActions();
+  void applyMainPage(MainWindowPage page);
+  void recordNavHistory(MainWindowPage page);
+  void goBackNavigation();
+  void goForwardNavigation();
+  void updateNavHistoryActions();
+  void refreshSyncActionState();
+  std::optional<int> animeIdForPlaybackContext() const;
+  void exportAnimeListMarkdown();
+  void exportAnimeListXml();
+  void playNextEpisodeFromMenu();
+  void playRandomAnimeFromMenu();
 
   Ui::MainWindow* ui_ = nullptr;
 
@@ -98,6 +125,14 @@ private:
   QLineEdit* m_searchBox = nullptr;
   SearchWidget* m_searchWidget = nullptr;
   TrayIcon* m_trayIcon = nullptr;
+
+  MainWindowPage m_activePage = MainWindowPage::Home;
+  bool m_welcomeCheckScheduled = false;
+  qint64 m_lastDeactivateMs = 0;
+
+  std::vector<MainWindowPage> m_navStack;
+  int m_navHistoryPos = -1;
+  bool m_navHistorySuppress = false;
 };
 
 MainWindow* mainWindow();

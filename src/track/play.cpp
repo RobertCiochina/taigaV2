@@ -20,6 +20,7 @@
 
 #include <QDesktopServices>
 #include <QUrl>
+#include <random>
 
 #include "media/anime_db.hpp"
 #include "taiga/settings.hpp"
@@ -55,8 +56,13 @@ bool playNextEpisode(int animeId) {
   return playEpisode(animeId, next_episode);
 }
 
-bool playRandomEpisode(int animeId) {
-  return playEpisode(animeId, 1);
+bool playRandomFromListing() {
+  const auto& entries = anime::db.entries();
+  if (entries.empty()) return false;
+
+  thread_local std::mt19937 gen{std::random_device{}()};
+  std::uniform_int_distribution<int> dist(0, static_cast<int>(entries.size()) - 1);
+  return playNextEpisode(entries[static_cast<size_t>(dist(gen))].anime_id);
 }
 
 }  // namespace track

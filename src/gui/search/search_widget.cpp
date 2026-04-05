@@ -18,16 +18,23 @@
 
 #include "search_widget.hpp"
 
+#include <QPointer>
+#include <QPushButton>
+#include <QStatusBar>
 #include <QToolBar>
 
 #include "gui/common/anime_list_view_cards.hpp"
+#include "gui/main/main_window.hpp"
+#include "gui/main/navigation_widget.hpp"
 #include "gui/models/anime_list_model.hpp"
 #include "gui/models/anime_list_proxy_model.hpp"
 #include "gui/utils/format.hpp"
 #include "gui/utils/theme.hpp"
 #include "media/anime.hpp"
 #include "media/anime_season.hpp"
+#include "sync/service.hpp"
 #include "taiga/session.hpp"
+#include "taiga/user_feedback.hpp"
 
 namespace gui {
 
@@ -116,6 +123,44 @@ SearchWidget::SearchWidget(QWidget* parent)
       m_proxyModel->setStatusFilter(filterValue(m_comboStatus, index));
     });
     filtersLayout->addWidget(m_comboStatus);
+  }
+
+  {
+    auto* load_season = new QPushButton(tr("Load season"), this);
+    load_season->setToolTip(
+        tr("Download this season’s catalog from the active service into the local database."));
+    connect(load_season, &QPushButton::clicked, this, [this]() {
+      const int yi = m_comboYear->currentIndex();
+      const int si = m_comboSeason->currentIndex();
+      if (yi < 0 || si < 0) {
+        taiga::userFeedback(tr("Select a year and season first."), true);
+        return;
+      }
+      const int y = m_comboYear->itemData(yi).toInt();
+      const auto season = static_cast<anime::SeasonName>(m_comboSeason->itemData(si).toInt());
+      if (y <= 0 || season == anime::SeasonName::Unknown) {
+        taiga::userFeedback(tr("Select a valid year and season."), true);
+        return;
+      }
+      QPointer<SearchWidget> guard(this);
+      if (auto* mw = mainWindow()) {
+        mw->statusBar()->showMessage(tr("Loading seasonal catalog…"));
+      }
+      sync::fetchSeasonBrowse(season, y, [guard](const bool ok, const QString& msg) {
+        if (!guard) return;
+        if (auto* mw = mainWindow()) {
+          mw->statusBar()->clearMessage();
+          if (ok) {
+            guard->reloadAnimeList();
+            if (mw->navigation()) mw->navigation()->refresh();
+            mw->statusBar()->showMessage(msg.isEmpty() ? tr("Season loaded.") : msg, 6000);
+          } else {
+            taiga::userFeedback(msg.isEmpty() ? QStringLiteral("Season request failed.") : msg, true);
+          }
+        }
+      });
+    });
+    filtersLayout->addWidget(load_season);
   }
 
   // Toolbar

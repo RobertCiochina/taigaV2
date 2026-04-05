@@ -18,6 +18,7 @@
 
 #include "settings.hpp"
 
+#include <QStringView>
 #include <QXmlStreamReader>
 #include <chrono>
 
@@ -122,12 +123,47 @@ void parseAnimeElement(QXmlStreamReader& xml, const taiga::Settings& settings) {
   settings.setLibraryFolders(libraryFolders);
 }
 
+namespace {
+
+bool xmlAttrBool(const QStringView value, const bool fallback) {
+  if (value.isEmpty()) return fallback;
+  return value.compare(QLatin1String("true"), Qt::CaseInsensitive) == 0 || value == u"1";
+}
+
+}  // namespace
+
 void parseProgramElement(QXmlStreamReader& xml, const taiga::Settings& settings) {
   while (xml.readNextStartElement()) {
     if (xml.name() == u"proxy") {
       settings.setProxyHost(XML_ATTR_STR(u"host"));
       settings.setProxyUsername(XML_ATTR_STR(u"username"));
       settings.setProxyPassword(XML_ATTR_STR(u"password"));
+      xml.skipCurrentElement();
+    } else if (xml.name() == u"general") {
+      const auto attrs = xml.attributes();
+      const auto er = attrs.value(u"enablerecognition");
+      if (!er.isEmpty()) {
+        settings.setMediaDetectionEnabled(xmlAttrBool(er, true));
+      }
+      const auto es = attrs.value(u"enablesharing");
+      if (!es.isEmpty()) {
+        settings.setSharingEnabled(xmlAttrBool(es, true));
+      }
+      const auto ey = attrs.value(u"enablesync");
+      if (!ey.isEmpty()) {
+        settings.setListSynchronizationEnabled(xmlAttrBool(ey, true));
+      }
+      xml.skipCurrentElement();
+    } else if (xml.name() == u"startup") {
+      const auto attrs = xml.attributes();
+      const auto cv = attrs.value(u"checkversion");
+      if (!cv.isEmpty()) {
+        settings.setCheckForUpdatesOnStartup(xmlAttrBool(cv, true));
+      }
+      const auto ce = attrs.value(u"checkeps");
+      if (!ce.isEmpty()) {
+        settings.setScanLibraryOnStartup(xmlAttrBool(ce, false));
+      }
       xml.skipCurrentElement();
     } else {
       xml.skipCurrentElement();

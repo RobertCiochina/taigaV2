@@ -23,6 +23,7 @@
 #include <QString>
 
 #include "media/anime_list.hpp"
+#include "media/anime_season.hpp"
 #include "sync/service.hpp"
 
 namespace sync::anilist {
@@ -38,6 +39,7 @@ public:
   void authenticateUser();
   void fetchAnime(const int id);
   void search(const QString& query);
+  void fetchSeasonBrowse(anime::SeasonName season, int year, ListFetchComplete on_complete = {});
   void fetchListEntries(ListFetchComplete on_complete = {});
   /// Saves list entry to AniList; updates local DB from the response (resolves temporary negative ids).
   void saveListEntry(const ListEntry& entry);
@@ -45,6 +47,9 @@ public:
   void deleteListEntry(int anime_id);
 
 private:
+  void fetchSeasonMediaSearchPage(anime::SeasonName season, int year, int page, int items_so_far,
+                                  ListFetchComplete on_complete);
+
   QString gql(const QString& name) const;
 
   bool isError(const QRestReply& reply) const;

@@ -28,11 +28,13 @@
 
 #include "base/log.hpp"
 #include "media/anime_db.hpp"
+#include "media/anime_season.hpp"
 #include "sync/myanimelist.hpp"
 #include "sync/myanimelist_parsers.hpp"
 #include "sync/myanimelist_utils.hpp"
 #include "taiga/accounts.hpp"
 #include "taiga/network.hpp"
+#include "taiga/user_feedback.hpp"
 
 // https://myanimelist.net/apiconfig/references/api/v2
 
@@ -68,6 +70,22 @@ QString malAnimeDetailFields() {
 QString malListStatusResponseFields() {
   return QStringLiteral("comments,finish_date,is_rewatching,num_times_rewatched,num_episodes_watched,score,"
                         "start_date,status,updated_at");
+}
+
+QString malSeasonSlug(const anime::SeasonName s) {
+  switch (s) {
+    case anime::SeasonName::Winter:
+      return QStringLiteral("winter");
+    case anime::SeasonName::Spring:
+      return QStringLiteral("spring");
+    case anime::SeasonName::Summer:
+      return QStringLiteral("summer");
+    case anime::SeasonName::Fall:
+      return QStringLiteral("fall");
+    case anime::SeasonName::Unknown:
+      break;
+  }
+  return {};
 }
 
 }  // namespace
@@ -109,6 +127,7 @@ void Service::refreshAccessToken(std::function<void(bool ok, QString err)> done)
 
   QUrl url(QStringLiteral("https://myanimelist.net/v1/oauth2/token"));
   QNetworkRequest req(url);
+  taiga::applyCommonHeaders(req);
   req.setHeader(QNetworkRequest::ContentTypeHeader,
                 QStringLiteral("application/x-www-form-urlencoded"));
 
@@ -208,6 +227,92 @@ void Service::fetchListPage(const int offset, const int entries_so_far,
   manager_.get(api_.createRequest(relative.toString()), this, callback);
 }
 
+void Service::fetchSeasonBrowse(const anime::SeasonName season, const int year, ListFetchComplete on_complete) {
+  const auto finish = [on_complete](const bool ok, QString msg) {
+    if (on_complete) on_complete(ok, std::move(msg));
+  };
+  if (taiga::accounts.myanimelistAccessToken().empty()) {
+    finish(false, QStringLiteral("MyAnimeList access token is missing."));
+    return;
+  }
+  const QString slug = malSeasonSlug(season);
+  if (slug.isEmpty() || year < 1940 || year > 2100) {
+    finish(false, QStringLiteral("Invalid season or year."));
+    return;
+  }
+  fetchSeasonPage(slug, year, 0, 0, std::move(finish), true);
+}
+
+void Service::fetchSeasonPage(const QString& season_slug, const int year, const int offset,
+                              const int items_so_far, ListFetchComplete on_complete,
+                              const bool allow_token_refresh) {
+  QUrlQuery query;
+  query.addQueryItem(QStringLiteral("limit"), QStringLiteral("500"));
+  query.addQueryItem(QStringLiteral("offset"), QString::number(offset));
+  query.addQueryItem(QStringLiteral("nsfw"), QStringLiteral("true"));
+  query.addQueryItem(QStringLiteral("fields"), malAnimeDetailFields());
+
+  QUrl relative(QStringLiteral("anime/season/%1/%2").arg(year).arg(season_slug));
+  relative.setQuery(query);
+
+  api_.setBearerToken(QByteArray::fromStdString(taiga::accounts.myanimelistAccessToken()));
+
+  const auto callback = [this, season_slug, year, offset, items_so_far, allow_token_refresh,
+                         on_complete = std::move(on_complete)](QRestReply& reply) mutable {
+    if (isError(reply)) {
+      if (allow_token_refresh && reply.httpStatus() == 401 &&
+          !taiga::accounts.myanimelistRefreshToken().empty()) {
+        refreshAccessToken([this, season_slug, year, offset, items_so_far,
+                            on_complete = std::move(on_complete)](const bool ok, const QString& err) mutable {
+          if (!ok) {
+            if (on_complete) on_complete(false, err);
+            return;
+          }
+          api_.setBearerToken(QByteArray::fromStdString(taiga::accounts.myanimelistAccessToken()));
+          fetchSeasonPage(season_slug, year, offset, items_so_far, std::move(on_complete), false);
+        });
+        return;
+      }
+      const QString err = extractErrorMessage(reply);
+      handleError(reply, err);
+      if (on_complete) {
+        on_complete(false, err.isEmpty() ? QStringLiteral("MyAnimeList season request failed.") : err);
+      }
+      return;
+    }
+
+    const auto doc = reply.readJson();
+    if (!doc.has_value()) {
+      if (on_complete) on_complete(false, QStringLiteral("Empty MyAnimeList response."));
+      return;
+    }
+
+    const QJsonObject root = doc->object();
+    const QJsonArray data = root["data"].toArray();
+    int n = 0;
+    for (const QJsonValue& row : data) {
+      const QJsonObject node = row.toObject()["node"].toObject();
+      if (node.isEmpty()) continue;
+      if (const auto item = parseAnimeNode(node)) {
+        anime::db.updateItem(*item);
+        ++n;
+      }
+    }
+
+    const int total = items_so_far + n;
+    if (const auto next_off = offsetFromPagingNext(root)) {
+      fetchSeasonPage(season_slug, year, *next_off, total, std::move(on_complete), allow_token_refresh);
+      return;
+    }
+
+    if (on_complete) {
+      on_complete(true, QStringLiteral("%1 titles updated").arg(total));
+    }
+  };
+
+  manager_.get(api_.createRequest(relative.toString()), this, callback);
+}
+
 bool Service::isError(const QRestReply& reply) {
   return !reply.isHttpStatusSuccess() || reply.hasError();
 }
@@ -233,7 +338,10 @@ void Service::handleError(const QRestReply& reply, const QString& message) const
 
 void Service::fetchAnime(const int id) {
   if (taiga::accounts.myanimelistAccessToken().empty()) return;
+  fetchAnimeImpl(id, true);
+}
 
+void Service::fetchAnimeImpl(const int id, const bool allow_token_refresh) {
   QUrl url(QStringLiteral("https://api.myanimelist.net/v2/anime/%1").arg(id));
   QUrlQuery q;
   q.addQueryItem(QStringLiteral("fields"), malAnimeDetailFields());
@@ -245,17 +353,44 @@ void Service::fetchAnime(const int id) {
                                       QByteArray::fromStdString(taiga::accounts.myanimelistAccessToken()));
 
   QNetworkReply* reply = taiga::network()->get(req);
-  connect(reply, &QNetworkReply::finished, this, [reply] {
+  connect(reply, &QNetworkReply::finished, this, [this, reply, id, allow_token_refresh] {
     reply->deleteLater();
-    if (reply->error() != QNetworkReply::NoError) return;
+    const int code = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    if (allow_token_refresh && code == 401 &&
+        !taiga::accounts.myanimelistRefreshToken().empty()) {
+      refreshAccessToken([this, id](const bool ok, const QString& err) {
+        if (!ok) {
+          taiga::userFeedback(
+              QStringLiteral("Could not refresh MyAnimeList login: %1").arg(err.isEmpty()
+                                                                                  ? QStringLiteral("Unknown")
+                                                                                  : err),
+              true);
+          return;
+        }
+        fetchAnimeImpl(id, false);
+      });
+      return;
+    }
+    if (reply->error() != QNetworkReply::NoError) {
+      taiga::userFeedback(
+          QStringLiteral("Could not load anime from MyAnimeList: %1").arg(reply->errorString()), true);
+      return;
+    }
     const QJsonObject root = QJsonDocument::fromJson(reply->readAll()).object();
-    if (const auto item = parseAnimeNode(root)) anime::db.updateItem(*item);
+    if (const auto item = parseAnimeNode(root)) {
+      anime::db.updateItem(*item);
+    } else {
+      taiga::userFeedback(QStringLiteral("Could not parse anime from MyAnimeList."), true);
+    }
   });
 }
 
 void Service::saveListEntry(const ListEntry& entry) {
   if (taiga::accounts.myanimelistAccessToken().empty()) return;
+  saveListEntryImpl(entry, true);
+}
 
+void Service::saveListEntryImpl(const ListEntry& entry, const bool allow_token_refresh) {
   QUrl url(QStringLiteral("https://api.myanimelist.net/v2/anime/%1/my_list_status").arg(entry.anime_id));
   QUrlQuery fq;
   fq.addQueryItem(QStringLiteral("fields"), malListStatusResponseFields());
@@ -289,11 +424,39 @@ void Service::saveListEntry(const ListEntry& entry) {
 
   const QByteArray body = form.query(QUrl::FullyEncoded).toUtf8();
   QNetworkReply* reply = taiga::network()->sendCustomRequest(req, QByteArrayLiteral("PATCH"), body);
-  connect(reply, &QNetworkReply::finished, this, [reply, aid = entry.anime_id] {
+  connect(reply, &QNetworkReply::finished, this, [this, reply, entry, allow_token_refresh] {
     reply->deleteLater();
-    if (reply->error() != QNetworkReply::NoError) return;
+    const int code = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    if (allow_token_refresh && code == 401 &&
+        !taiga::accounts.myanimelistRefreshToken().empty()) {
+      refreshAccessToken([this, entry](const bool ok, const QString& err) {
+        if (!ok) {
+          taiga::userFeedback(
+              QStringLiteral("Could not update MyAnimeList (login): %1").arg(err.isEmpty()
+                                                                                 ? QStringLiteral("Unknown")
+                                                                                 : err),
+              true);
+          return;
+        }
+        saveListEntryImpl(entry, false);
+      });
+      return;
+    }
+    if (reply->error() != QNetworkReply::NoError) {
+      taiga::userFeedback(
+          QStringLiteral("Could not update MyAnimeList: %1").arg(reply->errorString()), true);
+      return;
+    }
     const QJsonObject root = QJsonDocument::fromJson(reply->readAll()).object();
-    if (const auto parsed = parseLibraryListStatus(root, aid)) anime::db.updateEntry(*parsed);
+    if (const auto parsed = parseLibraryListStatus(root, entry.anime_id)) {
+      anime::db.updateEntry(*parsed);
+    } else {
+      const QString msg = root["message"].toString();
+      taiga::userFeedback(
+          QStringLiteral("Could not update MyAnimeList: %1")
+              .arg(msg.isEmpty() ? QStringLiteral("Invalid response") : msg),
+          true);
+    }
   });
 }
 
@@ -303,7 +466,10 @@ void Service::deleteListEntry(const int anime_id) {
     anime::db.deleteEntry(anime_id);
     return;
   }
+  deleteListEntryImpl(anime_id, true);
+}
 
+void Service::deleteListEntryImpl(const int anime_id, const bool allow_token_refresh) {
   QUrl url(QStringLiteral("https://api.myanimelist.net/v2/anime/%1/my_list_status").arg(anime_id));
   QNetworkRequest req(url);
   taiga::applyCommonHeaders(req);
@@ -311,10 +477,28 @@ void Service::deleteListEntry(const int anime_id) {
                                       QByteArray::fromStdString(taiga::accounts.myanimelistAccessToken()));
 
   QNetworkReply* reply = taiga::network()->sendCustomRequest(req, QByteArrayLiteral("DELETE"), QByteArray());
-  connect(reply, &QNetworkReply::finished, this, [reply, anime_id] {
+  connect(reply, &QNetworkReply::finished, this, [this, reply, anime_id, allow_token_refresh] {
     reply->deleteLater();
     const int code = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    if (reply->error() != QNetworkReply::NoError && code != 404) return;
+    if (allow_token_refresh && code == 401 &&
+        !taiga::accounts.myanimelistRefreshToken().empty()) {
+      refreshAccessToken([this, anime_id](const bool ok, const QString& err) {
+        if (!ok) {
+          taiga::userFeedback(
+              QStringLiteral("Could not remove from MyAnimeList (login): %1")
+                  .arg(err.isEmpty() ? QStringLiteral("Unknown") : err),
+              true);
+          return;
+        }
+        deleteListEntryImpl(anime_id, false);
+      });
+      return;
+    }
+    if (reply->error() != QNetworkReply::NoError && code != 404) {
+      taiga::userFeedback(
+          QStringLiteral("Could not remove from MyAnimeList: %1").arg(reply->errorString()), true);
+      return;
+    }
     anime::db.deleteEntry(anime_id);
   });
 }

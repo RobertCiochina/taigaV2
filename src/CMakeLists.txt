@@ -85,6 +85,10 @@ target_sources(taiga PRIVATE
 	taiga/session.hpp
 	taiga/settings.cpp
 	taiga/settings.hpp
+	taiga/update_check.cpp
+	taiga/update_check.hpp
+	taiga/user_feedback.cpp
+	taiga/user_feedback.hpp
 	taiga/version.cpp
 	taiga/version.hpp
 

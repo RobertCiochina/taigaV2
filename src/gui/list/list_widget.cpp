@@ -18,9 +18,11 @@
 
 #include "list_widget.hpp"
 
+#include <QAbstractItemView>
 #include <QActionGroup>
 #include <QDateTime>
 #include <QFileDialog>
+#include <QItemSelectionModel>
 #include <QListView>
 #include <QMenu>
 #include <QToolBar>
@@ -210,6 +212,20 @@ void ListWidget::initMoreMenu() {
 
 void ListWidget::reloadAnimeList() {
   m_model->reloadFromDatabase();
+}
+
+std::optional<int> ListWidget::selectedAnimeId() const {
+  const auto fromView = [this](const QAbstractItemView* view) -> std::optional<int> {
+    if (!view) return std::nullopt;
+    const auto rows = view->selectionModel()->selectedRows();
+    if (rows.isEmpty()) return std::nullopt;
+    const auto src = m_proxyModel->mapToSource(rows.front());
+    if (const auto* anime = m_model->getAnime(src)) return anime->id;
+    return std::nullopt;
+  };
+  if (m_listView) return fromView(m_listView);
+  if (m_listViewCards) return fromView(m_listViewCards);
+  return std::nullopt;
 }
 
 }  // namespace gui

@@ -25,6 +25,7 @@
 #include <QString>
 
 #include "media/anime_list.hpp"
+#include "media/anime_season.hpp"
 
 namespace sync {
 
@@ -62,6 +63,13 @@ void deleteListEntry(int anime_id);
 /// that receives the HTTP reply (Qt main thread with default QNetworkAccessManager).
 void fetchListEntries(std::function<void(bool ok, QString message)> on_complete = {});
 
+/// Downloads seasonal catalog titles from the active service into the local database (Taiga v1 “Seasons”).
+void fetchSeasonBrowse(anime::SeasonName season, int year,
+                       std::function<void(bool ok, QString message)> on_complete = {});
+
 QString animePageUrl(const int id);
+
+/// True if the current service has the minimum credentials to download a remote list.
+bool remoteListAccessConfigured();
 
 }  // namespace sync

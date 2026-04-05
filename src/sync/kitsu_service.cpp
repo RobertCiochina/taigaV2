@@ -14,8 +14,10 @@
 #include "base/log.hpp"
 #include "kitsu_parsers.hpp"
 #include "media/anime_db.hpp"
+#include "media/anime_season.hpp"
 #include "taiga/accounts.hpp"
 #include "taiga/network.hpp"
+#include "taiga/user_feedback.hpp"
 
 namespace sync::kitsu {
 
@@ -57,6 +59,22 @@ QString kitsuErrorMessage(const QJsonObject& root) {
   if (errs.isEmpty()) return {};
   const QJsonObject e = errs.first().toObject();
   return QStringLiteral("%1: %2").arg(e["title"].toString(), e["detail"].toString());
+}
+
+QString kitsuSeasonFilter(const anime::SeasonName n) {
+  switch (n) {
+    case anime::SeasonName::Winter:
+      return QStringLiteral("winter");
+    case anime::SeasonName::Spring:
+      return QStringLiteral("spring");
+    case anime::SeasonName::Summer:
+      return QStringLiteral("summer");
+    case anime::SeasonName::Fall:
+      return QStringLiteral("fall");
+    case anime::SeasonName::Unknown:
+      break;
+  }
+  return {};
 }
 
 }  // namespace
@@ -255,6 +273,10 @@ void Service::saveListEntry(const ListEntry& entry) {
   ensureSession([this, entry](const bool ok, const QString& err) mutable {
     if (!ok) {
       LOGE("{}", err.toStdString());
+      taiga::userFeedback(
+          QStringLiteral("Could not update Kitsu (session): %1").arg(err.isEmpty() ? QStringLiteral("Unknown")
+                                                                                   : err),
+          true);
       return;
     }
 
@@ -296,7 +318,11 @@ void Service::saveListEntry(const ListEntry& entry) {
                : taiga::network()->sendCustomRequest(req, QByteArrayLiteral("PATCH"), payload);
     connect(reply, &QNetworkReply::finished, this, [reply] {
       reply->deleteLater();
-      if (reply->error() != QNetworkReply::NoError) return;
+      if (reply->error() != QNetworkReply::NoError) {
+        taiga::userFeedback(
+            QStringLiteral("Could not update Kitsu: %1").arg(reply->errorString()), true);
+        return;
+      }
       const QJsonObject root = QJsonDocument::fromJson(reply->readAll()).object();
       for (const auto& inc : root["included"].toArray()) {
         const QJsonObject o = inc.toObject();
@@ -305,7 +331,11 @@ void Service::saveListEntry(const ListEntry& entry) {
         }
       }
       const QJsonObject d = root["data"].toObject();
-      if (const auto e = parseLibraryEntryResource(d)) anime::db.updateEntry(*e);
+      if (const auto e = parseLibraryEntryResource(d)) {
+        anime::db.updateEntry(*e);
+      } else {
+        taiga::userFeedback(QStringLiteral("Could not update Kitsu: invalid response."), true);
+      }
     });
   });
 }
@@ -321,6 +351,10 @@ void Service::deleteListEntry(const int anime_id) {
   ensureSession([this, anime_id, lib_id = row->id](const bool ok, const QString& err) mutable {
     if (!ok) {
       LOGE("{}", err.toStdString());
+      taiga::userFeedback(
+          QStringLiteral("Could not remove from Kitsu (session): %1")
+              .arg(err.isEmpty() ? QStringLiteral("Unknown") : err),
+          true);
       return;
     }
     QUrl url(QStringLiteral("%1/edge/library-entries/%2")
@@ -335,9 +369,68 @@ void Service::deleteListEntry(const int anime_id) {
     connect(reply, &QNetworkReply::finished, this, [reply, anime_id] {
       reply->deleteLater();
       const int code = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-      if (reply->error() != QNetworkReply::NoError && code != 404) return;
+      if (reply->error() != QNetworkReply::NoError && code != 404) {
+        taiga::userFeedback(
+            QStringLiteral("Could not remove from Kitsu: %1").arg(reply->errorString()), true);
+        return;
+      }
       anime::db.deleteEntry(anime_id);
     });
+  });
+}
+
+void Service::fetchSeasonBrowse(const anime::SeasonName season, const int year, ListFetchComplete on_complete) {
+  const QString f = kitsuSeasonFilter(season);
+  if (f.isEmpty() || year < 1940 || year > 2100) {
+    if (on_complete) on_complete(false, QStringLiteral("Invalid season or year."));
+    return;
+  }
+  fetchSeasonPage(f, year, 0, 0, std::move(on_complete));
+}
+
+void Service::fetchSeasonPage(const QString& season_filter, const int year, const int offset,
+                              const int items_so_far, ListFetchComplete done) {
+  QUrl url(QStringLiteral("%1/edge/anime").arg(QLatin1String(kBase)));
+  QUrlQuery q;
+  q.addQueryItem(QStringLiteral("filter[season]"), season_filter);
+  q.addQueryItem(QStringLiteral("filter[season_year]"), QString::number(year));
+  q.addQueryItem(QStringLiteral("page[offset]"), QString::number(offset));
+  q.addQueryItem(QStringLiteral("page[limit]"), QString::number(kLibraryLimit));
+  q.addQueryItem(QStringLiteral("sort"), QStringLiteral("-user_count"));
+  q.addQueryItem(
+      QStringLiteral("fields[anime]"),
+      QStringLiteral("abbreviatedTitles,ageRating,averageRating,canonicalTitle,endDate,episodeCount,"
+                     "episodeLength,popularityRank,posterImage,slug,startDate,status,subtype,synopsis,"
+                     "titles,youtubeVideoId"));
+  url.setQuery(q);
+
+  QNetworkRequest req(url);
+  taiga::applyCommonHeaders(req);
+  req.setRawHeader("Accept", kJsonApi);
+  if (!token_.isEmpty()) setBearerJsonApi(req, token_.toUtf8());
+
+  QNetworkReply* reply = taiga::network()->get(req);
+  connect(reply, &QNetworkReply::finished, this, [this, reply, season_filter, year, items_so_far,
+                                                  done = std::move(done)]() mutable {
+    reply->deleteLater();
+    if (reply->error() != QNetworkReply::NoError) {
+      if (done) done(false, reply->errorString());
+      return;
+    }
+    const QJsonObject root = QJsonDocument::fromJson(reply->readAll()).object();
+    int n = 0;
+    for (const auto& v : root["data"].toArray()) {
+      if (const auto a = parseAnimeResource(v.toObject())) {
+        anime::db.updateItem(*a);
+        ++n;
+      }
+    }
+    const int total = items_so_far + n;
+    if (const auto next = nextPageOffset(root)) {
+      fetchSeasonPage(season_filter, year, *next, total, std::move(done));
+      return;
+    }
+    if (done) done(true, QStringLiteral("%1 titles updated").arg(total));
   });
 }
 

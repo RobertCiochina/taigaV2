@@ -20,8 +20,20 @@
 
 #include <QString>
 #include <optional>
+#include <string>
+#include <vector>
 
 namespace track {
+
+struct LibraryScanSummary {
+  int entries_visited = 0;
+  int video_files = 0;
+  int recognized = 0;
+};
+
+/// Walks configured library folders, parses filenames, and counts how many match the recognition DB.
+/// Stops after \a max_entries filesystem entries (files only) to keep the UI responsive.
+LibraryScanSummary scanLibraryFolders(const std::vector<std::string>& folders, int max_entries);
 
 std::optional<QString> findEpisode(const QString& path, const int anime_id,
                                    const int episode_number);

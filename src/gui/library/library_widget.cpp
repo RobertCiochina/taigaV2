@@ -112,6 +112,16 @@ LibraryWidget::LibraryWidget(QWidget* parent)
   });
 }
 
+std::optional<int> LibraryWidget::selectedRecognizedAnimeId() const {
+  const auto index = m_view->currentIndex();
+  if (!index.isValid()) return std::nullopt;
+  const auto info = m_model->fileInfo(index);
+  if (!info.isFile()) return std::nullopt;
+  const int id = m_model->getId(info.filePath());
+  if (id <= 0) return std::nullopt;
+  return id;
+}
+
 void LibraryWidget::showContextMenu() const {
   const auto index = m_view->currentIndex();
 

@@ -22,6 +22,7 @@
 
 #include <QMap>
 
+#include "media/anime_db.hpp"
 #include "sync/anilist.hpp"
 #include "sync/anilist_utils.hpp"
 #include "sync/kitsu_service.hpp"
@@ -85,6 +86,8 @@ void fetchAnime(const int id) {
     case ServiceId::AniList:
       anilist::Service::instance()->fetchAnime(id);
       break;
+    case ServiceId::Unknown:
+      break;
   }
 }
 
@@ -101,6 +104,8 @@ void saveListEntry(const ListEntry& entry) {
         anilist::Service::instance()->saveListEntry(entry);
       }
       break;
+    case ServiceId::Unknown:
+      break;
   }
 }
 
@@ -114,6 +119,46 @@ void deleteListEntry(const int anime_id) {
       break;
     case ServiceId::AniList:
       anilist::Service::instance()->deleteListEntry(anime_id);
+      break;
+    case ServiceId::Unknown:
+      anime::db.deleteEntry(anime_id);
+      break;
+  }
+}
+
+bool remoteListAccessConfigured() {
+  switch (currentServiceId()) {
+    case ServiceId::AniList:
+      return !taiga::accounts.anilistUsername().empty() && !taiga::accounts.anilistToken().empty();
+    case ServiceId::MyAnimeList:
+      return !taiga::accounts.myanimelistAccessToken().empty();
+    case ServiceId::Kitsu: {
+      const bool has_user = !taiga::accounts.kitsuEmail().empty() ||
+                            !taiga::accounts.kitsuUsername().empty();
+      return has_user && !taiga::accounts.kitsuPassword().empty();
+    }
+    case ServiceId::Unknown:
+      return false;
+  }
+  return false;
+}
+
+void fetchSeasonBrowse(const anime::SeasonName season, const int year,
+                       std::function<void(bool ok, QString message)> on_complete) {
+  switch (currentServiceId()) {
+    case ServiceId::MyAnimeList:
+      myanimelist::Service::instance()->fetchSeasonBrowse(season, year, std::move(on_complete));
+      break;
+    case ServiceId::Kitsu:
+      kitsu::Service::instance()->fetchSeasonBrowse(season, year, std::move(on_complete));
+      break;
+    case ServiceId::AniList:
+      anilist::Service::instance()->fetchSeasonBrowse(season, year, std::move(on_complete));
+      break;
+    case ServiceId::Unknown:
+      if (on_complete) {
+        on_complete(false, QStringLiteral("No sync service is configured."));
+      }
       break;
   }
 }
@@ -145,6 +190,8 @@ QString animePageUrl(const int id) {
       return QString::fromStdString(kitsu::animePageUrl(id));
     case ServiceId::AniList:
       return QString::fromStdString(anilist::animePageUrl(id));
+    case ServiceId::Unknown:
+      break;
   }
   return {};
 }

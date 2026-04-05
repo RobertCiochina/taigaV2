@@ -46,6 +46,7 @@ public:
 
 	bool init();
 	void poll();
+	void setPollingEnabled(bool on);
 
 signals:
 	void currentEpisodeChanged(std::optional<Episode> media) const;

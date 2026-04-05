@@ -1,0 +1,2 @@
+CMake Error: The source directory "F:/TaigaImpl/taiga/Files/CMake/bin/cmake.exe  -S . -B build/msvc-x64 -G Ninja -DCMAKE_MAKE_PROGRAM=C:/BuildTools/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/ninja.exe -DCMAKE_PREFIX_PATH=C:/Qt/6.9.0/msvc2022_64 " does not exist.
+Specify --help for usage, or press the help button on the CMake GUI.

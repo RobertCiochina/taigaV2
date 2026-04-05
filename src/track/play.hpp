@@ -22,5 +22,7 @@ namespace track {
 
 bool playEpisode(int animeId, int number);
 bool playNextEpisode(int animeId);
+/// Picks a random title from the local list and plays the next unwatched episode (Taiga v1-style).
+bool playRandomFromListing();
 
 }  // namespace track

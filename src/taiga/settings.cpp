@@ -20,6 +20,7 @@
 
 #include <QFile>
 #include <QJsonArray>
+#include <algorithm>
 #include <ranges>
 
 #include "base/string.hpp"
@@ -86,6 +87,44 @@ std::string Settings::proxyPassword() const {
   return value("program.proxy.password").toString().toStdString();
 }
 
+bool Settings::syncAutoOnStart() const {
+  // v2 key; fallback matches legacy v1 flat key name (account/myanimelist/login was reused for this bool).
+  return value("sync.autoOnStart", value("account/myanimelist/login", false)).toBool();
+}
+
+bool Settings::syncOnWindowFocus() const {
+  return value("sync.onWindowFocus", false).toBool();
+}
+
+int Settings::syncOnWindowFocusMinutes() const {
+  const int m = value("sync.onWindowFocusMinutes", 15).toInt();
+  return std::clamp(m, 1, 24 * 60);
+}
+
+bool Settings::welcomeSetupPromptDismissed() const {
+  return value("app.welcomeSetupPromptDismissed", false).toBool();
+}
+
+bool Settings::checkForUpdatesOnStartup() const {
+  return value("app.startup.checkForUpdates", true).toBool();
+}
+
+bool Settings::scanLibraryOnStartup() const {
+  return value("app.startup.scanLibrary", false).toBool();
+}
+
+bool Settings::mediaDetectionEnabled() const {
+  return value("track.detection.enabled", true).toBool();
+}
+
+bool Settings::sharingEnabled() const {
+  return value("app.features.sharingEnabled", true).toBool();
+}
+
+bool Settings::listSynchronizationEnabled() const {
+  return value("sync.listUpdates.enabled", true).toBool();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 void Settings::setAppColorScheme(const Qt::ColorScheme scheme) const {
@@ -118,6 +157,42 @@ void Settings::setProxyUsername(const std::string& username) const {
 
 void Settings::setProxyPassword(const std::string& password) const {
   setValue("program.proxy.password", password);
+}
+
+void Settings::setSyncAutoOnStart(const bool enabled) const {
+  setValue("sync.autoOnStart", enabled);
+}
+
+void Settings::setSyncOnWindowFocus(const bool enabled) const {
+  setValue("sync.onWindowFocus", enabled);
+}
+
+void Settings::setSyncOnWindowFocusMinutes(const int minutes) const {
+  setValue("sync.onWindowFocusMinutes", std::clamp(minutes, 1, 24 * 60));
+}
+
+void Settings::setWelcomeSetupPromptDismissed(const bool dismissed) const {
+  setValue("app.welcomeSetupPromptDismissed", dismissed);
+}
+
+void Settings::setCheckForUpdatesOnStartup(const bool enabled) const {
+  setValue("app.startup.checkForUpdates", enabled);
+}
+
+void Settings::setScanLibraryOnStartup(const bool enabled) const {
+  setValue("app.startup.scanLibrary", enabled);
+}
+
+void Settings::setMediaDetectionEnabled(const bool enabled) const {
+  setValue("track.detection.enabled", enabled);
+}
+
+void Settings::setSharingEnabled(const bool enabled) const {
+  setValue("app.features.sharingEnabled", enabled);
+}
+
+void Settings::setListSynchronizationEnabled(const bool enabled) const {
+  setValue("sync.listUpdates.enabled", enabled);
 }
 
 }  // namespace taiga

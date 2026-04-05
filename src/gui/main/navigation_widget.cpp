@@ -78,6 +78,7 @@ void NavigationWidget::refresh() {
   }();
   for (const auto status : anime::list::kStatuses) {
     auto item = addChildItem(listItem, formatListStatus(status));
+    // Child rows navigate to the same page as the parent list (was missing → Home by default).
     setItemData(item, NavigationItemDataRole::PageIndex, static_cast<int>(MainWindowPage::List));
     setItemData(item, NavigationItemDataRole::IsLastChild,
                 status == anime::list::Status::PlanToWatch);

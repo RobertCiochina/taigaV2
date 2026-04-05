@@ -18,13 +18,49 @@
 
 #include "scanner.hpp"
 
+#include <QDir>
 #include <QDirIterator>
+#include <QFileInfo>
+#include <QSet>
 #include <optional>
 
+#include "media/anime.hpp"
 #include "track/episode.hpp"
 #include "track/recognition.hpp"
 
 namespace track {
+
+LibraryScanSummary scanLibraryFolders(const std::vector<std::string>& folders,
+                                      const int max_entries) {
+  LibraryScanSummary s;
+  if (max_entries <= 0) return s;
+
+  static const QSet<QString> kVideoExt{
+      QStringLiteral("mkv"), QStringLiteral("mp4"), QStringLiteral("avi"),
+      QStringLiteral("wmv"), QStringLiteral("mov"), QStringLiteral("webm"),
+      QStringLiteral("m4v"), QStringLiteral("ogm"), QStringLiteral("ts"),
+  };
+
+  for (const auto& folder : folders) {
+    const QDir root{QString::fromStdString(folder)};
+    if (!root.exists()) continue;
+
+    QDirIterator it(root.absolutePath(), QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+      if (s.entries_visited >= max_entries) return s;
+      const QFileInfo fi(it.next());
+      ++s.entries_visited;
+
+      if (!kVideoExt.contains(fi.suffix().toLower())) continue;
+      ++s.video_files;
+
+      auto episode = recognition::parseFileInfo(fi);
+      if (recognition::identify(episode) != anime::kUnknownId) ++s.recognized;
+    }
+  }
+
+  return s;
+}
 
 std::optional<QString> findEpisode(const QString& path, const int anime_id,
                                    const int episode_number) {

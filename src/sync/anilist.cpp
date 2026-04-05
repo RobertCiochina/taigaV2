@@ -31,6 +31,7 @@
 #include "sync/anilist_parsers.hpp"
 #include "sync/anilist_utils.hpp"
 #include "taiga/accounts.hpp"
+#include "taiga/user_feedback.hpp"
 
 // AniList API documentation:
 // https://docs.anilist.co/
@@ -141,6 +142,74 @@ void Service::search(const QString& query) {
   manager_.post(api_.createRequest(), data, this, callback);
 }
 
+void Service::fetchSeasonBrowse(const anime::SeasonName seasonName, const int year,
+                                ListFetchComplete on_complete) {
+  const auto finish = [on_complete](const bool ok, QString msg) {
+    if (on_complete) on_complete(ok, std::move(msg));
+  };
+  if (seasonName == anime::SeasonName::Unknown) {
+    finish(false, QStringLiteral("Invalid season."));
+    return;
+  }
+  if (year < 1940 || year > 2100) {
+    finish(false, QStringLiteral("Invalid year."));
+    return;
+  }
+  fetchSeasonMediaSearchPage(seasonName, year, 1, 0, std::move(finish));
+}
+
+void Service::fetchSeasonMediaSearchPage(const anime::SeasonName seasonName, const int year, const int page,
+                                         const int items_so_far, ListFetchComplete on_complete) {
+  const QJsonDocument data{QJsonObject{
+      {"query", gql(QStringLiteral("MediaSearch"))},
+      {"variables", QJsonObject{{QStringLiteral("season"), fromSeasonName(seasonName)},
+                                {QStringLiteral("seasonYear"), year},
+                                {QStringLiteral("page"), page}}},
+  }};
+
+  const auto callback = [this, seasonName, year, page, items_so_far,
+                         on_complete = std::move(on_complete)](QRestReply& reply) mutable {
+    if (isError(reply)) {
+      const QString err =
+          reply.errorString().isEmpty() ? QStringLiteral("Network error") : reply.errorString();
+      if (on_complete) on_complete(false, err);
+      return;
+    }
+
+    const auto doc = reply.readJson();
+    if (!doc.has_value()) {
+      if (on_complete) on_complete(false, QStringLiteral("Empty AniList response."));
+      return;
+    }
+
+    const QJsonObject root = doc->object();
+    if (const auto errors = root["errors"]; errors.isArray() && !errors.toArray().isEmpty()) {
+      const auto msg = errors.toArray().first().toObject()["message"].toString();
+      if (on_complete) on_complete(false, msg);
+      return;
+    }
+
+    const QJsonObject pageObj = root["data"].toObject()["Page"].toObject();
+    const QJsonArray media = pageObj["media"].toArray();
+    int n = 0;
+    for (const auto& m : media) {
+      if (const auto item = parseMedia(m)) {
+        anime::db.updateItem(*item);
+        ++n;
+      }
+    }
+    const int sum = items_so_far + n;
+    const QJsonObject pageInfo = pageObj["pageInfo"].toObject();
+    if (pageInfo["hasNextPage"].toBool()) {
+      fetchSeasonMediaSearchPage(seasonName, year, page + 1, sum, std::move(on_complete));
+      return;
+    }
+    if (on_complete) on_complete(true, QStringLiteral("%1 titles updated").arg(sum));
+  };
+
+  manager_.post(api_.createRequest(), data, this, callback);
+}
+
 void Service::fetchListEntries(ListFetchComplete on_complete) {
   const auto finish = [on_complete](const bool ok, QString message) {
     if (on_complete) on_complete(ok, std::move(message));
@@ -245,12 +314,17 @@ void Service::saveListEntry(const ListEntry& entry) {
   const auto callback = [this, anime_id = entry.anime_id](QRestReply& reply) {
     if (isError(reply)) {
       handleError(reply);
+      taiga::userFeedback(
+          QStringLiteral("Could not update AniList: %1")
+              .arg(reply.errorString().isEmpty() ? QStringLiteral("Unknown error") : reply.errorString()),
+          true);
       return;
     }
 
     const auto doc = reply.readJson();
     if (!doc.has_value()) {
       handleError(reply, "Empty response.");
+      taiga::userFeedback(QStringLiteral("Could not update AniList: empty response."), true);
       return;
     }
 
@@ -258,18 +332,21 @@ void Service::saveListEntry(const ListEntry& entry) {
     if (const auto errors = root["errors"]; errors.isArray() && !errors.toArray().isEmpty()) {
       const auto msg = errors.toArray().first().toObject()["message"].toString();
       handleError(reply, msg);
+      taiga::userFeedback(QStringLiteral("Could not update AniList: %1").arg(msg), true);
       return;
     }
 
     const auto saved = root["data"].toObject()["SaveMediaListEntry"].toObject();
     if (saved.isEmpty()) {
       handleError(reply, "SaveMediaListEntry returned no data.");
+      taiga::userFeedback(QStringLiteral("Could not update AniList: no data returned."), true);
       return;
     }
 
     const auto parsed = parseMediaListEntry(saved, anime_id);
     if (!parsed) {
       handleError(reply, "Could not parse list entry.");
+      taiga::userFeedback(QStringLiteral("Could not update AniList: invalid response."), true);
       return;
     }
 
@@ -304,6 +381,10 @@ void Service::deleteListEntry(const int anime_id) {
   const auto callback = [this, anime_id](QRestReply& reply) {
     if (isError(reply) && reply.httpStatus() != 404) {
       handleError(reply);
+      taiga::userFeedback(
+          QStringLiteral("Could not remove from AniList: %1")
+              .arg(reply.errorString().isEmpty() ? QStringLiteral("Unknown error") : reply.errorString()),
+          true);
       return;
     }
 

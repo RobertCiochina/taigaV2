@@ -36,6 +36,9 @@ public:
 
   static void show(QWidget* parent);
 
+protected:
+  void accept() override;
+
 private:
   Ui::SettingsDialog* ui_ = nullptr;
 };

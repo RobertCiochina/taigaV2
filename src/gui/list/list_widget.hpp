@@ -19,6 +19,7 @@
 #pragma once
 
 #include <QMenu>
+#include <optional>
 
 #include "gui/common/anime_list_view_base.hpp"
 #include "gui/common/page_widget.hpp"
@@ -44,6 +45,9 @@ public:
   void saveState();
 
   void reloadAnimeList();
+
+  /// First selected list row’s anime id, if the list view exists and something is selected.
+  std::optional<int> selectedAnimeId() const;
 
 private:
   void initToolbar();

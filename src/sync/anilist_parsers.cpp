@@ -157,7 +157,17 @@ std::optional<Anime> parseMedia(const QJsonValue& json) {
     }
   }
 
-  // @TODO: Parse `nextAiringEpisode`
+  const QJsonObject next_ep = json["nextAiringEpisode"].toObject();
+  if (!next_ep.isEmpty()) {
+    const int next_num = next_ep["episode"].toInt();
+    if (next_num > 0) {
+      item.last_aired_episode = next_num - 1;
+    }
+    item.next_episode_time =
+        static_cast<std::time_t>(next_ep["airingAt"].toVariant().toLongLong());
+  } else {
+    item.next_episode_time = 0;
+  }
 
   return item;
 }

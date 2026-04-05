@@ -142,6 +142,9 @@
     <addaction name="separator"/>
     <addaction name="actionProfile"/>
     <addaction name="separator"/>
+    <addaction name="actionBack"/>
+    <addaction name="actionForward"/>
+    <addaction name="separator"/>
     <addaction name="actionSettings"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
@@ -272,9 +275,6 @@
    </property>
   </action>
   <action name="actionCheckForUpdates">
-   <property name="enabled">
-    <bool>false</bool>
-   </property>
    <property name="text">
     <string>Check for updates</string>
    </property>
