@@ -19,6 +19,7 @@
 #include "anime_list_proxy_model.hpp"
 
 #include "taiga/settings.hpp"
+#include "track/scanner.hpp"
 
 #include <ranges>
 #include <string>
@@ -163,6 +164,12 @@ bool AnimeListProxyModel::lessThan(const QModelIndex& lhs, const QModelIndex& rh
 
   const auto lhs_entry = getListEntry(lhs);
   const auto rhs_entry = getListEntry(rhs);
+
+  if (taiga::settings.listHighlightNextEpisodeOnDisk() && taiga::settings.listHighlightAvailableOnTop()) {
+    const int rank_lhs = track::nextEpisodeIsOnDisk(lhs_anime->id, lhs_anime, lhs_entry) ? 0 : 1;
+    const int rank_rhs = track::nextEpisodeIsOnDisk(rhs_anime->id, rhs_anime, rhs_entry) ? 0 : 1;
+    if (rank_lhs != rank_rhs) return rank_lhs < rank_rhs;
+  }
 
   switch (lhs.column()) {
     case AnimeListModel::COLUMN_TITLE: {

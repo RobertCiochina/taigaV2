@@ -20,6 +20,7 @@
 
 #include <QApplication>
 #include <QPalette>
+#include <string_view>
 #include <anitomy.hpp>
 #include <anitomy/detail/keyword.hpp>  // don't try this at home
 #include <ranges>
@@ -31,6 +32,15 @@
 #include "track/recognition.hpp"
 
 namespace gui {
+
+namespace {
+
+bool historyRowIsImportedQueue(const anime::HistoryItem& h) {
+  const auto p = anime::kHistoryItemQueuedImportPrefix;
+  return h.time.size() >= p.size() && std::string_view{h.time}.substr(0, p.size()) == p;
+}
+
+}  // namespace
 
 HistoryModel::HistoryModel(QObject* parent) : QAbstractListModel(parent) {}
 
@@ -54,8 +64,18 @@ QVariant HistoryModel::data(const QModelIndex& index, int role) const {
           if (item) return QString::fromStdString(item->titles.romaji);
           return {};
         case COLUMN_DETAILS:
+          if (historyRowIsImportedQueue(historyItem)) {
+            if (historyItem.episode > 0) return tr("Queued: episode %1").arg(historyItem.episode);
+            return tr("Queued list update");
+          }
           return tr("Episode: %1").arg(historyItem.episode);
         case COLUMN_MODIFIED:
+          if (historyRowIsImportedQueue(historyItem)) {
+            std::string_view tail{historyItem.time};
+            tail.remove_prefix(anime::kHistoryItemQueuedImportPrefix.size());
+            if (tail.empty()) return tr("Pending list sync (v1 offline queue)");
+            return tr("Pending sync — %1").arg(QString::fromStdString(std::string{tail}));
+          }
           return QString::fromStdString(historyItem.time);
       }
       break;

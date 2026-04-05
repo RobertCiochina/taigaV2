@@ -41,6 +41,7 @@ class ListWidget;
 class NavigationWidget;
 class NowPlayingWidget;
 class SearchWidget;
+class TorrentFeedWidget;
 class TrayIcon;
 
 enum class MainWindowPage {
@@ -79,12 +80,15 @@ public slots:
   /// Call after settings change the active list site or sync permissions (toolbar, search hint, nav).
   void refreshServiceDependentUi();
   void refreshAnimeListProgressDecorations();
+  void refreshAnimeListNewEpisodeHighlight();
   /// Keeps View → Enable synchronization in sync with `taiga::settings` without emitting toggled.
   void applyListSynchronizationToggleFromSettings();
   /// Keeps View → Enable media detection in sync after changing recognition options in Settings.
   void applyMediaDetectionToggleFromSettings();
   void updateTitle();
   void startListSynchronization();
+  /// Switches to Torrents, sets the toolbar query when non-empty, and runs an in-app RSS fetch.
+  void openTorrentSearchInApp(const QString& title);
 
 private slots:
   void about();
@@ -141,6 +145,7 @@ private:
   NowPlayingWidget* m_nowPlayingWidget = nullptr;
   QLineEdit* m_searchBox = nullptr;
   SearchWidget* m_searchWidget = nullptr;
+  TorrentFeedWidget* m_torrentFeedWidget = nullptr;
   TrayIcon* m_trayIcon = nullptr;
   QLabel* m_homeBodyLabel = nullptr;
 

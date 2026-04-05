@@ -83,6 +83,15 @@ public:
   bool listProgressShowAired() const;
   /// Taiga v1: program/list/progress/showavailable (uses episode index from last library scan).
   bool listProgressShowAvailable() const;
+  /// Taiga v1: program/list/filter/episodes/highlight — accent title when next episode is on disk.
+  bool listHighlightNextEpisodeOnDisk() const;
+  /// Taiga v1: program/list/filter/episodes/highlightedontop — sort those rows first (with active sort as tiebreaker).
+  bool listHighlightAvailableOnTop() const;
+
+  /// Taiga v1: `rss/torrent/search/address` — URL with `%title%` replaced by the URL-encoded query (HTTP GET).
+  std::string torrentDiscoverySearchUrl() const;
+  /// Taiga v1: `rss/torrent/source/address` — catalog RSS (fetched in-app on Torrents page).
+  std::string torrentDiscoveryFeedSourceUrl() const;
 
   void setAppColorScheme(const Qt::ColorScheme scheme) const;
   void setService(const std::string& service) const;
@@ -109,6 +118,10 @@ public:
   void setListMiddleClickAction(ListRowAction action) const;
   void setListProgressShowAired(bool enabled) const;
   void setListProgressShowAvailable(bool enabled) const;
+  void setListHighlightNextEpisodeOnDisk(bool enabled) const;
+  void setListHighlightAvailableOnTop(bool enabled) const;
+  void setTorrentDiscoverySearchUrl(const std::string& url) const;
+  void setTorrentDiscoveryFeedSourceUrl(const std::string& url) const;
 
 private:
   QString fileName() const override;

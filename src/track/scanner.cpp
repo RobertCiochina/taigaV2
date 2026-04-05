@@ -25,6 +25,7 @@
 #include <optional>
 
 #include "media/anime.hpp"
+#include "media/anime_list.hpp"
 #include "track/episode.hpp"
 #include "track/recognition.hpp"
 
@@ -44,6 +45,14 @@ bool libraryHasLocalEpisode(const int anime_id, const int episode_number) {
   if (episode_number < 1) return false;
   const auto it = g_library_episodes.find(anime_id);
   return it != g_library_episodes.end() && it->second.contains(episode_number);
+}
+
+bool nextEpisodeIsOnDisk(const int anime_id, const anime::Details* anime, const anime::list::Entry* entry) {
+  if (!anime || !entry) return false;
+  const int next = entry->watched_episodes + 1;
+  if (next < 1) return false;
+  if (anime->episode_count > 0 && next > anime->episode_count) return false;
+  return libraryHasLocalEpisode(anime_id, next);
 }
 
 LibraryScanSummary scanLibraryFolders(const std::vector<std::string>& folders,

@@ -44,6 +44,7 @@ public:
 
   void refreshListTitleDisplay();
   void refreshProgressColumnDisplay();
+  void refreshNewEpisodeHighlightDisplay();
 
   void applyToolbarTextFilter(const QString& text);
 

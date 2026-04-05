@@ -32,6 +32,7 @@
 #include "taiga/list_row_action.hpp"
 #include "taiga/network.hpp"
 #include "taiga/settings.hpp"
+#include "taiga/torrent_discovery.hpp"
 #include "ui_settings_dialog.h"
 
 #ifdef Q_OS_WINDOWS
@@ -260,6 +261,15 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
     ui_->libraryFolderList->addItem(QString::fromStdString(folder));
   }
 
+  {
+    QString ts = QString::fromStdString(taiga::settings.torrentDiscoverySearchUrl());
+    if (ts.isEmpty()) ts = taiga::defaultTorrentDiscoverySearchUrl();
+    ui_->lineTorrentSearchUrl->setText(ts);
+    QString fs = QString::fromStdString(taiga::settings.torrentDiscoveryFeedSourceUrl());
+    if (fs.isEmpty()) fs = taiga::defaultTorrentDiscoveryFeedSourceUrl();
+    ui_->lineTorrentFeedSourceUrl->setText(fs);
+  }
+
   connect(ui_->buttonAddLibraryFolder, &QPushButton::clicked, this, [this] {
     constexpr auto options =
         QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks | QFileDialog::ReadOnly;
@@ -343,6 +353,14 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   ui_->checkListProgressShowAvailable->setToolTip(
       tr("Requires a library scan (Tools menu or startup option) so Taiga knows which episode "
          "files exist. No slow disk access while scrolling the list."));
+  ui_->checkListHighlightNextOnDisk->setChecked(taiga::settings.listHighlightNextEpisodeOnDisk());
+  ui_->checkListHighlightOnTop->setChecked(taiga::settings.listHighlightAvailableOnTop());
+  ui_->checkListHighlightNextOnDisk->setToolTip(
+      tr("Uses the same library scan index as “episodes on disk” on the progress bar — no disk I/O "
+         "while scrolling."));
+  ui_->checkListHighlightOnTop->setToolTip(
+      tr("Applies on the Anime list and Search results. Secondary sort order is unchanged from "
+         "Taiga v1 (Qt build uses a single visible sort column)."));
 
   ui_->treeWidget->setCurrentItem(ui_->treeWidget->topLevelItem(0));
 }
@@ -393,6 +411,9 @@ void SettingsDialog::accept() {
     if (gui::mainWindow()) gui::mainWindow()->refreshLibraryRootsFromSettings();
   }
 
+  taiga::settings.setTorrentDiscoverySearchUrl(ui_->lineTorrentSearchUrl->text().trimmed().toStdString());
+  taiga::settings.setTorrentDiscoveryFeedSourceUrl(ui_->lineTorrentFeedSourceUrl->text().trimmed().toStdString());
+
   taiga::settings.setService(ui_->comboListService->currentData().toString().toStdString());
   taiga::settings.setListSynchronizationEnabled(ui_->checkListUpdatesEnabled->isChecked());
   taiga::settings.setListTitleLanguage(static_cast<anime::TitleLanguage>(
@@ -403,11 +424,14 @@ void SettingsDialog::accept() {
       ui_->comboListMiddleClick->currentData().toInt()));
   taiga::settings.setListProgressShowAired(ui_->checkListProgressShowAired->isChecked());
   taiga::settings.setListProgressShowAvailable(ui_->checkListProgressShowAvailable->isChecked());
+  taiga::settings.setListHighlightNextEpisodeOnDisk(ui_->checkListHighlightNextOnDisk->isChecked());
+  taiga::settings.setListHighlightAvailableOnTop(ui_->checkListHighlightOnTop->isChecked());
   if (auto* mw = gui::mainWindow()) {
     mw->applyListSynchronizationToggleFromSettings();
     mw->applyMediaDetectionToggleFromSettings();
     mw->refreshServiceDependentUi();
     mw->refreshAnimeListProgressDecorations();
+    mw->refreshAnimeListNewEpisodeHighlight();
   }
 
   QDialog::accept();

@@ -33,6 +33,7 @@
 #include "media/anime_season.hpp"
 #include "sync/service.hpp"
 #include "taiga/settings.hpp"
+#include "track/scanner.hpp"
 
 namespace gui {
 
@@ -161,6 +162,12 @@ QVariant AnimeListModel::data(const QModelIndex& index, int role) const {
       const auto disabledTextColor =
           qApp->palette().color(QPalette::ColorGroup::Disabled, QPalette::ColorRole::Text);
       switch (index.column()) {
+        case COLUMN_TITLE:
+          if (taiga::settings.listHighlightNextEpisodeOnDisk() && entry &&
+              track::nextEpisodeIsOnDisk(anime->id, anime, entry)) {
+            return qApp->palette().color(QPalette::ColorRole::Highlight);
+          }
+          break;
         case COLUMN_AVERAGE:
           if (!anime->score) return disabledTextColor;
           break;
@@ -239,6 +246,13 @@ void AnimeListModel::emitProgressColumnDataChanged() {
   emit dataChanged(index(0, COLUMN_PROGRESS), index(last, COLUMN_PROGRESS), {Qt::DisplayRole});
   // Card views use column 0 only; table list uses COLUMN_PROGRESS for the bar.
   emit dataChanged(index(0, 0), index(last, 0), {Qt::DisplayRole});
+}
+
+void AnimeListModel::emitNewEpisodeHighlightDataChanged() {
+  if (m_ids.isEmpty()) return;
+  const int last = m_ids.size() - 1;
+  emit dataChanged(index(0, COLUMN_TITLE), index(last, COLUMN_TITLE), {Qt::ForegroundRole});
+  emit dataChanged(index(0, 0), index(last, 0), {Qt::ForegroundRole});
 }
 
 QVariant AnimeListModel::headerData(int section, Qt::Orientation orientation, int role) const {

@@ -225,6 +225,12 @@ void SearchWidget::refreshProgressColumnDisplay() {
   m_model->emitProgressColumnDataChanged();
 }
 
+void SearchWidget::refreshNewEpisodeHighlightDisplay() {
+  m_model->emitNewEpisodeHighlightDataChanged();
+  const int col = m_proxyModel->sortColumn();
+  if (col >= 0) m_proxyModel->sort(col, m_proxyModel->sortOrder());
+}
+
 void SearchWidget::applyToolbarTextFilter(const QString& text) {
   m_proxyModel->setTextFilter(text);
 }

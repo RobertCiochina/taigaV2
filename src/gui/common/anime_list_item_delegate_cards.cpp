@@ -122,6 +122,12 @@ void ListItemDelegateCards::paint(QPainter* painter, const QStyleOptionViewItem&
     titleFont.setWeight(QFont::Weight::DemiBold);
     painter->setFont(titleFont);
 
+    if (const QVariant fg = index.data(Qt::ForegroundRole); fg.canConvert<QColor>()) {
+      painter->setPen(fg.value<QColor>());
+    } else {
+      painter->setPen(opt.palette.windowText().color());
+    }
+
     const QString title = index.data(Qt::DisplayRole).toString();
     const QFontMetrics metrics(painter->font());
     const QString elidedTitle = metrics.elidedText(title, Qt::ElideRight, titleRect.width());

@@ -59,6 +59,7 @@ private slots:
   void searchWikipedia() const;
   void searchYouTube() const;
   void torrents() const;
+  void torrentsOpenInBrowser() const;
   void viewDetails() const;
 
   void batchSetScore(int score) const;

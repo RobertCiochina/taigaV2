@@ -21,6 +21,7 @@
 #include <QByteArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QString>
 
 #include "base/string.hpp"
 #include "gui/common/anime_list_view_base.hpp"
@@ -50,6 +51,20 @@ gui::ListViewMode Session::animeListViewMode() const {
       .value<gui::ListViewMode>();
 }
 
+QByteArray Session::animeListHeaderState() const {
+  return QByteArray::fromBase64(value("animeList.headerState", QByteArray{}).toByteArray());
+}
+
+void Session::setPendingV1ListColumnLayout(const QString& json) const {
+  setValue("animeList.pendingV1ColumnLayout", json);
+}
+
+QString Session::takePendingV1ListColumnLayout() const {
+  const QString j = value("animeList.pendingV1ColumnLayout", QString{}).toString();
+  if (!j.isEmpty()) setValue("animeList.pendingV1ColumnLayout", QString{});
+  return j;
+}
+
 QByteArray Session::mainWindowGeometry() const {
   return QByteArray::fromBase64(value("mainWindow.geometry", QByteArray{}).toByteArray());
 }
@@ -72,6 +87,10 @@ QByteArray Session::mediaDialogGeometry() const {
 
 QByteArray Session::mediaDialogSplitterState() const {
   return QByteArray::fromBase64(value("mediaDialog.splitterState", QByteArray{}).toByteArray());
+}
+
+QString Session::torrentPanelLastQuery() const {
+  return value("torrentPanel.lastQuery", QString{}).toString();
 }
 
 gui::AnimeListProxyModelFilter Session::searchListFilters() const {
@@ -126,6 +145,10 @@ void Session::setAnimeListViewMode(const gui::ListViewMode mode) const {
   setValue("animeList.viewMode", static_cast<int>(mode));
 }
 
+void Session::setAnimeListHeaderState(const QByteArray& state) const {
+  setValue("animeList.headerState", state.toBase64().toStdString());
+}
+
 void Session::setMainWindowGeometry(const QByteArray& geometry) const {
   setValue("mainWindow.geometry", geometry.toBase64().toStdString());
 }
@@ -173,6 +196,10 @@ void Session::setSearchListSortOrder(const Qt::SortOrder order) const {
 
 void Session::setSearchListViewMode(const gui::ListViewMode mode) const {
   setValue("searchList.viewMode", static_cast<int>(mode));
+}
+
+void Session::setTorrentPanelLastQuery(const QString& query) const {
+  setValue("torrentPanel.lastQuery", query);
 }
 
 }  // namespace taiga

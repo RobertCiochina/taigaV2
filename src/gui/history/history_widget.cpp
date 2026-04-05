@@ -75,7 +75,9 @@ protected:
         if (proxy->sourceModel()->rowCount() == 0) {
           paintEmptyListText(
               this, tr("No history yet.\nTitles appear here after media detection records an "
-                       "episode.\n\n"
+                       "episode.\n"
+                       "Pending v1 offline list updates from history.xml also show here after "
+                       "import.\n\n"
                        "Double-click or Enter: details · Middle-click: play next episode"));
         } else if (proxy->rowCount() == 0) {
           paintEmptyListText(

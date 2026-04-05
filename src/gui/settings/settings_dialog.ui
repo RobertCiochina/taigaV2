@@ -439,6 +439,49 @@
             </widget>
            </item>
            <item>
+            <widget class="QGroupBox" name="groupTorrentSearch">
+             <property name="title">
+              <string>Torrents (RSS)</string>
+             </property>
+             <layout class="QVBoxLayout" name="verticalLayout_torrentSearch">
+              <item>
+               <widget class="QLabel" name="labelTorrentSearchHelp">
+                <property name="text">
+                 <string>Search URL: Taiga fetches this RSS inside the app (Taiga v1: rss/torrent/search/address). Use %title% for the query. “Open in web browser” still uses this URL with the Nyaa HTML tweak when applicable.</string>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLineEdit" name="lineTorrentSearchUrl">
+                <property name="placeholderText">
+                 <string>https://…?q=%title%</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="labelTorrentFeedHelp">
+                <property name="text">
+                 <string>Catalog feed: optional RSS for “Refresh catalog feed” on the Torrents page (Taiga v1: rss/torrent/source/address). Leave empty for Tokyo Tosho default.</string>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLineEdit" name="lineTorrentFeedSourceUrl">
+                <property name="placeholderText">
+                 <string>https://… (RSS, no %title%)</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
             <widget class="QLabel" name="libraryStartupHintLabel">
              <property name="text">
               <string>Tip: You can also enable “Scan library folders when Taiga starts” on the Application page.</string>
@@ -578,6 +621,26 @@
                 </property>
                 <property name="checked">
                  <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item row="5" column="0" colspan="2">
+               <widget class="QCheckBox" name="checkListHighlightNextOnDisk">
+                <property name="text">
+                 <string>Highlight title when the next unwatched episode is in your library</string>
+                </property>
+                <property name="checked">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item row="6" column="0" colspan="2">
+               <widget class="QCheckBox" name="checkListHighlightOnTop">
+                <property name="text">
+                 <string>Keep highlighted titles at the top when sorting (within the current sort column)</string>
+                </property>
+                <property name="checked">
+                 <bool>false</bool>
                 </property>
                </widget>
               </item>

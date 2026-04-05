@@ -46,6 +46,7 @@
 #include "sync/service.hpp"
 #include "taiga/accounts.hpp"
 #include "taiga/settings.hpp"
+#include "taiga/torrent_discovery.hpp"
 #include "track/media.hpp"
 #include "track/play.hpp"
 #include "track/scanner.hpp"
@@ -332,8 +333,20 @@ void MediaMenu::searchYouTube() const {
 
 void MediaMenu::torrents() const {
   const auto& item = m_items.front();
-  mainWindow()->navigateTo(MainWindowPage::Torrents);
-  mainWindow()->searchBox()->setText(QString::fromStdString(item.titles.romaji));
+  const QString q = QString::fromStdString(
+      anime::preferredListTitleString(item, taiga::settings.listTitleLanguage()));
+  if (auto* mw = mainWindow()) {
+    mw->openTorrentSearchInApp(q);
+  }
+}
+
+void MediaMenu::torrentsOpenInBrowser() const {
+  const auto& item = m_items.front();
+  const QString q = QString::fromStdString(
+      anime::preferredListTitleString(item, taiga::settings.listTitleLanguage()));
+  if (taiga::openTorrentDiscoverySearch(q) && mainWindow()) {
+    mainWindow()->statusBar()->showMessage(tr("Opened torrent search in your browser."), 5000);
+  }
 }
 
 void MediaMenu::batchSetScore(const int score) const {
@@ -601,8 +614,10 @@ void MediaMenu::addLibraryItems() {
 void MediaMenu::addTorrentsItems() {
   if (isBatch()) return;
 
-  // Torrents
-  addAction(theme.getIcon("rss_feed"), tr("Torrents"), this, &MediaMenu::torrents);
+  // Torrents (Taiga v1: RSS search + optional browser)
+  addAction(theme.getIcon("rss_feed"), tr("Search torrents…"), this, &MediaMenu::torrents);
+  addAction(theme.getIcon("open_in_new"), tr("Search torrents in web browser…"), this,
+            &MediaMenu::torrentsOpenInBrowser);
 }
 
 void MediaMenu::addMetaItems() {

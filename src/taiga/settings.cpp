@@ -20,6 +20,7 @@
 
 #include <QFile>
 #include <QJsonArray>
+#include <QString>
 #include <algorithm>
 #include <cmath>
 #include <ranges>
@@ -168,6 +169,22 @@ bool Settings::listProgressShowAvailable() const {
   return value("list.progress.showAvailable", true).toBool();
 }
 
+bool Settings::listHighlightNextEpisodeOnDisk() const {
+  return value("list.highlightNextEpisodeOnDisk", true).toBool();
+}
+
+bool Settings::listHighlightAvailableOnTop() const {
+  return value("list.highlightAvailableOnTop", false).toBool();
+}
+
+std::string Settings::torrentDiscoverySearchUrl() const {
+  return value("torrent.discovery.searchUrl").toString().toStdString();
+}
+
+std::string Settings::torrentDiscoveryFeedSourceUrl() const {
+  return value("torrent.discovery.feedSourceUrl").toString().toStdString();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 void Settings::setAppColorScheme(const Qt::ColorScheme scheme) const {
@@ -287,6 +304,22 @@ void Settings::setListProgressShowAired(const bool enabled) const {
 
 void Settings::setListProgressShowAvailable(const bool enabled) const {
   setValue("list.progress.showAvailable", enabled);
+}
+
+void Settings::setListHighlightNextEpisodeOnDisk(const bool enabled) const {
+  setValue("list.highlightNextEpisodeOnDisk", enabled);
+}
+
+void Settings::setListHighlightAvailableOnTop(const bool enabled) const {
+  setValue("list.highlightAvailableOnTop", enabled);
+}
+
+void Settings::setTorrentDiscoverySearchUrl(const std::string& url) const {
+  setValue("torrent.discovery.searchUrl", QString::fromStdString(url));
+}
+
+void Settings::setTorrentDiscoveryFeedSourceUrl(const std::string& url) const {
+  setValue("torrent.discovery.feedSourceUrl", QString::fromStdString(url));
 }
 
 }  // namespace taiga

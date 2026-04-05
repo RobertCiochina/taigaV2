@@ -87,6 +87,8 @@ target_sources(taiga PRIVATE
 	taiga/stats.hpp
 	taiga/settings.cpp
 	taiga/settings.hpp
+	taiga/torrent_discovery.cpp
+	taiga/torrent_discovery.hpp
 	taiga/update_check.cpp
 	taiga/update_check.hpp
 	taiga/user_feedback.cpp

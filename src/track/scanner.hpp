@@ -25,6 +25,13 @@
 #include <unordered_set>
 #include <vector>
 
+namespace anime {
+struct Details;
+}
+namespace anime::list {
+struct Entry;
+}
+
 namespace track {
 
 struct LibraryScanSummary {
@@ -39,6 +46,9 @@ struct LibraryScanSummary {
 const std::unordered_map<int, std::unordered_set<int>>& libraryEpisodeAvailability();
 
 bool libraryHasLocalEpisode(int anime_id, int episode_number);
+
+/// True when episode (watched + 1) exists in the library scan index (Taiga v1 "next episode available").
+bool nextEpisodeIsOnDisk(int anime_id, const anime::Details* anime, const anime::list::Entry* entry);
 
 /// Walks configured library folders, parses filenames, and counts how many match the recognition DB.
 /// Stops after \a max_entries filesystem entries (files only) to keep the UI responsive.

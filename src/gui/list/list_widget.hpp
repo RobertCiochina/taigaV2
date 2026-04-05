@@ -50,6 +50,7 @@ public:
   /// Refresh title column after Settings changes list title language (no full reload).
   void refreshListTitleDisplay();
   void refreshProgressColumnDisplay();
+  void refreshNewEpisodeHighlightDisplay();
 
   /// First selected list row’s anime id, if the list view exists and something is selected.
   std::optional<int> selectedAnimeId() const;

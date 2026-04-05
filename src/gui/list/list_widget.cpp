@@ -21,6 +21,11 @@
 #include <QAbstractItemView>
 #include <QActionGroup>
 #include <QDateTime>
+#include <QHeaderView>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonParseError>
 #include <QFileDialog>
 #include <QItemSelectionModel>
 #include <QListView>
@@ -40,6 +45,32 @@
 #include "media/anime_list_export.hpp"
 #include "taiga/session.hpp"
 #include "taiga/user_feedback.hpp"
+
+namespace {
+
+void applyPendingV1ListColumnLayout(QTreeView* view) {
+  if (!view) return;
+  const QString raw = taiga::session.takePendingV1ListColumnLayout();
+  if (raw.isEmpty()) return;
+  QJsonParseError err{};
+  const QJsonDocument doc = QJsonDocument::fromJson(raw.toUtf8(), &err);
+  if (err.error != QJsonParseError::NoError || !doc.isArray()) return;
+  QHeaderView* const h = view->header();
+  for (const QJsonValue& v : doc.array()) {
+    const QJsonObject o = v.toObject();
+    const int col = o[QStringLiteral("c")].toInt(-1);
+    if (col < 0 || col >= gui::AnimeListModel::NUM_COLUMNS) continue;
+    if (o.contains(QStringLiteral("w"))) {
+      const int w = o[QStringLiteral("w")].toInt();
+      if (w > 0) h->resizeSection(col, w);
+    }
+    if (o.contains(QStringLiteral("v"))) {
+      h->setSectionHidden(col, !o[QStringLiteral("v")].toBool());
+    }
+  }
+}
+
+}  // namespace
 
 namespace gui {
 
@@ -89,6 +120,12 @@ void ListWidget::setViewMode(ListViewMode mode) {
   switch (mode) {
     case ListViewMode::List:
       m_listView = new ListView(this, m_model, m_proxyModel);
+      if (const QByteArray header_state = taiga::session.animeListHeaderState();
+          !header_state.isEmpty()) {
+        m_listView->header()->restoreState(header_state);
+      } else {
+        applyPendingV1ListColumnLayout(m_listView);
+      }
       layout()->addWidget(m_listView);
       m_listView->show();
       break;
@@ -105,6 +142,9 @@ void ListWidget::saveState() {
   taiga::session.setAnimeListSortColumn(m_proxyModel->sortColumn());
   taiga::session.setAnimeListSortOrder(m_proxyModel->sortOrder());
   taiga::session.setAnimeListViewMode(m_viewMode);
+  if (m_listView) {
+    taiga::session.setAnimeListHeaderState(m_listView->header()->saveState());
+  }
 }
 
 void ListWidget::initToolbar() {
@@ -166,7 +206,7 @@ void ListWidget::initSortMenu() {
     });
 
     action->setCheckable(true);
-    action->setChecked(column == m_proxyModel->sortColumn());
+    action->setChecked(column == m_proxyModel->sortColumn() && order == m_proxyModel->sortOrder());
     actionGroup->addAction(action);
   }
 }
@@ -230,6 +270,12 @@ void ListWidget::refreshListTitleDisplay() {
 
 void ListWidget::refreshProgressColumnDisplay() {
   m_model->emitProgressColumnDataChanged();
+}
+
+void ListWidget::refreshNewEpisodeHighlightDisplay() {
+  m_model->emitNewEpisodeHighlightDataChanged();
+  const int col = m_proxyModel->sortColumn();
+  if (col >= 0) m_proxyModel->sort(col, m_proxyModel->sortOrder());
 }
 
 void ListWidget::applyToolbarTextFilter(const QString& text) {

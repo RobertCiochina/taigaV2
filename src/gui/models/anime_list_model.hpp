@@ -72,6 +72,7 @@ public:
   void emitTitleColumnDataChanged();
   /// Repaint progress column after list progress bar display settings change or library scan.
   void emitProgressColumnDataChanged();
+  void emitNewEpisodeHighlightDataChanged();
 
 private:
   QList<int> m_ids;

@@ -21,6 +21,7 @@
 #include <QList>
 #include <array>
 #include <string>
+#include <string_view>
 
 #include "base/chrono.hpp"
 
@@ -31,6 +32,9 @@ struct HistoryItem {
   int episode = 0;
   std::string time;
 };
+
+/// Prefix on `HistoryItem::time` for rows imported from Taiga v1 `history.xml` `<queue>`.
+inline constexpr std::string_view kHistoryItemQueuedImportPrefix = "[v1queue] ";
 
 class History {
 public:

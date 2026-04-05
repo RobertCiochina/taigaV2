@@ -35,6 +35,11 @@ public:
   int animeListSortColumn() const;
   Qt::SortOrder animeListSortOrder() const;
   gui::ListViewMode animeListViewMode() const;
+  /// `QHeaderView::saveState` for the anime list table (widths, order, shown/hidden columns).
+  QByteArray animeListHeaderState() const;
+  /// One-shot JSON array from v1 `settings.xml` list columns migration (consumed when list view opens).
+  void setPendingV1ListColumnLayout(const QString& json) const;
+  QString takePendingV1ListColumnLayout() const;
   QByteArray mainWindowGeometry() const;
   QByteArray mainWindowSplitterState() const;
   bool mainWindowStatusBarVisible() const;
@@ -45,10 +50,12 @@ public:
   int searchListSortColumn() const;
   Qt::SortOrder searchListSortOrder() const;
   gui::ListViewMode searchListViewMode() const;
+  QString torrentPanelLastQuery() const;
 
   void setAnimeListSortColumn(const int column) const;
   void setAnimeListSortOrder(const Qt::SortOrder order) const;
   void setAnimeListViewMode(const gui::ListViewMode mode) const;
+  void setAnimeListHeaderState(const QByteArray& state) const;
   void setMainWindowGeometry(const QByteArray& geometry) const;
   void setMainWindowSplitterState(const QByteArray& state) const;
   void setMainWindowStatusBarVisible(bool visible) const;
@@ -59,6 +66,7 @@ public:
   void setSearchListSortColumn(const int column) const;
   void setSearchListSortOrder(const Qt::SortOrder order) const;
   void setSearchListViewMode(const gui::ListViewMode mode) const;
+  void setTorrentPanelLastQuery(const QString& query) const;
 
 private:
   QString fileName() const override;

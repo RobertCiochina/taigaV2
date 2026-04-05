@@ -65,6 +65,9 @@ target_sources(taiga-gui PRIVATE
 	search/search_widget.cpp
 	search/search_widget.hpp
 
+	torrent/torrent_feed_widget.cpp
+	torrent/torrent_feed_widget.hpp
+
 	settings/anilist_auth_dialog.cpp
 	settings/anilist_auth_dialog.hpp
 	settings/settings_dialog.cpp
@@ -77,6 +80,8 @@ target_sources(taiga-gui PRIVATE
 	utils/painter_state_saver.hpp
 	utils/painters.cpp
 	utils/painters.hpp
+	utils/rss_feed_parser.cpp
+	utils/rss_feed_parser.hpp
 	utils/svg_icon_engine.cpp
 	utils/svg_icon_engine.hpp
 	utils/theme.cpp

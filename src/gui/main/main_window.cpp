@@ -57,6 +57,7 @@
 #include "gui/main/now_playing_widget.hpp"
 #include "gui/search/search_widget.hpp"
 #include "gui/settings/settings_dialog.hpp"
+#include "gui/torrent/torrent_feed_widget.hpp"
 #include "gui/utils/theme.hpp"
 #include "gui/utils/tray_icon.hpp"
 #include "gui/utils/widgets.hpp"
@@ -375,17 +376,9 @@ void MainWindow::initPage(MainWindowPage page) {
         tf.setPointSizeF(tf.pointSizeF() + 4);
         title->setFont(tf);
         title->setAlignment(Qt::AlignHCenter);
-        auto* body = new QLabel(
-            tr("<p>RSS feeds and automatic downloads are not available in this build.</p>"
-               "<p>You can open this page from a title’s context menu; the toolbar search box still "
-               "works for manual lookups.</p>"),
-            ui_->torrentsPage);
-        body->setWordWrap(true);
-        body->setAlignment(Qt::AlignTop | Qt::AlignHCenter);
-        l->addStretch(1);
+        m_torrentFeedWidget = new TorrentFeedWidget(m_searchBox, ui_->torrentsPage);
         l->addWidget(title);
-        l->addWidget(body);
-        l->addStretch(2);
+        l->addWidget(m_torrentFeedWidget, 1);
       }
       break;
     }
@@ -500,6 +493,10 @@ void MainWindow::initToolbar() {
     insertSpacer(before);
 
     connect(m_searchBox, &QLineEdit::textChanged, this, &MainWindow::routeToolbarSearchToActivePage);
+    connect(m_searchBox, &QLineEdit::returnPressed, this, [this]() {
+      if (m_activePage != MainWindowPage::Torrents) return;
+      if (m_torrentFeedWidget) m_torrentFeedWidget->runSearch();
+    });
   }
 }
 
@@ -601,9 +598,23 @@ void MainWindow::navigateTo(MainWindowPage page) {
   }
 }
 
+void MainWindow::openTorrentSearchInApp(const QString& title) {
+  navigateTo(MainWindowPage::Torrents);
+  if (m_searchBox && !title.trimmed().isEmpty()) {
+    m_searchBox->setText(title.trimmed());
+  }
+  if (m_torrentFeedWidget) {
+    m_torrentFeedWidget->runSearch();
+  }
+}
+
 void MainWindow::applyMainPage(const MainWindowPage page) {
   m_activePage = page;
   initPage(page);
+  if (page == MainWindowPage::Torrents && m_searchBox && m_searchBox->text().trimmed().isEmpty()) {
+    const QString last = taiga::session.torrentPanelLastQuery();
+    if (!last.isEmpty()) m_searchBox->setText(last);
+  }
   ui_->statusbar->clearMessage();
   ui_->stackedWidget->setCurrentIndex(static_cast<int>(page));
   updateToolbarSearchPlaceholder();
@@ -717,6 +728,11 @@ void MainWindow::refreshServiceDependentUi() {
 void MainWindow::refreshAnimeListProgressDecorations() {
   if (m_listWidget) m_listWidget->refreshProgressColumnDisplay();
   if (m_searchWidget) m_searchWidget->refreshProgressColumnDisplay();
+}
+
+void MainWindow::refreshAnimeListNewEpisodeHighlight() {
+  if (m_listWidget) m_listWidget->refreshNewEpisodeHighlightDisplay();
+  if (m_searchWidget) m_searchWidget->refreshNewEpisodeHighlightDisplay();
 }
 
 void MainWindow::applyListSynchronizationToggleFromSettings() {
@@ -891,6 +907,9 @@ void MainWindow::updateToolbarSearchPlaceholder() {
     case MainWindowPage::Search:
       m_searchBox->setPlaceholderText(tr("Filter search results…"));
       break;
+    case MainWindowPage::Torrents:
+      m_searchBox->setPlaceholderText(tr("Anime title — press Enter to fetch RSS…"));
+      break;
     case MainWindowPage::Home:
       m_searchBox->setPlaceholderText(tr("Filter list (open Anime list from the sidebar)…"));
       break;
@@ -959,6 +978,7 @@ void MainWindow::runLibraryScan(const bool startup_silent) {
     QMessageBox::information(this, tr("Taiga"), msg);
   }
   refreshAnimeListProgressDecorations();
+  refreshAnimeListNewEpisodeHighlight();
 }
 
 void MainWindow::updateTrayTooltip() {

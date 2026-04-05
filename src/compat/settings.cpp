@@ -19,15 +19,21 @@
 #include "settings.hpp"
 
 #include <algorithm>
+#include <optional>
 
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QStringView>
 #include <QXmlStreamReader>
 #include <chrono>
 
 #include "base/log.hpp"
 #include "base/xml.hpp"
+#include "gui/models/anime_list_model.hpp"
 #include "media/anime.hpp"
 #include "taiga/accounts.hpp"
+#include "taiga/session.hpp"
 #include "taiga/settings.hpp"
 
 #define XML_ATTR(name) xml.attributes().value(name)
@@ -40,6 +46,7 @@ void parseAccountElement(QXmlStreamReader&, const taiga::Settings&, const taiga:
 void parseAnimeElement(QXmlStreamReader&, const taiga::Settings&);
 void parseProgramElement(QXmlStreamReader&, const taiga::Settings&);
 void parseRecognitionElement(QXmlStreamReader&, const taiga::Settings&);
+void parseRssElement(QXmlStreamReader&, const taiga::Settings&);
 
 void readSettings(const std::string& path, const taiga::Settings& settings,
                   const taiga::Accounts& accounts) {
@@ -63,8 +70,10 @@ void readSettings(const std::string& path, const taiga::Settings& settings,
       parseProgramElement(xml, settings);
     } else if (xml.name() == u"recognition") {
       parseRecognitionElement(xml, settings);
+    } else if (xml.name() == u"rss") {
+      parseRssElement(xml, settings);
     } else {
-      // @TODO: announce, rss
+      // @TODO: announce
       xml.skipCurrentElement();
     }
   }
@@ -131,6 +140,37 @@ namespace {
 bool xmlAttrBool(const QStringView value, const bool fallback) {
   if (value.isEmpty()) return fallback;
   return value.compare(QLatin1String("true"), Qt::CaseInsensitive) == 0 || value == u"1";
+}
+
+/// Maps v1 `program/list/sort/column` string (attribute `column` on `<sort>`) to Qt list column index.
+std::optional<int> v1ListSortColumnToQt(const QString& col) {
+  const QStringView c = QStringView{col}.trimmed();
+  if (c.isEmpty()) return {};
+  if (c.compare(u"anime_title", Qt::CaseInsensitive) == 0) return gui::AnimeListModel::COLUMN_TITLE;
+  if (c.compare(u"user_progress", Qt::CaseInsensitive) == 0) return gui::AnimeListModel::COLUMN_PROGRESS;
+  if (c.compare(u"user_rating", Qt::CaseInsensitive) == 0) return gui::AnimeListModel::COLUMN_SCORE;
+  if (c.compare(u"anime_average_rating", Qt::CaseInsensitive) == 0)
+    return gui::AnimeListModel::COLUMN_AVERAGE;
+  if (c.compare(u"anime_type", Qt::CaseInsensitive) == 0) return gui::AnimeListModel::COLUMN_TYPE;
+  if (c.compare(u"anime_season", Qt::CaseInsensitive) == 0) return gui::AnimeListModel::COLUMN_SEASON;
+  if (c.compare(u"user_date_started", Qt::CaseInsensitive) == 0)
+    return gui::AnimeListModel::COLUMN_STARTED;
+  if (c.compare(u"user_date_completed", Qt::CaseInsensitive) == 0)
+    return gui::AnimeListModel::COLUMN_COMPLETED;
+  if (c.compare(u"user_last_updated", Qt::CaseInsensitive) == 0)
+    return gui::AnimeListModel::COLUMN_LAST_UPDATED;
+  if (c.compare(u"user_notes", Qt::CaseInsensitive) == 0) return gui::AnimeListModel::COLUMN_NOTES;
+  if (c.compare(u"anime_status", Qt::CaseInsensitive) == 0)
+    return gui::AnimeListModel::COLUMN_TITLE;
+  return {};
+}
+
+/// Like `v1ListSortColumnToQt` but skips v1-only columns with no Qt analogue (e.g. `anime_status`).
+std::optional<int> v1ListLayoutColumnToQt(const QString& col) {
+  const QStringView c = QStringView{col}.trimmed();
+  if (c.isEmpty()) return {};
+  if (c.compare(u"anime_status", Qt::CaseInsensitive) == 0) return {};
+  return v1ListSortColumnToQt(col);
 }
 
 }  // namespace
@@ -236,6 +276,63 @@ void parseProgramElement(QXmlStreamReader& xml, const taiga::Settings& settings)
             settings.setListProgressShowAvailable(xmlAttrBool(sv, true));
           }
           xml.skipCurrentElement();
+        } else if (xml.name() == u"sort") {
+          // Taiga v1 stores these as attributes on <program><list><sort/> (see settings DeserializeFromXml).
+          const auto attrs = xml.attributes();
+          const auto col = attrs.value(u"column");
+          if (!col.isEmpty()) {
+            if (const auto mapped = v1ListSortColumnToQt(col.toString())) {
+              taiga::session.setAnimeListSortColumn(*mapped);
+            }
+          }
+          const auto ord = attrs.value(u"order");
+          if (!ord.isEmpty()) {
+            bool ok = false;
+            const int o = ord.toInt(&ok);
+            if (ok) {
+              taiga::session.setAnimeListSortOrder(o < 0 ? Qt::DescendingOrder : Qt::AscendingOrder);
+            }
+          }
+          xml.skipCurrentElement();
+        } else if (xml.name() == u"filter") {
+          while (xml.readNextStartElement()) {
+            if (xml.name() == u"episodes") {
+              const auto attrs = xml.attributes();
+              const auto hi = attrs.value(u"highlight");
+              if (!hi.isEmpty()) {
+                settings.setListHighlightNextEpisodeOnDisk(xmlAttrBool(hi, true));
+              }
+              const auto top = attrs.value(u"highlightedontop");
+              if (!top.isEmpty()) {
+                settings.setListHighlightAvailableOnTop(xmlAttrBool(top, false));
+              }
+              xml.skipCurrentElement();
+            } else {
+              xml.skipCurrentElement();
+            }
+          }
+        } else if (xml.name() == u"columns") {
+          QJsonArray column_layout;
+          while (xml.readNextStartElement()) {
+            if (xml.name() == u"column") {
+              const auto attrs = xml.attributes();
+              const QString name = attrs.value(u"name").toString();
+              if (const auto col = v1ListLayoutColumnToQt(name)) {
+                column_layout.append(QJsonObject{
+                    {QStringLiteral("c"), *col},
+                    {QStringLiteral("w"), attrs.value(u"width").toInt()},
+                    {QStringLiteral("v"), xmlAttrBool(attrs.value(u"visible"), true)},
+                });
+              }
+              xml.skipCurrentElement();
+            } else {
+              xml.skipCurrentElement();
+            }
+          }
+          if (!column_layout.isEmpty()) {
+            taiga::session.setPendingV1ListColumnLayout(
+                QString::fromUtf8(QJsonDocument(column_layout).toJson(QJsonDocument::Compact)));
+          }
         } else {
           xml.skipCurrentElement();
         }
@@ -253,6 +350,32 @@ void parseRecognitionElement(QXmlStreamReader& xml, const taiga::Settings& setti
       settings.setMediaDetectionInterval(seconds);
       xml.skipCurrentElement();
 
+    } else {
+      xml.skipCurrentElement();
+    }
+  }
+}
+
+void parseRssElement(QXmlStreamReader& xml, const taiga::Settings& settings) {
+  while (xml.readNextStartElement()) {
+    if (xml.name() == u"torrent") {
+      while (xml.readNextStartElement()) {
+        if (xml.name() == u"search") {
+          const QString addr = xml.attributes().value(u"address").toString();
+          if (!addr.isEmpty()) {
+            settings.setTorrentDiscoverySearchUrl(addr.toStdString());
+          }
+          xml.skipCurrentElement();
+        } else if (xml.name() == u"source") {
+          const QString addr = xml.attributes().value(u"address").toString();
+          if (!addr.isEmpty()) {
+            settings.setTorrentDiscoveryFeedSourceUrl(addr.toStdString());
+          }
+          xml.skipCurrentElement();
+        } else {
+          xml.skipCurrentElement();
+        }
+      }
     } else {
       xml.skipCurrentElement();
     }
