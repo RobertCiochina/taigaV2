@@ -19,8 +19,12 @@
 #include "service.hpp"
 
 #include <functional>
+#include <memory>
+#include <unordered_map>
 
+#include <QApplication>
 #include <QMap>
+#include <QTimer>
 
 #include "media/anime_db.hpp"
 #include "sync/anilist.hpp"
@@ -32,6 +36,43 @@
 #include "taiga/accounts.hpp"
 #include "taiga/network.hpp"
 #include "taiga/settings.hpp"
+
+namespace {
+
+struct PendingListSaveSlot {
+  std::unique_ptr<QTimer> timer;
+  ListEntry entry{};
+};
+
+std::unordered_map<int, PendingListSaveSlot> g_pending_list_saves;
+
+void saveListEntryImmediately(const ListEntry& entry) {
+  switch (sync::currentServiceId()) {
+    case sync::ServiceId::MyAnimeList:
+      sync::myanimelist::Service::instance()->saveListEntry(entry);
+      break;
+    case sync::ServiceId::Kitsu:
+      sync::kitsu::Service::instance()->saveListEntry(entry);
+      break;
+    case sync::ServiceId::AniList:
+      if (!taiga::accounts.anilistToken().empty()) {
+        sync::anilist::Service::instance()->saveListEntry(entry);
+      }
+      break;
+    case sync::ServiceId::Unknown:
+      break;
+  }
+}
+
+void onPendingListSaveTimeout(const int anime_id) {
+  const auto it = g_pending_list_saves.find(anime_id);
+  if (it == g_pending_list_saves.end()) return;
+  const ListEntry copy = it->second.entry;
+  g_pending_list_saves.erase(it);
+  saveListEntryImmediately(copy);
+}
+
+}  // namespace
 
 namespace sync {
 
@@ -92,24 +133,38 @@ void fetchAnime(const int id) {
 }
 
 void saveListEntry(const ListEntry& entry) {
-  switch (currentServiceId()) {
-    case ServiceId::MyAnimeList:
-      myanimelist::Service::instance()->saveListEntry(entry);
-      break;
-    case ServiceId::Kitsu:
-      kitsu::Service::instance()->saveListEntry(entry);
-      break;
-    case ServiceId::AniList:
-      if (!taiga::accounts.anilistToken().empty()) {
-        anilist::Service::instance()->saveListEntry(entry);
-      }
-      break;
-    case ServiceId::Unknown:
-      break;
+  const int delay_s = taiga::settings.syncListUpdateDelaySeconds();
+  if (delay_s <= 0) {
+    g_pending_list_saves.erase(entry.anime_id);
+    saveListEntryImmediately(entry);
+    return;
+  }
+
+  auto& slot = g_pending_list_saves[entry.anime_id];
+  if (!slot.timer) {
+    slot.timer = std::make_unique<QTimer>();
+    slot.timer->setSingleShot(true);
+    const int aid = entry.anime_id;
+    QObject::connect(slot.timer.get(), &QTimer::timeout, qApp, [aid] { onPendingListSaveTimeout(aid); });
+  }
+  slot.entry = entry;
+  slot.timer->stop();
+  slot.timer->start(delay_s * 1000);
+}
+
+void flushPendingListSaves() {
+  std::unordered_map<int, PendingListSaveSlot> pending;
+  pending.swap(g_pending_list_saves);
+  for (auto& [id, slot] : pending) {
+    (void)id;
+    if (slot.timer) slot.timer->stop();
+    saveListEntryImmediately(slot.entry);
   }
 }
 
 void deleteListEntry(const int anime_id) {
+  g_pending_list_saves.erase(anime_id);
+
   switch (currentServiceId()) {
     case ServiceId::MyAnimeList:
       myanimelist::Service::instance()->deleteListEntry(anime_id);

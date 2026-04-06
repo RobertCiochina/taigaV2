@@ -19,6 +19,8 @@
 #include "play.hpp"
 
 #include <QDesktopServices>
+#include <QFileInfo>
+#include <QProcess>
 #include <QUrl>
 #include <random>
 
@@ -35,6 +37,10 @@ bool playEpisode(int animeId, int number) {
     const auto episodePath = findEpisode(QString::fromStdString(folder), animeId, number);
     if (episodePath) {
       qDebug() << "Found file:" << *episodePath;
+      const QString exe = QString::fromStdString(taiga::settings.mediaPlayerExecutablePath()).trimmed();
+      if (!exe.isEmpty() && QFileInfo::exists(exe)) {
+        return QProcess::startDetached(exe, QStringList{*episodePath});
+      }
       return QDesktopServices::openUrl(QUrl::fromLocalFile(*episodePath));
     }
   }

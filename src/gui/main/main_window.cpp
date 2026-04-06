@@ -65,6 +65,7 @@
 #include "media/anime.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_list_export.hpp"
+#include "media/anime_list_import.hpp"
 #include "taiga/accounts.hpp"
 #include "taiga/application.hpp"
 #include "taiga/path.hpp"
@@ -163,6 +164,12 @@ void MainWindow::init() {
 
   initFeatureToggleActions();
 
+  m_catalog_autocheck_timer_ = new QTimer(this);
+  m_catalog_autocheck_timer_->setTimerType(Qt::VeryCoarseTimer);
+  connect(m_catalog_autocheck_timer_, &QTimer::timeout, this,
+          &MainWindow::onTorrentCatalogAutocheckTimer);
+  refreshTorrentCatalogAutocheckTimer();
+
   {
     auto* shortcut_find = new QShortcut(QKeySequence::Find, this);
     shortcut_find->setContext(Qt::WidgetWithChildrenShortcut);
@@ -213,6 +220,8 @@ void MainWindow::initActions() {
           &MainWindow::exportAnimeListMarkdown);
   connect(ui_->actionExportListAsMyAnimeListXML, &QAction::triggered, this,
           &MainWindow::exportAnimeListXml);
+  connect(ui_->actionExportListAsCsv, &QAction::triggered, this, &MainWindow::exportAnimeListCsv);
+  connect(ui_->actionImportListFromMalXml, &QAction::triggered, this, &MainWindow::importAnimeListMalXml);
 
   connect(ui_->actionPlayNextEpisode, &QAction::triggered, this, &MainWindow::playNextEpisodeFromMenu);
   connect(ui_->actionPlayRandomAnime, &QAction::triggered, this, &MainWindow::playRandomAnimeFromMenu);
@@ -245,6 +254,7 @@ void MainWindow::initActions() {
 
 void MainWindow::initIcons() {
   ui_->menuLibraryFolders->setIcon(theme.getIcon("folder"));
+  ui_->menuImport->setIcon(theme.getIcon("add_box"));
   ui_->menuExport->setIcon(theme.getIcon("export_notes"));
 
   ui_->actionAddNewFolder->setIcon(theme.getIcon("create_new_folder"));
@@ -557,6 +567,8 @@ void MainWindow::closeEvent(QCloseEvent* event) {
   taiga::session.setMainWindowSplitterState(ui_->splitter->saveState());
   if (m_listWidget) m_listWidget->saveState();
   if (m_searchWidget) m_searchWidget->saveState();
+  if (m_torrentFeedWidget) m_torrentFeedWidget->saveSessionState();
+  sync::flushPendingListSaves();
 
   if (event->spontaneous() && taiga::settings.closeToTray() &&
       QSystemTrayIcon::isSystemTrayAvailable()) {
@@ -790,6 +802,49 @@ void MainWindow::exportAnimeListXml() {
   }
 }
 
+void MainWindow::exportAnimeListCsv() {
+  const QString def = QDir::home().filePath(
+      u"animelist_%1.csv"_s.arg(QDate::currentDate().toString(Qt::ISODate)));
+  const QString path = QFileDialog::getSaveFileName(this, tr("Export anime list as CSV"), def,
+                                                    tr("CSV (*.csv);;All files (*)"));
+  if (path.isEmpty()) return;
+  if (anime::list::exportAsCsv(path.toStdString())) {
+    statusBar()->showMessage(tr("Exported list to %1").arg(path), 6000);
+  } else {
+    QMessageBox::warning(this, tr("Taiga"), tr("Could not write the export file."));
+  }
+}
+
+void MainWindow::importAnimeListMalXml() {
+  const QString path = QFileDialog::getOpenFileName(this, tr("Import MyAnimeList XML"), {},
+                                                    tr("XML (*.xml);;All files (*)"));
+  if (path.isEmpty()) return;
+
+  const auto r = anime::list::importFromMyAnimeListXml(path.toStdString());
+  if (!r.ok()) {
+    QMessageBox::warning(this, tr("Taiga"), tr("Could not import: %1").arg(r.error));
+    return;
+  }
+
+  if (m_navigationWidget) m_navigationWidget->refresh();
+  if (m_listWidget) m_listWidget->reloadAnimeList();
+  if (m_searchWidget) m_searchWidget->reloadAnimeList();
+  refreshHomeDashboard();
+
+  QString msg = tr("Imported %1 anime list row(s).").arg(r.updated);
+  if (r.skipped_unknown_anime > 0) {
+    msg += u" "_s +
+           tr("Skipped %1 (no local anime with that id).").arg(r.skipped_unknown_anime);
+  }
+  if (r.skipped_invalid_row > 0) {
+    msg += u" "_s + tr("Skipped %1 invalid row(s).").arg(r.skipped_invalid_row);
+  }
+  if (sync::currentServiceId() != sync::ServiceId::MyAnimeList && r.skipped_unknown_anime > 0) {
+    msg += u" "_s + tr("(AniList/Kitsu use different media IDs than MAL exports.)");
+  }
+  statusBar()->showMessage(msg, 12000);
+}
+
 void MainWindow::playNextEpisodeFromMenu() {
   if (const auto id = animeIdForPlaybackContext()) {
     if (track::playNextEpisode(*id)) {
@@ -908,7 +963,7 @@ void MainWindow::updateToolbarSearchPlaceholder() {
       m_searchBox->setPlaceholderText(tr("Filter search results…"));
       break;
     case MainWindowPage::Torrents:
-      m_searchBox->setPlaceholderText(tr("Anime title — press Enter to fetch RSS…"));
+      m_searchBox->setPlaceholderText(tr("Anime title — Enter or F5 fetches RSS…"));
       break;
     case MainWindowPage::Home:
       m_searchBox->setPlaceholderText(tr("Filter list (open Anime list from the sidebar)…"));
@@ -1017,6 +1072,31 @@ void MainWindow::updateTrayTooltip() {
     tip = tip.left(kMaxLen - 1) + QChar(0x2026);
   }
   m_trayIcon->setToolTip(tip);
+}
+
+void MainWindow::postTrayMessage(const QString& title, const QString& message) {
+  if (m_trayIcon) {
+    m_trayIcon->showMessage(title, message);
+  }
+}
+
+void MainWindow::refreshTorrentCatalogAutocheckTimer() {
+  if (!m_catalog_autocheck_timer_) return;
+  m_catalog_autocheck_timer_->stop();
+  if (!taiga::settings.torrentDiscoveryAutoCheckEnabled()) return;
+  const int min = taiga::settings.torrentDiscoveryAutoCheckIntervalMinutes();
+  m_catalog_autocheck_timer_->start(min * 60 * 1000);
+}
+
+void MainWindow::resortTorrentRssTableFromSettings() {
+  if (m_torrentFeedWidget) m_torrentFeedWidget->resortRssTableFromSettings();
+}
+
+void MainWindow::onTorrentCatalogAutocheckTimer() {
+  initPage(MainWindowPage::Torrents);
+  if (m_torrentFeedWidget) {
+    m_torrentFeedWidget->runCatalogAutocheckFetch();
+  }
 }
 
 void MainWindow::refreshHomeDashboard() {

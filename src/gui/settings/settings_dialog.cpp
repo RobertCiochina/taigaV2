@@ -5,6 +5,7 @@
 
 #include "settings_dialog.hpp"
 
+#include <algorithm>
 #include <chrono>
 
 #include <QCheckBox>
@@ -16,6 +17,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QSystemTrayIcon>
 #include <QTreeWidgetItem>
 #include <QUrl>
@@ -242,6 +244,21 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
     rec_ui();
   }
 
+  ui_->checkLibraryLookupParent->setChecked(taiga::settings.libraryScanLookupParentDirectories());
+  ui_->lineMediaPlayerExecutable->setText(
+      QString::fromStdString(taiga::settings.mediaPlayerExecutablePath()));
+  connect(ui_->buttonBrowseMediaPlayerExecutable, &QPushButton::clicked, this, [this] {
+#ifdef Q_OS_WIN
+    const QString filter = tr("Executables (*.exe);;All files (*)");
+#else
+    const QString filter = tr("All files (*)");
+#endif
+    const QString path =
+        QFileDialog::getOpenFileName(this, tr("Media player"), ui_->lineMediaPlayerExecutable->text(),
+                                     filter);
+    if (!path.isEmpty()) ui_->lineMediaPlayerExecutable->setText(path);
+  });
+
   {
     const auto focus_ui = [this] {
       ui_->spinFocusMinutes->setEnabled(ui_->checkSyncOnFocus->isChecked());
@@ -254,11 +271,26 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   ui_->lineProxyHost->setText(QString::fromStdString(taiga::settings.proxyHost()));
   ui_->lineProxyUsername->setText(QString::fromStdString(taiga::settings.proxyUsername()));
   ui_->lineProxyPassword->setText(QString::fromStdString(taiga::settings.proxyPassword()));
+  ui_->checkNetworkRelaxedTls->setChecked(taiga::settings.networkRelaxedTls());
+  ui_->checkNetworkRelaxedTls->setToolTip(
+      tr("Disables strict TLS peer verification for Taiga HTTP requests (Taiga v1: sslnorevoke). Use "
+         "only with broken proxies or certificates."));
   ui_->checkSyncOnFocus->setChecked(taiga::settings.syncOnWindowFocus());
   ui_->spinFocusMinutes->setValue(taiga::settings.syncOnWindowFocusMinutes());
 
   for (const auto& folder : taiga::settings.libraryFolders()) {
     ui_->libraryFolderList->addItem(QString::fromStdString(folder));
+  }
+
+  {
+    constexpr qint64 kMiB = 1024LL * 1024;
+    const qint64 b = taiga::settings.libraryScanMinFileSizeBytes();
+    int mib = 0;
+    if (b > 0) {
+      mib = static_cast<int>(std::min((b + kMiB - 1) / kMiB, static_cast<qint64>(102400)));
+      mib = std::max(mib, 1);
+    }
+    ui_->spinLibraryMinFileSizeMiB->setValue(mib);
   }
 
   {
@@ -268,6 +300,145 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
     QString fs = QString::fromStdString(taiga::settings.torrentDiscoveryFeedSourceUrl());
     if (fs.isEmpty()) fs = taiga::defaultTorrentDiscoveryFeedSourceUrl();
     ui_->lineTorrentFeedSourceUrl->setText(fs);
+  }
+
+  ui_->lineTorrentClientDownloadPath->setText(
+      QString::fromStdString(taiga::settings.torrentClientDownloadPath()));
+  ui_->lineTorrentFileSavePath->setText(
+      QString::fromStdString(taiga::settings.torrentFileSavePath()));
+  connect(ui_->buttonBrowseTorrentClientDownload, &QPushButton::clicked, this, [this] {
+    constexpr auto options =
+        QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks | QFileDialog::ReadOnly;
+    const QString directory = QFileDialog::getExistingDirectory(
+        this, tr("Client download folder"), ui_->lineTorrentClientDownloadPath->text(), options);
+    if (!directory.isEmpty()) ui_->lineTorrentClientDownloadPath->setText(directory);
+  });
+  connect(ui_->buttonBrowseTorrentFileSave, &QPushButton::clicked, this, [this] {
+    constexpr auto options =
+        QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks | QFileDialog::ReadOnly;
+    const QString directory = QFileDialog::getExistingDirectory(
+        this, tr(".torrent save folder"), ui_->lineTorrentFileSavePath->text(), options);
+    if (!directory.isEmpty()) ui_->lineTorrentFileSavePath->setText(directory);
+  });
+
+  ui_->checkTorrentAutocheckCatalog->setChecked(taiga::settings.torrentDiscoveryAutoCheckEnabled());
+  ui_->spinTorrentAutocheckMinutes->setValue(taiga::settings.torrentDiscoveryAutoCheckIntervalMinutes());
+  {
+    QComboBox* const c = ui_->comboTorrentNewCatalogAction;
+    if (c->count() == 0) {
+      c->addItem(tr("Notify (status bar and tray)"),
+                 static_cast<int>(taiga::TorrentDiscoveryNewCatalogAction::Notify));
+      c->addItem(tr("Download automatically (v1) — status only until download queue exists"),
+                 static_cast<int>(taiga::TorrentDiscoveryNewCatalogAction::Download));
+    }
+    const int want = static_cast<int>(taiga::settings.torrentDiscoveryNewCatalogAction());
+    for (int i = 0; i < c->count(); ++i) {
+      if (c->itemData(i).toInt() == want) {
+        c->setCurrentIndex(i);
+        break;
+      }
+    }
+  }
+  {
+    QComboBox* const sb = ui_->comboTorrentRssSortBy;
+    if (sb->count() == 0) {
+      sb->addItem(tr("Title (v1: episode_number)"), QStringLiteral("episode_number"));
+      sb->addItem(tr("Published date (v1: release_date)"), QStringLiteral("release_date"));
+    }
+    const QString want_by = QString::fromStdString(taiga::settings.torrentRssSortBy());
+    for (int i = 0; i < sb->count(); ++i) {
+      if (sb->itemData(i).toString() == want_by) {
+        sb->setCurrentIndex(i);
+        break;
+      }
+    }
+  }
+  {
+    QComboBox* const so = ui_->comboTorrentRssSortOrder;
+    if (so->count() == 0) {
+      so->addItem(tr("Ascending"), QStringLiteral("ascending"));
+      so->addItem(tr("Descending"), QStringLiteral("descending"));
+    }
+    const QString want_o = QString::fromStdString(taiga::settings.torrentRssSortOrder());
+    for (int i = 0; i < so->count(); ++i) {
+      if (so->itemData(i).toString() == want_o) {
+        so->setCurrentIndex(i);
+        break;
+      }
+    }
+  }
+  ui_->checkTorrentFeedFilterEnabled->setChecked(taiga::settings.torrentFeedFilterEnabled());
+  ui_->spinTorrentFeedArchiveMax->setValue(taiga::settings.torrentFeedArchiveMaxItems());
+  {
+    const auto upd_feed_cap = [this] {
+      const bool on = ui_->checkTorrentFeedFilterEnabled->isChecked();
+      ui_->spinTorrentFeedArchiveMax->setEnabled(on);
+      ui_->labelTorrentFeedArchiveMax->setEnabled(on);
+    };
+    connect(ui_->checkTorrentFeedFilterEnabled, &QCheckBox::checkStateChanged, this,
+            [upd_feed_cap](Qt::CheckState) { upd_feed_cap(); });
+    upd_feed_cap();
+  }
+  ui_->checkTorrentDownloadUseMagnet->setChecked(taiga::settings.torrentDownloadUseMagnet());
+
+  ui_->checkTorrentUseAnimeFolder->setChecked(taiga::settings.torrentDownloadUseAnimeFolder());
+  ui_->checkTorrentFallbackClientPath->setChecked(taiga::settings.torrentDownloadFallbackOnClientPath());
+  ui_->checkTorrentCreateSubfolder->setChecked(taiga::settings.torrentDownloadCreateSubfolder());
+  ui_->checkTorrentAppOpen->setChecked(taiga::settings.torrentAppOpen());
+  if (taiga::settings.torrentAppMode() == 2) {
+    ui_->radioTorrentAppCustom->setChecked(true);
+  } else {
+    ui_->radioTorrentAppDefault->setChecked(true);
+  }
+  ui_->lineTorrentAppExecutable->setText(
+      QString::fromStdString(taiga::settings.torrentAppExecutablePath()));
+  {
+    const auto upd_torrent_handling_ui = [this] {
+      const bool open = ui_->checkTorrentAppOpen->isChecked();
+      ui_->radioTorrentAppDefault->setEnabled(open);
+      ui_->radioTorrentAppCustom->setEnabled(open);
+      const bool custom = open && ui_->radioTorrentAppCustom->isChecked();
+      ui_->lineTorrentAppExecutable->setEnabled(custom);
+      ui_->buttonBrowseTorrentAppExecutable->setEnabled(custom);
+    };
+    connect(ui_->checkTorrentAppOpen, &QCheckBox::checkStateChanged, this,
+            [upd_torrent_handling_ui](Qt::CheckState) { upd_torrent_handling_ui(); });
+    connect(ui_->radioTorrentAppDefault, &QRadioButton::toggled, this,
+            [upd_torrent_handling_ui](bool) { upd_torrent_handling_ui(); });
+    connect(ui_->radioTorrentAppCustom, &QRadioButton::toggled, this,
+            [upd_torrent_handling_ui](bool) { upd_torrent_handling_ui(); });
+    upd_torrent_handling_ui();
+  }
+  ui_->checkTorrentCreateSubfolder->setEnabled(ui_->checkTorrentFallbackClientPath->isChecked());
+  connect(ui_->checkTorrentFallbackClientPath, &QCheckBox::checkStateChanged, this,
+          [this](Qt::CheckState) {
+            ui_->checkTorrentCreateSubfolder->setEnabled(ui_->checkTorrentFallbackClientPath->isChecked());
+            if (!ui_->checkTorrentFallbackClientPath->isChecked()) {
+              ui_->checkTorrentCreateSubfolder->setChecked(false);
+            }
+          });
+  connect(ui_->buttonBrowseTorrentAppExecutable, &QPushButton::clicked, this, [this] {
+#ifdef Q_OS_WIN
+    const QString filter = tr("Executables (*.exe);;All files (*)");
+#else
+    const QString filter = tr("All files (*)");
+#endif
+    const QString path =
+        QFileDialog::getOpenFileName(this, tr("Torrent client application"),
+                                     ui_->lineTorrentAppExecutable->text(), filter);
+    if (!path.isEmpty()) ui_->lineTorrentAppExecutable->setText(path);
+  });
+
+  {
+    const auto upd_autocheck_ui = [this] {
+      const bool on = ui_->checkTorrentAutocheckCatalog->isChecked();
+      ui_->spinTorrentAutocheckMinutes->setEnabled(on);
+      ui_->comboTorrentNewCatalogAction->setEnabled(on);
+      ui_->labelTorrentNewCatalogAction->setEnabled(on);
+    };
+    connect(ui_->checkTorrentAutocheckCatalog, &QCheckBox::checkStateChanged, this,
+            [upd_autocheck_ui](Qt::CheckState) { upd_autocheck_ui(); });
+    upd_autocheck_ui();
   }
 
   connect(ui_->buttonAddLibraryFolder, &QPushButton::clicked, this, [this] {
@@ -290,6 +461,11 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
       folders.push_back(ui_->libraryFolderList->item(i)->text().toStdString());
     }
     taiga::settings.setLibraryFolders(std::move(folders));
+    {
+      constexpr qint64 kMiB = 1024LL * 1024;
+      const int v = ui_->spinLibraryMinFileSizeMiB->value();
+      taiga::settings.setLibraryScanMinFileSizeBytes(v > 0 ? static_cast<qint64>(v) * kMiB : 0);
+    }
     if (gui::mainWindow()) gui::mainWindow()->refreshLibraryRootsFromSettings();
 
     if (auto* mw = gui::mainWindow()) {
@@ -311,6 +487,11 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
     ui_->comboListService->setCurrentIndex(sidx);
   }
   ui_->checkListUpdatesEnabled->setChecked(taiga::settings.listSynchronizationEnabled());
+  ui_->spinListUpdateApiDelay->setValue(taiga::settings.syncListUpdateDelaySeconds());
+  ui_->spinListUpdateApiDelay->setToolTip(
+      tr("Seconds to wait after a local list change before pushing the same title to the remote service "
+         "again (Taiga v1: account/update delay; default there was often 120). 0 = immediate. Reduces "
+         "API traffic when you adjust progress several times in a row."));
 
   ui_->comboListTitleLanguage->addItem(tr("Romaji"), static_cast<int>(anime::TitleLanguage::Romaji));
   ui_->comboListTitleLanguage->addItem(tr("English"), static_cast<int>(anime::TitleLanguage::English));
@@ -374,6 +555,8 @@ void SettingsDialog::accept() {
   taiga::settings.setMediaDetectionEnabled(ui_->checkMediaDetection->isChecked());
   taiga::settings.setMediaDetectionInterval(
       std::chrono::milliseconds(ui_->spinDetectionInterval->value() * 1000));
+  taiga::settings.setLibraryScanLookupParentDirectories(ui_->checkLibraryLookupParent->isChecked());
+  taiga::settings.setMediaPlayerExecutablePath(ui_->lineMediaPlayerExecutable->text().trimmed().toStdString());
   track::media::detection()->refreshPollingFromSettings();
 
   taiga::settings.setCheckForUpdatesOnStartup(ui_->checkUpdatesOnStartup->isChecked());
@@ -386,6 +569,7 @@ void SettingsDialog::accept() {
   taiga::settings.setProxyHost(ui_->lineProxyHost->text().toStdString());
   taiga::settings.setProxyUsername(ui_->lineProxyUsername->text().toStdString());
   taiga::settings.setProxyPassword(ui_->lineProxyPassword->text().toStdString());
+  taiga::settings.setNetworkRelaxedTls(ui_->checkNetworkRelaxedTls->isChecked());
   taiga::network()->applyProxyFromSettings();
   taiga::settings.setSyncOnWindowFocus(ui_->checkSyncOnFocus->isChecked());
   taiga::settings.setSyncOnWindowFocusMinutes(ui_->spinFocusMinutes->value());
@@ -411,11 +595,37 @@ void SettingsDialog::accept() {
     if (gui::mainWindow()) gui::mainWindow()->refreshLibraryRootsFromSettings();
   }
 
+  {
+    constexpr qint64 kMiB = 1024LL * 1024;
+    const int v = ui_->spinLibraryMinFileSizeMiB->value();
+    taiga::settings.setLibraryScanMinFileSizeBytes(v > 0 ? static_cast<qint64>(v) * kMiB : 0);
+  }
+
   taiga::settings.setTorrentDiscoverySearchUrl(ui_->lineTorrentSearchUrl->text().trimmed().toStdString());
   taiga::settings.setTorrentDiscoveryFeedSourceUrl(ui_->lineTorrentFeedSourceUrl->text().trimmed().toStdString());
+  taiga::settings.setTorrentDiscoveryAutoCheckEnabled(ui_->checkTorrentAutocheckCatalog->isChecked());
+  taiga::settings.setTorrentDiscoveryAutoCheckIntervalMinutes(ui_->spinTorrentAutocheckMinutes->value());
+  taiga::settings.setTorrentDiscoveryNewCatalogAction(static_cast<taiga::TorrentDiscoveryNewCatalogAction>(
+      ui_->comboTorrentNewCatalogAction->currentData().toInt()));
+  taiga::settings.setTorrentRssSortBy(ui_->comboTorrentRssSortBy->currentData().toString().toStdString());
+  taiga::settings.setTorrentRssSortOrder(
+      ui_->comboTorrentRssSortOrder->currentData().toString().toStdString());
+  taiga::settings.setTorrentFeedFilterEnabled(ui_->checkTorrentFeedFilterEnabled->isChecked());
+  taiga::settings.setTorrentFeedArchiveMaxItems(ui_->spinTorrentFeedArchiveMax->value());
+  taiga::settings.setTorrentDownloadUseMagnet(ui_->checkTorrentDownloadUseMagnet->isChecked());
+  taiga::settings.setTorrentClientDownloadPath(ui_->lineTorrentClientDownloadPath->text().trimmed().toStdString());
+  taiga::settings.setTorrentFileSavePath(ui_->lineTorrentFileSavePath->text().trimmed().toStdString());
+  taiga::settings.setTorrentDownloadUseAnimeFolder(ui_->checkTorrentUseAnimeFolder->isChecked());
+  taiga::settings.setTorrentDownloadFallbackOnClientPath(ui_->checkTorrentFallbackClientPath->isChecked());
+  taiga::settings.setTorrentDownloadCreateSubfolder(
+      ui_->checkTorrentFallbackClientPath->isChecked() && ui_->checkTorrentCreateSubfolder->isChecked());
+  taiga::settings.setTorrentAppOpen(ui_->checkTorrentAppOpen->isChecked());
+  taiga::settings.setTorrentAppMode(ui_->radioTorrentAppCustom->isChecked() ? 2 : 1);
+  taiga::settings.setTorrentAppExecutablePath(ui_->lineTorrentAppExecutable->text().trimmed().toStdString());
 
   taiga::settings.setService(ui_->comboListService->currentData().toString().toStdString());
   taiga::settings.setListSynchronizationEnabled(ui_->checkListUpdatesEnabled->isChecked());
+  taiga::settings.setSyncListUpdateDelaySeconds(ui_->spinListUpdateApiDelay->value());
   taiga::settings.setListTitleLanguage(static_cast<anime::TitleLanguage>(
       ui_->comboListTitleLanguage->currentData().toInt()));
   taiga::settings.setListDoubleClickAction(static_cast<taiga::ListRowAction>(
@@ -432,6 +642,8 @@ void SettingsDialog::accept() {
     mw->refreshServiceDependentUi();
     mw->refreshAnimeListProgressDecorations();
     mw->refreshAnimeListNewEpisodeHighlight();
+    mw->refreshTorrentCatalogAutocheckTimer();
+    mw->resortTorrentRssTableFromSettings();
   }
 
   QDialog::accept();

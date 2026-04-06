@@ -37,6 +37,10 @@ public:
   static QHttpHeaders commonHeaders();
 
   void applyProxyFromSettings();
+
+protected:
+  QNetworkReply* createRequest(Operation op, const QNetworkRequest& original,
+                                 QIODevice* outgoingData = nullptr) override;
 };
 
 void applyCommonHeaders(QNetworkRequest& request);

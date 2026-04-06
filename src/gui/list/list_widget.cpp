@@ -257,6 +257,11 @@ void ListWidget::initMoreMenu() {
 
   m_moreMenu->addAction(tr("Export as XML..."), this,
                         [this]() { export_as(this, "xml", &anime::list::exportAsXml); });
+  m_moreMenu->addAction(tr("Export as CSV..."), this,
+                        [this]() { export_as(this, "csv", &anime::list::exportAsCsv); });
+  m_moreMenu->addSeparator();
+  m_moreMenu->addAction(tr("Import from MyAnimeList XML..."), mainWindow(),
+                        &MainWindow::importAnimeListMalXml);
 }
 
 void ListWidget::reloadAnimeList() {

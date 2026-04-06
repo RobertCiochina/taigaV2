@@ -22,6 +22,11 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 
+#if !defined(QT_NO_SSL)
+#include <QSslConfiguration>
+#include <QSslSocket>
+#endif
+
 #include "base/string.hpp"
 #include "taiga/application.hpp"
 #include "taiga/config.h"
@@ -42,6 +47,19 @@ NetworkAccessManager::NetworkAccessManager(QObject* parent) : QNetworkAccessMana
       qDebug().noquote() << name << ": " << value;
     }
   });
+}
+
+QNetworkReply* NetworkAccessManager::createRequest(const Operation op, const QNetworkRequest& original,
+                                                   QIODevice* outgoingData) {
+  QNetworkRequest req{original};
+#if !defined(QT_NO_SSL)
+  if (taiga::settings.networkRelaxedTls()) {
+    QSslConfiguration ssl = QSslConfiguration::defaultConfiguration();
+    ssl.setPeerVerifyMode(QSslSocket::VerifyNone);
+    req.setSslConfiguration(ssl);
+  }
+#endif
+  return QNetworkAccessManager::createRequest(op, req, outgoingData);
 }
 
 QHttpHeaders NetworkAccessManager::commonHeaders() {

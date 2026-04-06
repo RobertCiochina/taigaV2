@@ -262,6 +262,44 @@
                 </property>
                </widget>
               </item>
+              <item>
+               <widget class="QCheckBox" name="checkLibraryLookupParent">
+                <property name="text">
+                 <string>Use parent folder name as title hint when the filename has no title (Taiga v1: lookup_parent_directories)</string>
+                </property>
+                <property name="checked">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="horizontalLayout_mediaPlayerExe">
+                <item>
+                 <widget class="QLabel" name="labelMediaPlayerExecutable">
+                  <property name="text">
+                   <string>Media player executable:</string>
+                  </property>
+                  <property name="toolTip">
+                   <string>Taiga v1: recognition/mediaplayers/launchpath. If set, Play / open episode uses this program with the file path; otherwise the OS default handler is used.</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLineEdit" name="lineMediaPlayerExecutable">
+                  <property name="placeholderText">
+                   <string>Optional — e.g. mpv.exe, vlc.exe</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="buttonBrowseMediaPlayerExecutable">
+                  <property name="text">
+                   <string>Browse…</string>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
              </layout>
             </widget>
            </item>
@@ -302,6 +340,13 @@
                <widget class="QLineEdit" name="lineProxyPassword">
                 <property name="echoMode">
                  <enum>QLineEdit::Password</enum>
+                </property>
+               </widget>
+              </item>
+              <item row="3" column="0" colspan="2">
+               <widget class="QCheckBox" name="checkNetworkRelaxedTls">
+                <property name="text">
+                 <string>Relax TLS certificate verification (Taiga v1: sslnorevoke)</string>
                 </property>
                </widget>
               </item>
@@ -439,6 +484,46 @@
             </widget>
            </item>
            <item>
+            <layout class="QHBoxLayout" name="horizontalLayout_libMinFileSize">
+             <item>
+              <widget class="QLabel" name="labelLibraryMinFileSize">
+               <property name="text">
+                <string>Ignore videos smaller than (saves time on huge folders; Taiga v1: anime/folders/scan minfilesize):</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QSpinBox" name="spinLibraryMinFileSizeMiB">
+               <property name="minimum">
+                <number>0</number>
+               </property>
+               <property name="maximum">
+                <number>102400</number>
+               </property>
+               <property name="suffix">
+                <string> MiB</string>
+               </property>
+               <property name="toolTip">
+                <string>0 = no minimum (all video sizes). Matches Taiga v1 minfilesize in bytes after import.</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <spacer name="horizontalSpacer_libMin">
+               <property name="orientation">
+                <enum>Qt::Horizontal</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>40</width>
+                 <height>20</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </item>
+           <item>
             <widget class="QGroupBox" name="groupTorrentSearch">
              <property name="title">
               <string>Torrents (RSS)</string>
@@ -477,6 +562,372 @@
                  <string>https://… (RSS, no %title%)</string>
                 </property>
                </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="labelTorrentPathsHelp">
+                <property name="text">
+                 <string>Download folders (Taiga v1: rss/torrent/options downloadpath / filedownloadpath). Used when opening folders from the Torrents page and for future download features.</string>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="horizontalLayout_torrentClientDl">
+                <item>
+                 <widget class="QLabel" name="labelTorrentClientDownload">
+                  <property name="text">
+                   <string>Client download folder:</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLineEdit" name="lineTorrentClientDownloadPath">
+                  <property name="placeholderText">
+                   <string>Optional — default save path for your torrent client</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="buttonBrowseTorrentClientDownload">
+                  <property name="text">
+                   <string>Browse…</string>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="horizontalLayout_torrentFileSave">
+                <item>
+                 <widget class="QLabel" name="labelTorrentFileSave">
+                  <property name="text">
+                   <string>.torrent save folder:</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLineEdit" name="lineTorrentFileSavePath">
+                  <property name="placeholderText">
+                   <string>Optional — where to store .torrent files</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="buttonBrowseTorrentFileSave">
+                  <property name="text">
+                   <string>Browse…</string>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="horizontalLayout_torrentAutocheck">
+                <item>
+                 <widget class="QCheckBox" name="checkTorrentAutocheckCatalog">
+                  <property name="text">
+                   <string>Automatically refresh catalog feed while Taiga is open</string>
+                  </property>
+                  <property name="toolTip">
+                   <string>Taiga v1: rss/torrent/options/autocheck and checkinterval. Runs in the background; Taiga compares to the last snapshot and can show a tray hint when new items appear.</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLabel" name="labelTorrentAutocheckEvery">
+                  <property name="text">
+                   <string>Every</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QSpinBox" name="spinTorrentAutocheckMinutes">
+                  <property name="minimum">
+                   <number>5</number>
+                  </property>
+                  <property name="maximum">
+                   <number>1440</number>
+                  </property>
+                  <property name="suffix">
+                   <string> min</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <spacer name="horizontalSpacer_torrentAutocheck">
+                  <property name="orientation">
+                   <enum>Qt::Horizontal</enum>
+                  </property>
+                  <property name="sizeHint" stdset="0">
+                   <size>
+                    <width>40</width>
+                    <height>20</height>
+                   </size>
+                  </property>
+                 </spacer>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="horizontalLayout_torrentNewAction">
+                <item>
+                 <widget class="QLabel" name="labelTorrentNewCatalogAction">
+                  <property name="text">
+                   <string>When new catalog items appear:</string>
+                  </property>
+                  <property name="toolTip">
+                   <string>Taiga v1: rss/torrent/options/newaction. “Download” matched the old automatic queue; this build shows a status message only until the download manager is ported.</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QComboBox" name="comboTorrentNewCatalogAction">
+                  <property name="toolTip">
+                   <string>Taiga v1: rss/torrent/options/newaction</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <spacer name="horizontalSpacer_torrentNewAction">
+                  <property name="orientation">
+                   <enum>Qt::Horizontal</enum>
+                  </property>
+                  <property name="sizeHint" stdset="0">
+                   <size>
+                    <width>40</width>
+                    <height>20</height>
+                   </size>
+                  </property>
+                 </spacer>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="horizontalLayout_torrentRssSort">
+                <item>
+                 <widget class="QLabel" name="labelTorrentRssSortBy">
+                  <property name="text">
+                   <string>Sort RSS results by:</string>
+                  </property>
+                  <property name="toolTip">
+                   <string>Taiga v1: rss/torrent/options/downloadsortby. v1 used this for the download list; here it controls the Torrents page table after each fetch.</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QComboBox" name="comboTorrentRssSortBy">
+                  <property name="toolTip">
+                   <string>Taiga v1: downloadsortby (episode_number | release_date)</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLabel" name="labelTorrentRssSortOrder">
+                  <property name="text">
+                   <string>Order:</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QComboBox" name="comboTorrentRssSortOrder">
+                  <property name="toolTip">
+                   <string>Taiga v1: downloadsortorder</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <spacer name="horizontalSpacer_torrentRssSort">
+                  <property name="orientation">
+                   <enum>Qt::Horizontal</enum>
+                  </property>
+                  <property name="sizeHint" stdset="0">
+                   <size>
+                    <width>40</width>
+                    <height>20</height>
+                   </size>
+                  </property>
+                 </spacer>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <widget class="QCheckBox" name="checkTorrentFeedFilterEnabled">
+                <property name="text">
+                 <string>Limit how many RSS items appear in the Torrents table (Taiga v1: filter enabled)</string>
+                </property>
+                <property name="checked">
+                 <bool>true</bool>
+                </property>
+                <property name="toolTip">
+                 <string>Taiga v1: rss/torrent/filter/enabled. When off, the full feed is shown. When on, only the first N items (below) load — faster UI on huge feeds. Feed filters / rules are not ported yet.</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="horizontalLayout_torrentArchiveMax">
+                <item>
+                 <widget class="QLabel" name="labelTorrentFeedArchiveMax">
+                  <property name="text">
+                   <string>Max items to show:</string>
+                  </property>
+                  <property name="toolTip">
+                   <string>Taiga v1: rss/torrent/filter/archive_maxcount</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QSpinBox" name="spinTorrentFeedArchiveMax">
+                  <property name="minimum">
+                   <number>100</number>
+                  </property>
+                  <property name="maximum">
+                   <number>50000</number>
+                  </property>
+                  <property name="singleStep">
+                   <number>100</number>
+                  </property>
+                  <property name="value">
+                   <number>1000</number>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <spacer name="horizontalSpacer_torrentArchiveMax">
+                  <property name="orientation">
+                   <enum>Qt::Horizontal</enum>
+                  </property>
+                  <property name="sizeHint" stdset="0">
+                   <size>
+                    <width>40</width>
+                    <height>20</height>
+                   </size>
+                  </property>
+                 </spacer>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <widget class="QCheckBox" name="checkTorrentDownloadUseMagnet">
+                <property name="text">
+                 <string>Prefer magnet links when both a magnet and a .torrent URL are present</string>
+                </property>
+                <property name="toolTip">
+                 <string>Taiga v1: rss/torrent/options/downloadusemagnet. When off, double-click / primary actions use the HTTP(S) .torrent URL first (if any).</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="groupTorrentHandling">
+             <property name="title">
+              <string>Torrent client &amp; download rules (Taiga v1)</string>
+             </property>
+             <layout class="QVBoxLayout" name="verticalLayout_torrentHandling">
+              <item>
+               <widget class="QLabel" name="labelTorrentHandlingHelp">
+                <property name="text">
+                 <string>Folder rules are used when Taiga hands torrents to a client with a save path (full download manager parity is still in progress). “Custom executable” matches v1 rss/torrent/application.</string>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QCheckBox" name="checkTorrentUseAnimeFolder">
+                <property name="text">
+                 <string>Use anime library folder as download target when available</string>
+                </property>
+                <property name="toolTip">
+                 <string>Taiga v1: rss/torrent/options/autosetfolder</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QCheckBox" name="checkTorrentFallbackClientPath">
+                <property name="text">
+                 <string>If no per-title folder, use “Client download folder” from above</string>
+                </property>
+                <property name="toolTip">
+                 <string>Taiga v1: rss/torrent/options/autousefolder</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QCheckBox" name="checkTorrentCreateSubfolder">
+                <property name="text">
+                 <string>Create a subfolder by anime title under that client download folder</string>
+                </property>
+                <property name="toolTip">
+                 <string>Taiga v1: rss/torrent/options/autocreatefolder</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QCheckBox" name="checkTorrentAppOpen">
+                <property name="text">
+                 <string>Open torrents with an application (after download / when launching)</string>
+                </property>
+                <property name="toolTip">
+                 <string>Taiga v1: rss/torrent/application/open</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="horizontalLayout_torrentAppMode">
+                <item>
+                 <widget class="QRadioButton" name="radioTorrentAppDefault">
+                  <property name="text">
+                   <string>Default application (.torrent / magnet handler)</string>
+                  </property>
+                  <property name="checked">
+                   <bool>true</bool>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QRadioButton" name="radioTorrentAppCustom">
+                  <property name="text">
+                   <string>Custom executable</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <spacer name="horizontalSpacer_torrentAppMode">
+                  <property name="orientation">
+                   <enum>Qt::Horizontal</enum>
+                  </property>
+                  <property name="sizeHint" stdset="0">
+                   <size>
+                    <width>40</width>
+                    <height>20</height>
+                   </size>
+                  </property>
+                 </spacer>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="horizontalLayout_torrentAppExe">
+                <item>
+                 <widget class="QLineEdit" name="lineTorrentAppExecutable">
+                  <property name="placeholderText">
+                   <string>Path to qBittorrent.exe, etc.</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="buttonBrowseTorrentAppExecutable">
+                  <property name="text">
+                   <string>Browse…</string>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
               </item>
              </layout>
             </widget>
@@ -564,6 +1015,46 @@
                  <bool>true</bool>
                 </property>
                </widget>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="horizontalLayout_listUpdateDelay">
+                <item>
+                 <widget class="QLabel" name="labelListUpdateApiDelay">
+                  <property name="text">
+                   <string>Debounce remote list API:</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QSpinBox" name="spinListUpdateApiDelay">
+                  <property name="minimum">
+                   <number>0</number>
+                  </property>
+                  <property name="maximum">
+                   <number>86400</number>
+                  </property>
+                  <property name="specialValueText">
+                   <string>Immediate</string>
+                  </property>
+                  <property name="suffix">
+                   <string> s</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <spacer name="horizontalSpacer_listUpdateDelay">
+                  <property name="orientation">
+                   <enum>Qt::Horizontal</enum>
+                  </property>
+                  <property name="sizeHint" stdset="0">
+                   <size>
+                    <width>40</width>
+                    <height>20</height>
+                   </size>
+                  </property>
+                 </spacer>
+                </item>
+               </layout>
               </item>
              </layout>
             </widget>

@@ -57,4 +57,12 @@ void TrayIcon::setToolTip(const QString& text) {
   }
 }
 
+void TrayIcon::showMessage(const QString& title, const QString& message,
+                           const QSystemTrayIcon::MessageIcon icon,
+                           const int milliseconds_timeout_hint) {
+  if (m_icon) {
+    m_icon->showMessage(title, message, icon, milliseconds_timeout_hint);
+  }
+}
+
 }  // namespace gui

@@ -72,6 +72,22 @@ std::vector<std::string> Settings::libraryFolders() const {
          std::ranges::to<std::vector>();
 }
 
+qint64 Settings::libraryScanMinFileSizeBytes() const {
+  const QVariant v = value("library.scan.minFileSizeBytes", 0);
+  bool ok = false;
+  const qlonglong n = v.toLongLong(&ok);
+  if (!ok || n < 0) return 0;
+  return static_cast<qint64>(n);
+}
+
+bool Settings::libraryScanLookupParentDirectories() const {
+  return value("library.scan.lookupParentDirectories", true).toBool();
+}
+
+std::string Settings::mediaPlayerExecutablePath() const {
+  return value("recognition.mediaPlayer.executablePath").toString().toStdString();
+}
+
 std::chrono::milliseconds Settings::mediaDetectionInterval() const {
   using rep = std::chrono::milliseconds::rep;
   const rep ms = static_cast<rep>(value("track.detection.interval", 3000).toInt());
@@ -88,6 +104,10 @@ std::string Settings::proxyUsername() const {
 
 std::string Settings::proxyPassword() const {
   return value("program.proxy.password").toString().toStdString();
+}
+
+bool Settings::networkRelaxedTls() const {
+  return value("program.network.relaxedTls", false).toBool();
 }
 
 bool Settings::syncAutoOnStart() const {
@@ -130,6 +150,11 @@ bool Settings::sharingEnabled() const {
 
 bool Settings::listSynchronizationEnabled() const {
   return value("sync.listUpdates.enabled", true).toBool();
+}
+
+int Settings::syncListUpdateDelaySeconds() const {
+  const int d = value("sync.listUpdates.apiDelaySeconds", 0).toInt();
+  return std::clamp(d, 0, 86400);
 }
 
 bool Settings::closeToTray() const {
@@ -185,6 +210,86 @@ std::string Settings::torrentDiscoveryFeedSourceUrl() const {
   return value("torrent.discovery.feedSourceUrl").toString().toStdString();
 }
 
+bool Settings::torrentDiscoveryAutoCheckEnabled() const {
+  return value("torrent.discovery.autoCheck", true).toBool();
+}
+
+int Settings::torrentDiscoveryAutoCheckIntervalMinutes() const {
+  const int m = value("torrent.discovery.autoCheckIntervalMinutes", 60).toInt();
+  return std::clamp(m, 5, 24 * 60);
+}
+
+TorrentDiscoveryNewCatalogAction Settings::torrentDiscoveryNewCatalogAction() const {
+  const int v = value("torrent.discovery.newCatalogAction", 1).toInt();
+  if (v == static_cast<int>(TorrentDiscoveryNewCatalogAction::Download)) {
+    return TorrentDiscoveryNewCatalogAction::Download;
+  }
+  return TorrentDiscoveryNewCatalogAction::Notify;
+}
+
+std::string Settings::torrentRssSortBy() const {
+  const QString v = value("torrent.rss.sortBy", QStringLiteral("episode_number")).toString();
+  if (v.compare(u"release_date", Qt::CaseInsensitive) == 0) return "release_date";
+  return "episode_number";
+}
+
+std::string Settings::torrentRssSortOrder() const {
+  const QString v = value("torrent.rss.sortOrder", QStringLiteral("ascending")).toString();
+  if (v.compare(u"descending", Qt::CaseInsensitive) == 0) return "descending";
+  return "ascending";
+}
+
+bool Settings::torrentFeedFilterEnabled() const {
+  return value("torrent.feed.filterEnabled", true).toBool();
+}
+
+int Settings::torrentFeedArchiveMaxItems() const {
+  const int v = value("torrent.feed.archiveMaxItems", 1000).toInt();
+  if (v <= 0) return 1000;
+  return std::clamp(v, 100, 50000);
+}
+
+bool Settings::torrentDownloadUseMagnet() const {
+  return value("torrent.download.useMagnet", false).toBool();
+}
+
+std::string Settings::torrentClientDownloadPath() const {
+  return value("torrent.paths.clientDownload").toString().toStdString();
+}
+
+std::string Settings::torrentFileSavePath() const {
+  return value("torrent.paths.torrentFileSave").toString().toStdString();
+}
+
+bool Settings::torrentDownloadUseAnimeFolder() const {
+  return value("torrent.options.useAnimeFolder", true).toBool();
+}
+
+bool Settings::torrentDownloadFallbackOnClientPath() const {
+  return value("torrent.options.fallbackOnClientPath", false).toBool();
+}
+
+bool Settings::torrentDownloadCreateSubfolder() const {
+  return value("torrent.options.createSubfolder", false).toBool();
+}
+
+bool Settings::torrentAppOpen() const {
+  return value("torrent.app.open", true).toBool();
+}
+
+int Settings::torrentAppMode() const {
+  const int m = value("torrent.app.mode", 1).toInt();
+  return m == 2 ? 2 : 1;
+}
+
+std::string Settings::torrentAppExecutablePath() const {
+  return value("torrent.app.executablePath").toString().toStdString();
+}
+
+std::string Settings::announceV1MigrationJson() const {
+  return value("compat.v1.announceMigration").toString().toStdString();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 void Settings::setAppColorScheme(const Qt::ColorScheme scheme) const {
@@ -201,6 +306,19 @@ void Settings::setLibraryFolders(std::vector<std::string> folders) const {
       std::views::transform([](const std::string& s) { return QString::fromStdString(s); }) |
       std::ranges::to<QList>();
   setValue("library.folders", QJsonArray::fromStringList(list));
+}
+
+void Settings::setLibraryScanMinFileSizeBytes(const qint64 bytes) const {
+  const qlonglong n = bytes < 0 ? 0 : static_cast<qlonglong>(bytes);
+  setValue("library.scan.minFileSizeBytes", QVariant{n});
+}
+
+void Settings::setLibraryScanLookupParentDirectories(const bool enabled) const {
+  setValue("library.scan.lookupParentDirectories", enabled);
+}
+
+void Settings::setMediaPlayerExecutablePath(const std::string& path) const {
+  setValue("recognition.mediaPlayer.executablePath", QString::fromStdString(path));
 }
 
 void Settings::setMediaDetectionInterval(const std::chrono::milliseconds interval) const {
@@ -220,6 +338,10 @@ void Settings::setProxyUsername(const std::string& username) const {
 
 void Settings::setProxyPassword(const std::string& password) const {
   setValue("program.proxy.password", password);
+}
+
+void Settings::setNetworkRelaxedTls(const bool enabled) const {
+  setValue("program.network.relaxedTls", enabled);
 }
 
 void Settings::setSyncAutoOnStart(const bool enabled) const {
@@ -260,6 +382,10 @@ void Settings::setSharingEnabled(const bool enabled) const {
 
 void Settings::setListSynchronizationEnabled(const bool enabled) const {
   setValue("sync.listUpdates.enabled", enabled);
+}
+
+void Settings::setSyncListUpdateDelaySeconds(const int seconds) const {
+  setValue("sync.listUpdates.apiDelaySeconds", std::clamp(seconds, 0, 86400));
 }
 
 void Settings::setCloseToTray(const bool enabled) const {
@@ -320,6 +446,87 @@ void Settings::setTorrentDiscoverySearchUrl(const std::string& url) const {
 
 void Settings::setTorrentDiscoveryFeedSourceUrl(const std::string& url) const {
   setValue("torrent.discovery.feedSourceUrl", QString::fromStdString(url));
+}
+
+void Settings::setTorrentDiscoveryAutoCheckEnabled(const bool enabled) const {
+  setValue("torrent.discovery.autoCheck", enabled);
+}
+
+void Settings::setTorrentDiscoveryAutoCheckIntervalMinutes(const int minutes) const {
+  setValue("torrent.discovery.autoCheckIntervalMinutes", std::clamp(minutes, 5, 24 * 60));
+}
+
+void Settings::setTorrentDiscoveryNewCatalogAction(const TorrentDiscoveryNewCatalogAction action) const {
+  const int v = action == TorrentDiscoveryNewCatalogAction::Download
+                    ? static_cast<int>(TorrentDiscoveryNewCatalogAction::Download)
+                    : static_cast<int>(TorrentDiscoveryNewCatalogAction::Notify);
+  setValue("torrent.discovery.newCatalogAction", v);
+}
+
+void Settings::setTorrentRssSortBy(const std::string& value) const {
+  QString s = QString::fromStdString(value).trimmed();
+  if (s.compare(u"release_date", Qt::CaseInsensitive) == 0) {
+    setValue("torrent.rss.sortBy", QStringLiteral("release_date"));
+  } else {
+    setValue("torrent.rss.sortBy", QStringLiteral("episode_number"));
+  }
+}
+
+void Settings::setTorrentRssSortOrder(const std::string& value) const {
+  QString s = QString::fromStdString(value).trimmed();
+  if (s.compare(u"descending", Qt::CaseInsensitive) == 0) {
+    setValue("torrent.rss.sortOrder", QStringLiteral("descending"));
+  } else {
+    setValue("torrent.rss.sortOrder", QStringLiteral("ascending"));
+  }
+}
+
+void Settings::setTorrentFeedFilterEnabled(const bool enabled) const {
+  setValue("torrent.feed.filterEnabled", enabled);
+}
+
+void Settings::setTorrentFeedArchiveMaxItems(const int count) const {
+  setValue("torrent.feed.archiveMaxItems", std::clamp(count, 100, 50000));
+}
+
+void Settings::setTorrentDownloadUseMagnet(const bool enabled) const {
+  setValue("torrent.download.useMagnet", enabled);
+}
+
+void Settings::setTorrentClientDownloadPath(const std::string& path) const {
+  setValue("torrent.paths.clientDownload", QString::fromStdString(path));
+}
+
+void Settings::setTorrentFileSavePath(const std::string& path) const {
+  setValue("torrent.paths.torrentFileSave", QString::fromStdString(path));
+}
+
+void Settings::setTorrentDownloadUseAnimeFolder(const bool enabled) const {
+  setValue("torrent.options.useAnimeFolder", enabled);
+}
+
+void Settings::setTorrentDownloadFallbackOnClientPath(const bool enabled) const {
+  setValue("torrent.options.fallbackOnClientPath", enabled);
+}
+
+void Settings::setTorrentDownloadCreateSubfolder(const bool enabled) const {
+  setValue("torrent.options.createSubfolder", enabled);
+}
+
+void Settings::setTorrentAppOpen(const bool enabled) const {
+  setValue("torrent.app.open", enabled);
+}
+
+void Settings::setTorrentAppMode(const int mode) const {
+  setValue("torrent.app.mode", mode == 2 ? 2 : 1);
+}
+
+void Settings::setTorrentAppExecutablePath(const std::string& path) const {
+  setValue("torrent.app.executablePath", QString::fromStdString(path));
+}
+
+void Settings::setAnnounceV1MigrationJson(const std::string& json) const {
+  setValue("compat.v1.announceMigration", QString::fromStdString(json));
 }
 
 }  // namespace taiga

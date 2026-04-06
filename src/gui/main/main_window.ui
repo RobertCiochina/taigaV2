@@ -123,15 +123,23 @@
     <property name="title">
      <string>List</string>
     </property>
+    <widget class="QMenu" name="menuImport">
+     <property name="title">
+      <string>Import</string>
+     </property>
+     <addaction name="actionImportListFromMalXml"/>
+    </widget>
     <widget class="QMenu" name="menuExport">
      <property name="title">
       <string>Export</string>
      </property>
      <addaction name="actionExportListAsMarkdown"/>
      <addaction name="actionExportListAsMyAnimeListXML"/>
+     <addaction name="actionExportListAsCsv"/>
     </widget>
     <addaction name="actionSynchronize"/>
     <addaction name="separator"/>
+    <addaction name="menuImport"/>
     <addaction name="menuExport"/>
    </widget>
    <widget class="QMenu" name="menuView">
@@ -403,6 +411,22 @@
   <action name="actionExportListAsMarkdown">
    <property name="text">
     <string>Export anime list as Markdown...</string>
+   </property>
+  </action>
+  <action name="actionExportListAsCsv">
+   <property name="text">
+    <string>Export anime list as CSV...</string>
+   </property>
+   <property name="toolTip">
+    <string>UTF-8 with BOM for Excel; sorted by romaji title</string>
+   </property>
+  </action>
+  <action name="actionImportListFromMalXml">
+   <property name="text">
+    <string>Import from MyAnimeList XML...</string>
+   </property>
+   <property name="toolTip">
+    <string>Merge list fields where local anime id equals series_animedb_id (typical for MAL-keyed libraries)</string>
    </property>
   </action>
   <action name="actionTest">

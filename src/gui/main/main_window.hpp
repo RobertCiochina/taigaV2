@@ -28,6 +28,7 @@ class QLabel;
 class QLineEdit;
 class QEvent;
 class QShowEvent;
+class QTimer;
 
 namespace Ui {
 class MainWindow;
@@ -87,8 +88,12 @@ public slots:
   void applyMediaDetectionToggleFromSettings();
   void updateTitle();
   void startListSynchronization();
+  void importAnimeListMalXml();
   /// Switches to Torrents, sets the toolbar query when non-empty, and runs an in-app RSS fetch.
   void openTorrentSearchInApp(const QString& title);
+  void postTrayMessage(const QString& title, const QString& message);
+  void refreshTorrentCatalogAutocheckTimer();
+  void resortTorrentRssTableFromSettings();
 
 private slots:
   void about();
@@ -97,6 +102,7 @@ private slots:
   void support() const;
   void profile();
   void statistics();
+  void onTorrentCatalogAutocheckTimer();
 
 protected:
   void changeEvent(QEvent* event) override;
@@ -127,6 +133,7 @@ private:
   std::optional<int> animeIdForPlaybackContext() const;
   void exportAnimeListMarkdown();
   void exportAnimeListXml();
+  void exportAnimeListCsv();
   void playNextEpisodeFromMenu();
   void playRandomAnimeFromMenu();
   void routeToolbarSearchToActivePage();
@@ -147,6 +154,7 @@ private:
   SearchWidget* m_searchWidget = nullptr;
   TorrentFeedWidget* m_torrentFeedWidget = nullptr;
   TrayIcon* m_trayIcon = nullptr;
+  QTimer* m_catalog_autocheck_timer_ = nullptr;
   QLabel* m_homeBodyLabel = nullptr;
 
   MainWindowPage m_activePage = MainWindowPage::Home;

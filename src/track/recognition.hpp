@@ -29,7 +29,10 @@ class Episode;
 namespace track::recognition {
 
 Episode parse(std::string_view input, const anitomy::Options options = {});
-Episode parseFileInfo(const QFileInfo& info, const anitomy::Options options = {});
+/// When `use_parent_directory_title_hint` is false (Taiga v1 `lookup_parent_directories` off), only the
+/// file name is parsed — no folder-name title fallback.
+Episode parseFileInfo(const QFileInfo& info, const anitomy::Options options = {},
+                      bool use_parent_directory_title_hint = true);
 
 int identify(Episode& episode);
 

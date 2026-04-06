@@ -20,11 +20,14 @@
 
 #include <QDateTime>
 #include <QString>
+#include <QStringConverter>
+#include <QTextStream>
 #include <QXmlStreamWriter>
 #include <algorithm>
 #include <format>
 #include <map>
 #include <ranges>
+#include <vector>
 
 #include "base/string.hpp"
 #include "base/xml.hpp"
@@ -37,6 +40,18 @@
 #include "taiga/version.hpp"
 
 namespace anime::list {
+
+namespace {
+
+QString csvEscapeField(QString s) {
+  if (s.contains(u',') || s.contains(u'"') || s.contains(u'\n') || s.contains(u'\r')) {
+    s.replace(QLatin1Char{'"'}, QStringLiteral("\"\""));
+    return QLatin1Char{'"'} + s + QLatin1Char{'"'};
+  }
+  return s;
+}
+
+}  // namespace
 
 bool exportAsMarkdown(const std::string& path) {
   std::map<anime::list::Status, std::vector<std::string>> status_lists;
@@ -174,6 +189,86 @@ bool exportAsXml(const std::string& path) {
   xml.writeEndElement();  // myanimelist
   xml.writeEndDocument();
 
+  return true;
+}
+
+bool exportAsCsv(const std::string& path) {
+  constexpr auto format_my_status = [](anime::list::Status status) -> QString {
+    switch (status) {
+      case anime::list::Status::Watching: return QStringLiteral("Watching");
+      case anime::list::Status::Completed: return QStringLiteral("Completed");
+      case anime::list::Status::OnHold: return QStringLiteral("On-Hold");
+      case anime::list::Status::Dropped: return QStringLiteral("Dropped");
+      case anime::list::Status::PlanToWatch: return QStringLiteral("Plan to Watch");
+      case anime::list::Status::NotInList: return QStringLiteral("Not in list");
+    }
+    return QStringLiteral("Not in list");
+  };
+
+  std::vector<const anime::list::Entry*> rows;
+  rows.reserve(static_cast<size_t>(anime::db.entries().size()));
+  for (const auto& e : anime::db.entries()) {
+    rows.push_back(&e);
+  }
+  std::ranges::sort(rows, [](const anime::list::Entry* a, const anime::list::Entry* b) {
+    const auto* ia = anime::db.item(a->anime_id);
+    const auto* ib = anime::db.item(b->anime_id);
+    const QString ra = ia ? QString::fromStdString(ia->titles.romaji) : QString{};
+    const QString rb = ib ? QString::fromStdString(ib->titles.romaji) : QString{};
+    return ra.compare(rb, Qt::CaseInsensitive) < 0;
+  });
+
+  QFile file(QString::fromStdString(path));
+  if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return false;
+
+  static constexpr char kUtf8Bom[] = "\xEF\xBB\xBF";
+  file.write(kUtf8Bom, 3);
+
+  QTextStream out(&file);
+  out.setEncoding(QStringConverter::Utf8);
+
+  out << csvEscapeField(u"anime_id"_s) << u','
+      << csvEscapeField(u"list_entry_id"_s) << u','
+      << csvEscapeField(u"title_romaji"_s) << u','
+      << csvEscapeField(u"title_english"_s) << u','
+      << csvEscapeField(u"status"_s) << u','
+      << csvEscapeField(u"watched_episodes"_s) << u','
+      << csvEscapeField(u"series_episodes"_s) << u','
+      << csvEscapeField(u"score_0_100"_s) << u','
+      << csvEscapeField(u"score_mal_0_10"_s) << u','
+      << csvEscapeField(u"date_started"_s) << u','
+      << csvEscapeField(u"date_completed"_s) << u','
+      << csvEscapeField(u"notes"_s) << u','
+      << csvEscapeField(u"rewatched_times"_s) << u','
+      << csvEscapeField(u"rewatching"_s) << u','
+      << csvEscapeField(u"rewatching_ep"_s) << u'\n';
+
+  for (const anime::list::Entry* entry : rows) {
+    const auto* item = anime::db.item(entry->anime_id);
+    if (!item) continue;
+
+    const int mal_score = std::clamp(entry->score / 10, 0, 10);
+    const QString ep_total =
+        item->episode_count >= 0 ? QString::number(item->episode_count) : QString{};
+
+    out << csvEscapeField(QString::number(item->id)) << u','
+        << csvEscapeField(QString::number(entry->id)) << u','
+        << csvEscapeField(QString::fromStdString(item->titles.romaji)) << u','
+        << csvEscapeField(QString::fromStdString(item->titles.english)) << u','
+        << csvEscapeField(format_my_status(entry->status)) << u','
+        << csvEscapeField(QString::number(entry->watched_episodes)) << u','
+        << csvEscapeField(ep_total) << u','
+        << csvEscapeField(QString::number(entry->score)) << u','
+        << csvEscapeField(QString::number(mal_score)) << u','
+        << csvEscapeField(QString::fromStdString(entry->date_started.to_string())) << u','
+        << csvEscapeField(QString::fromStdString(entry->date_completed.to_string())) << u','
+        << csvEscapeField(QString::fromStdString(entry->notes)) << u','
+        << csvEscapeField(QString::number(entry->rewatched_times)) << u','
+        << csvEscapeField(entry->rewatching ? QStringLiteral("1") : QStringLiteral("0")) << u','
+        << csvEscapeField(QString::number(entry->rewatching_ep)) << u'\n';
+  }
+
+  file.close();
   return true;
 }
 

@@ -19,6 +19,7 @@
 #include "session.hpp"
 
 #include <QByteArray>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QString>
@@ -91,6 +92,26 @@ QByteArray Session::mediaDialogSplitterState() const {
 
 QString Session::torrentPanelLastQuery() const {
   return value("torrentPanel.lastQuery", QString{}).toString();
+}
+
+QString Session::torrentPanelResultFilter() const {
+  return value("torrentPanel.resultFilter", QString{}).toString();
+}
+
+QStringList Session::torrentCatalogSeenFingerprints() const {
+  const QString raw = value("torrentPanel.catalogSeenFingerprints", QString{}).toString();
+  if (raw.isEmpty()) return {};
+  const QJsonDocument doc = QJsonDocument::fromJson(raw.toUtf8());
+  if (!doc.isArray()) return {};
+  QStringList out;
+  for (const QJsonValue& v : doc.array()) {
+    if (v.isString()) out.append(v.toString());
+  }
+  return out;
+}
+
+QByteArray Session::torrentRssTableHeaderState() const {
+  return QByteArray::fromBase64(value("torrentPanel.rssTableHeaderState", QByteArray{}).toByteArray());
 }
 
 gui::AnimeListProxyModelFilter Session::searchListFilters() const {
@@ -200,6 +221,23 @@ void Session::setSearchListViewMode(const gui::ListViewMode mode) const {
 
 void Session::setTorrentPanelLastQuery(const QString& query) const {
   setValue("torrentPanel.lastQuery", query);
+}
+
+void Session::setTorrentPanelResultFilter(const QString& text) const {
+  setValue("torrentPanel.resultFilter", text);
+}
+
+void Session::setTorrentCatalogSeenFingerprints(const QStringList& keys) const {
+  QJsonArray a;
+  for (const QString& k : keys) {
+    a.append(k);
+  }
+  setValue("torrentPanel.catalogSeenFingerprints",
+           QString::fromUtf8(QJsonDocument(a).toJson(QJsonDocument::Compact)));
+}
+
+void Session::setTorrentRssTableHeaderState(const QByteArray& state) const {
+  setValue("torrentPanel.rssTableHeaderState", state.toBase64().toStdString());
 }
 
 }  // namespace taiga

@@ -59,6 +59,8 @@ QString serviceSlug(const ServiceId serviceId);
 void fetchAnime(const int id);
 void saveListEntry(const ListEntry& entry);
 void deleteListEntry(int anime_id);
+/// Push any debounced list updates immediately (e.g. before exit). See `syncListUpdateDelaySeconds`.
+void flushPendingListSaves();
 /// Downloads remote anime list when supported (AniList, MyAnimeList, Kitsu). Invokes on_complete on the thread
 /// that receives the HTTP reply (Qt main thread with default QNetworkAccessManager).
 void fetchListEntries(std::function<void(bool ok, QString message)> on_complete = {});

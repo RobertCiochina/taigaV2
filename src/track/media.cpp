@@ -134,7 +134,8 @@ void Detection::poll() {
   auto episode = [&mediaInfo]() {
     if (mediaInfo.type == anisthesia::MediaInfoType::File) {
       const QFileInfo fileInfo{QString::fromStdString(mediaInfo.value)};
-      return track::recognition::parseFileInfo(fileInfo);
+      return track::recognition::parseFileInfo(
+          fileInfo, {}, taiga::settings.libraryScanLookupParentDirectories());
     } else {
       return track::recognition::parse(mediaInfo.value);
     }

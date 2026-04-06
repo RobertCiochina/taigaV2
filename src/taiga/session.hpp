@@ -20,6 +20,7 @@
 
 #include <QByteArray>
 #include <QString>
+#include <QStringList>
 
 #include "base/settings.hpp"
 
@@ -51,6 +52,12 @@ public:
   Qt::SortOrder searchListSortOrder() const;
   gui::ListViewMode searchListViewMode() const;
   QString torrentPanelLastQuery() const;
+  /// Substring filter on the Torrents RSS table (restored when reopening the app).
+  QString torrentPanelResultFilter() const;
+  /// Fingerprints of recent catalog RSS items (for auto-check “new entries” detection).
+  QStringList torrentCatalogSeenFingerprints() const;
+  /// `QHeaderView::saveState` for the Torrents RSS table (column widths / order / visibility).
+  QByteArray torrentRssTableHeaderState() const;
 
   void setAnimeListSortColumn(const int column) const;
   void setAnimeListSortOrder(const Qt::SortOrder order) const;
@@ -67,6 +74,9 @@ public:
   void setSearchListSortOrder(const Qt::SortOrder order) const;
   void setSearchListViewMode(const gui::ListViewMode mode) const;
   void setTorrentPanelLastQuery(const QString& query) const;
+  void setTorrentPanelResultFilter(const QString& text) const;
+  void setTorrentCatalogSeenFingerprints(const QStringList& keys) const;
+  void setTorrentRssTableHeaderState(const QByteArray& state) const;
 
 private:
   QString fileName() const override;

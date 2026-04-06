@@ -26,6 +26,7 @@
 
 #include "media/anime.hpp"
 #include "media/anime_list.hpp"
+#include "taiga/settings.hpp"
 #include "track/episode.hpp"
 #include "track/recognition.hpp"
 
@@ -62,6 +63,8 @@ LibraryScanSummary scanLibraryFolders(const std::vector<std::string>& folders,
 
   g_library_episodes.clear();
 
+  const qint64 min_bytes = taiga::settings.libraryScanMinFileSizeBytes();
+
   static const QSet<QString> kVideoExt{
       QStringLiteral("mkv"), QStringLiteral("mp4"), QStringLiteral("avi"),
       QStringLiteral("wmv"), QStringLiteral("mov"), QStringLiteral("webm"),
@@ -79,9 +82,11 @@ LibraryScanSummary scanLibraryFolders(const std::vector<std::string>& folders,
       ++s.entries_visited;
 
       if (!kVideoExt.contains(fi.suffix().toLower())) continue;
+      if (min_bytes > 0 && fi.size() < min_bytes) continue;
       ++s.video_files;
 
-      auto episode = recognition::parseFileInfo(fi);
+      auto episode =
+          recognition::parseFileInfo(fi, {}, taiga::settings.libraryScanLookupParentDirectories());
       const int aid = recognition::identify(episode);
       if (aid != anime::kUnknownId) {
         ++s.recognized;
@@ -99,13 +104,16 @@ LibraryScanSummary scanLibraryFolders(const std::vector<std::string>& folders,
 std::optional<QString> findEpisode(const QString& path, const int anime_id,
                                    const int episode_number) {
   QDirIterator it{path, QDir::Files, QDirIterator::Subdirectories};
+  const qint64 min_bytes = taiga::settings.libraryScanMinFileSizeBytes();
 
   while (it.hasNext()) {
     const auto info = it.nextFileInfo();
 
     if (!info.isFile()) continue;
+    if (min_bytes > 0 && info.size() < min_bytes) continue;
 
-    auto episode = recognition::parseFileInfo(info);
+    auto episode =
+        recognition::parseFileInfo(info, {}, taiga::settings.libraryScanLookupParentDirectories());
 
     if (QString::fromStdString(episode.element(anitomy::ElementKind::Episode)).toInt() !=
         episode_number) {
@@ -128,7 +136,8 @@ std::optional<QString> findFolder(const QString& path, const int anime_id) {
 
     if (!info.isDir()) continue;
 
-    auto episode = recognition::parseFileInfo(info);
+    auto episode =
+        recognition::parseFileInfo(info, {}, taiga::settings.libraryScanLookupParentDirectories());
 
     if (track::recognition::identify(episode) != anime_id) continue;
 

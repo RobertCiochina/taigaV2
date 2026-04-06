@@ -24,5 +24,7 @@ namespace anime::list {
 
 bool exportAsMarkdown(const std::string& path);
 bool exportAsXml(const std::string& path);
+/// UTF-8 with BOM (Excel-friendly), RFC 4180-style quoting.
+bool exportAsCsv(const std::string& path);
 
 }  // namespace anime::list

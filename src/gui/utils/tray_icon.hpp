@@ -19,11 +19,11 @@
 #pragma once
 
 #include <QObject>
+#include <QSystemTrayIcon>
 
 class QIcon;
 class QMenu;
 class QString;
-class QSystemTrayIcon;
 
 namespace gui {
 
@@ -35,6 +35,9 @@ public:
   TrayIcon(QObject* parent, const QIcon& icon, QMenu* menu);
 
   void setToolTip(const QString& text);
+  void showMessage(const QString& title, const QString& message,
+                   QSystemTrayIcon::MessageIcon icon = QSystemTrayIcon::Information,
+                   int milliseconds_timeout_hint = 10000);
 
 signals:
   void activated();

@@ -42,12 +42,13 @@ Episode parse(std::string_view input, const anitomy::Options options) {
   return episode;
 }
 
-Episode parseFileInfo(const QFileInfo& info, const anitomy::Options options) {
+Episode parseFileInfo(const QFileInfo& info, const anitomy::Options options,
+                      const bool use_parent_directory_title_hint) {
   const auto fileName = info.fileName().toStdString();
 
   Episode episode = track::recognition::parse(fileName, options);
 
-  if (!episode.contains(anitomy::ElementKind::Title)) {
+  if (use_parent_directory_title_hint && !episode.contains(anitomy::ElementKind::Title)) {
     const auto dirName = info.dir().dirName().toStdString();
     episode.addElement(anitomy::ElementKind::Title, dirName);
   }

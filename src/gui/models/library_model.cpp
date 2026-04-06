@@ -26,6 +26,7 @@
 
 #include "base/string.hpp"
 #include "media/anime_db.hpp"
+#include "taiga/settings.hpp"
 #include "track/episode.hpp"
 #include "track/recognition.hpp"
 
@@ -184,7 +185,8 @@ void LibraryModel::parseFileInfo(const QFileInfo& info) {
 
   if (m_parsed.contains(path)) return;
 
-  auto episode = track::recognition::parseFileInfo(info);
+  auto episode = track::recognition::parseFileInfo(
+      info, {}, taiga::settings.libraryScanLookupParentDirectories());
   const auto anime_id = track::recognition::identify(episode);
 
   m_parsed[path] = ParsedData{

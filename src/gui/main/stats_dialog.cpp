@@ -15,6 +15,9 @@
 #include <QScrollArea>
 #include <QVBoxLayout>
 
+#include <QDir>
+
+#include "taiga/settings.hpp"
 #include "taiga/stats.hpp"
 
 namespace gui {
@@ -130,14 +133,31 @@ void StatsDialog::show(QWidget* parent) {
 
   lay->addWidget(sectionTitle(QDialog::tr("Local data"), body));
   {
+    const auto folders = taiga::settings.libraryFolders();
+    QString folder_lines;
+    if (folders.empty()) {
+      folder_lines = QDialog::tr("<i>None configured</i> (Settings → Library)");
+    } else {
+      constexpr int kMaxLines = 6;
+      for (size_t i = 0; i < folders.size() && i < kMaxLines; ++i) {
+        const QString p = QString::fromStdString(folders[i]).toHtmlEscaped();
+        folder_lines += QDialog::tr("<div style=\"margin-left:1em\">%1</div>").arg(p);
+      }
+      if (folders.size() > static_cast<size_t>(kMaxLines)) {
+        folder_lines += QDialog::tr("<div style=\"margin-left:1em;color:#666\">…</div>");
+      }
+    }
     auto* t = new QLabel(
         QDialog::tr("<table style=\"margin-left:0.2em\" cellspacing=\"6\">"
                     "<tr><td><b>%1</b></td><td>%2</td></tr>"
-                    "<tr><td><b>%3</b></td><td>%4 (%5)</td></tr>"
-                    "<tr><td colspan=\"2\" style=\"color:#666;font-size:small\">%6</td></tr>"
+                    "<tr><td><b>%3</b></td><td>%4</td></tr>"
+                    "<tr><td><b>%5</b></td><td>%6 (%7)</td></tr>"
+                    "<tr><td colspan=\"2\" style=\"color:#666;font-size:small\">%8</td></tr>"
                     "</table>")
             .arg(QDialog::tr("Anime in database"))
             .arg(s.db_items)
+            .arg(QDialog::tr("Library folders"))
+            .arg(static_cast<int>(folders.size()))
             .arg(QDialog::tr("Cached posters"))
             .arg(s.poster_file_count)
             .arg(formatBytes(s.poster_bytes))
@@ -145,6 +165,53 @@ void StatsDialog::show(QWidget* parent) {
         body);
     t->setTextFormat(Qt::RichText);
     lay->addWidget(t);
+    auto* paths = new QLabel(
+        QDialog::tr("<div style=\"margin-left:0.2em;margin-top:-4px\"><b>%1</b>%2</div>")
+            .arg(QDialog::tr("Paths: "))
+            .arg(folder_lines),
+        body);
+    paths->setTextFormat(Qt::RichText);
+    paths->setWordWrap(true);
+    lay->addWidget(paths);
+
+    const QString t_client = QString::fromStdString(taiga::settings.torrentClientDownloadPath());
+    const QString t_save = QString::fromStdString(taiga::settings.torrentFileSavePath());
+    const QString t_app = QString::fromStdString(taiga::settings.torrentAppExecutablePath());
+    QString torrent_block;
+    if (t_client.isEmpty() && t_save.isEmpty() && t_app.isEmpty()) {
+      torrent_block = QDialog::tr("<i>Not set</i> (Settings → Library → Torrents)");
+    } else {
+      const bool same = !t_client.isEmpty() && !t_save.isEmpty() &&
+                        QDir{t_client}.absolutePath() == QDir{t_save}.absolutePath();
+      if (same) {
+        torrent_block = QDialog::tr("<div style=\"margin-left:1em\">%1</div>")
+                            .arg(t_client.toHtmlEscaped());
+      } else {
+        if (!t_client.isEmpty()) {
+          torrent_block += QDialog::tr("<div style=\"margin-left:1em\"><b>%1</b> %2</div>")
+                               .arg(QDialog::tr("Client download:"))
+                               .arg(t_client.toHtmlEscaped());
+        }
+        if (!t_save.isEmpty()) {
+          torrent_block += QDialog::tr("<div style=\"margin-left:1em\"><b>%1</b> %2</div>")
+                               .arg(QDialog::tr(".torrent save:"))
+                               .arg(t_save.toHtmlEscaped());
+        }
+      }
+      if (!t_app.isEmpty()) {
+        torrent_block += QDialog::tr("<div style=\"margin-left:1em\"><b>%1</b> %2</div>")
+                             .arg(QDialog::tr("Custom client:"))
+                             .arg(t_app.toHtmlEscaped());
+      }
+    }
+    auto* tpaths = new QLabel(
+        QDialog::tr("<div style=\"margin-left:0.2em;margin-top:6px\"><b>%1</b>%2</div>")
+            .arg(QDialog::tr("Torrent paths: "))
+            .arg(torrent_block),
+        body);
+    tpaths->setTextFormat(Qt::RichText);
+    tpaths->setWordWrap(true);
+    lay->addWidget(tpaths);
   }
 
   lay->addStretch(1);
