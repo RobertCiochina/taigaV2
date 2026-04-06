@@ -163,7 +163,9 @@ QVariant AnimeListModel::data(const QModelIndex& index, int role) const {
           qApp->palette().color(QPalette::ColorGroup::Disabled, QPalette::ColorRole::Text);
       switch (index.column()) {
         case COLUMN_TITLE: {
-          if (!entry) break;
+          // Items not in the user's list (e.g. catalog results loaded via "Load season")
+          // are shown in a muted slate-blue so they are visually distinct from list entries.
+          if (!entry) return qApp->palette().color(QPalette::PlaceholderText);
 
           // Priority 1 – "Seen / caught up": all aired episodes watched.
           // Use a muted green that reads well on both light and dark themes.

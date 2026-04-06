@@ -19,18 +19,28 @@
 #include "library_model.hpp"
 
 #include <QApplication>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QPalette>
 #include <anitomy.hpp>
 #include <anitomy/detail/keyword.hpp>  // don't try this at home
 #include <ranges>
 
 #include "base/string.hpp"
+#include "media/anime.hpp"
 #include "media/anime_db.hpp"
 #include "taiga/settings.hpp"
 #include "track/episode.hpp"
 #include "track/recognition.hpp"
+#include "track/scanner.hpp"
 
 namespace gui {
+
+static QString preferredAnimeTitle(const anime::Details& item) {
+  return QString::fromStdString(
+      anime::preferredListTitleString(item, taiga::settings.listTitleLanguage()));
+}
 
 LibraryModel::LibraryModel(QObject* parent) : QFileSystemModel(parent) {
   setNameFilters([]() {
@@ -44,6 +54,45 @@ LibraryModel::LibraryModel(QObject* parent) : QFileSystemModel(parent) {
   setNameFilterDisables(true);
 
   connect(this, &QFileSystemModel::directoryLoaded, this, &LibraryModel::parseDirectory);
+
+  // Restore manual overrides from the previous session.
+  loadOverrides();
+}
+
+void LibraryModel::persistOverrides() const {
+  QJsonArray arr;
+  for (auto it = m_overrides.cbegin(); it != m_overrides.cend(); ++it) {
+    if (it.value().id <= 0) continue;
+    QJsonObject obj;
+    obj[QStringLiteral("path")] = it.key();
+    obj[QStringLiteral("id")] = it.value().id;
+    obj[QStringLiteral("episode")] = it.value().episode;
+    arr.append(obj);
+  }
+  taiga::settings.setLibraryManualOverridesJson(
+      QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact)));
+}
+
+void LibraryModel::loadOverrides() {
+  const QString json = taiga::settings.libraryManualOverridesJson();
+  if (json.isEmpty()) return;
+  const QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8());
+  if (!doc.isArray()) return;
+  for (const QJsonValue& val : doc.array()) {
+    if (!val.isObject()) continue;
+    const QJsonObject obj = val.toObject();
+    const QString path = obj[QStringLiteral("path")].toString();
+    const int id = obj[QStringLiteral("id")].toInt();
+    const QString episode = obj[QStringLiteral("episode")].toString();
+    if (path.isEmpty() || id <= 0) continue;
+    QString title;
+    if (const auto* item = anime::db.item(id)) title = preferredAnimeTitle(*item);
+    m_overrides[path] = ParsedData{.title = title, .episode = episode, .id = id};
+    bool ok = false;
+    int ep_no = episode.toInt(&ok);
+    if (!ok || ep_no < 1) ep_no = 1;
+    track::addManualLibraryEpisode(id, ep_no);
+  }
 }
 
 int LibraryModel::columnCount(const QModelIndex&) const {
@@ -153,16 +202,14 @@ QString LibraryModel::getTitle(const QString& path) const {
   if (m_overrides.contains(path)) {
     const int oid = m_overrides[path].id;
     if (oid > 0) {
-      const auto item = anime::db.item(oid);
-      if (item) return QString::fromStdString(item->titles.romaji);
+      if (const auto* item = anime::db.item(oid)) return preferredAnimeTitle(*item);
     }
     return m_overrides[path].title;
   }
-  if (m_parsed[path].id) {
-    const auto item = anime::db.item(m_parsed[path].id);
-    if (item) return QString::fromStdString(item->titles.romaji);
+  if (const int id = m_parsed.value(path).id) {
+    if (const auto* item = anime::db.item(id)) return preferredAnimeTitle(*item);
   }
-  return m_parsed[path].title;
+  return m_parsed.value(path).title;
 }
 
 QString LibraryModel::getEpisode(const QString& path) const {
@@ -177,13 +224,21 @@ int LibraryModel::getId(const QString& path) const {
 
 void LibraryModel::setOverride(const QString& path, const int id, const QString& episode) {
   if (id <= 0) {
+    // Remove old manual episode tracking if there was an override.
+    if (m_overrides.contains(path)) {
+      const int old_id = m_overrides[path].id;
+      if (old_id > 0) track::removeManualLibraryEpisode(old_id);
+    }
     m_overrides.remove(path);
   } else {
     QString title;
-    if (const auto item = anime::db.item(id)) {
-      title = QString::fromStdString(item->titles.romaji);
-    }
+    if (const auto* item = anime::db.item(id)) title = preferredAnimeTitle(*item);
     m_overrides[path] = ParsedData{.title = title, .episode = episode, .id = id};
+    // Register with the scanner so libraryHasLocalEpisode() reflects this override.
+    bool ok = false;
+    int ep_no = episode.toInt(&ok);
+    if (!ok || ep_no < 1) ep_no = 1;  // OVA/Special → episode 1
+    track::addManualLibraryEpisode(id, ep_no);
   }
   // Emit dataChanged for all columns of this file so the view refreshes.
   const QModelIndex name_idx = index(path);
@@ -191,6 +246,10 @@ void LibraryModel::setOverride(const QString& path, const int id, const QString&
     const QModelIndex last = name_idx.siblingAtColumn(NUM_COLUMNS - 1);
     emit dataChanged(name_idx, last);
   }
+  // Persist so the assignment survives app restarts.
+  persistOverrides();
+  // Signal the rest of the app that library availability changed.
+  emit libraryOverrideChanged();
 }
 
 void LibraryModel::parseDirectory(const QString& path) {

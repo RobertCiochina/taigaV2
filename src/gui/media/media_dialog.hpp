@@ -26,6 +26,7 @@
 
 class QResizeEvent;
 class QShowEvent;
+class QWidget;
 
 namespace Ui {
 class MediaDialog;
@@ -66,11 +67,14 @@ private:
   void initList();
   void loadPosterImage();
   void resizePosterImage();
+  void addToList(anime::list::Status status);
 
   Ui::MediaDialog* ui_ = nullptr;
 
   Anime m_anime;
   std::optional<ListEntry> m_entry;
+
+  QWidget* m_addToListPanel = nullptr;
 };
 
 }  // namespace gui

@@ -61,4 +61,14 @@ void Episode::addElement(const anitomy::ElementKind kind, const std::string& val
   elements_.emplace_back(anitomy::Element{.kind = kind, .value = value});
 }
 
+void Episode::setElement(const anitomy::ElementKind kind, const std::string& value) {
+  const auto it = std::ranges::find_if(elements_,
+                                       [kind](const auto& e) { return e.kind == kind; });
+  if (it != elements_.end()) {
+    it->value = value;
+  } else {
+    elements_.emplace_back(anitomy::Element{.kind = kind, .value = value});
+  }
+}
+
 }  // namespace track

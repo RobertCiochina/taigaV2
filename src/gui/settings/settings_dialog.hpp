@@ -29,6 +29,7 @@ class SettingsDialog;
 }
 
 class QCheckBox;
+class QComboBox;
 class QLineEdit;
 class QRadioButton;
 class QSpinBox;
@@ -64,6 +65,14 @@ private:
   QLineEdit* m_mal_username_ = nullptr;
   QLineEdit* m_mal_access_ = nullptr;
   QLineEdit* m_mal_refresh_ = nullptr;
+
+  // Torrents → Downloads page: RSS sources (moved from Library page).
+  QLineEdit* m_rss_search_url_ = nullptr;
+  QLineEdit* m_rss_feed_url_ = nullptr;
+  QCheckBox* m_rss_autocheck_ = nullptr;
+  QSpinBox*  m_rss_autocheck_mins_ = nullptr;
+  QComboBox* m_rss_sort_by_ = nullptr;
+  QComboBox* m_rss_sort_order_ = nullptr;
 
   // Torrents → Downloads page widgets (programmatic page, saves on accept()).
   QCheckBox* m_dl_use_magnet_ = nullptr;

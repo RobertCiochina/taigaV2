@@ -60,17 +60,14 @@ LibraryWidget::LibraryWidget(QWidget* parent)
     filtersLayout->addWidget(m_comboRoot);
   }
 
-  // Toolbar
+  // Toolbar: only the open-folder action — play/random/more are in the main toolbar already
   {
-    // Play next episode
-    m_toolbar->addAction(mainWindow()->ui()->actionPlayNextEpisode);
-
-    // Play random anime
-    m_toolbar->addAction(mainWindow()->ui()->actionPlayRandomAnime);
-
-    // More
-    const auto actionMore = new QAction(theme.getIcon("more_horiz"), tr("More"), this);
-    m_toolbar->addAction(actionMore);
+    const auto actionOpenFolder = new QAction(theme.getIcon("folder_open"), tr("Open anime folder"), this);
+    actionOpenFolder->setToolTip(tr("Open the anime folder in Explorer"));
+    connect(actionOpenFolder, &QAction::triggered, this, []() {
+      if (auto* mw = mainWindow()) mw->openDataFolder();
+    });
+    m_toolbar->addAction(actionOpenFolder);
   }
 
   m_view->setObjectName("libraryView");
@@ -109,6 +106,14 @@ LibraryWidget::LibraryWidget(QWidget* parent)
     if (!info.isFile()) return;
     if (info.isExecutable()) return;  // avoid running potentially dangerous files
     QDesktopServices::openUrl(QUrl::fromLocalFile(m_model->filePath(index)));
+  });
+
+  // When a manual override is applied, refresh the home dashboard and list colors.
+  connect(m_model, &LibraryModel::libraryOverrideChanged, this, []() {
+    if (auto* mw = mainWindow()) {
+      mw->refreshHomeDashboard();
+      mw->refreshListColors();
+    }
   });
 }
 

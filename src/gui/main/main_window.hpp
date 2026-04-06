@@ -102,6 +102,10 @@ public slots:
   void resortTorrentRssTableFromSettings();
   /// Kick off the auto-download run (checks all watching anime for new episodes and downloads best match).
   void runAutoDownload(bool silent = false);
+  void refreshHomeDashboard();
+  void refreshListColors();
+  void updateAutoDownloadCountdownLabel();
+  void openDataFolder();
 
 private slots:
   void about();
@@ -114,6 +118,7 @@ private slots:
   void onAutoDownloadTimer();
 
 protected:
+  bool eventFilter(QObject* watched, QEvent* event) override;
   void changeEvent(QEvent* event) override;
   void closeEvent(QCloseEvent *event) override;
   void showEvent(QShowEvent* event) override;
@@ -147,9 +152,7 @@ private:
   void playRandomAnimeFromMenu();
   void routeToolbarSearchToActivePage();
   void showLibraryFoldersDialog();
-  void openDataFolder();
   void restoreViewChromeFromSession();
-  void refreshHomeDashboard();
   void updateTrayTooltip();
   void maybeNotifyMediaDetectionBalloon(const std::optional<track::Episode>& episode);
 
@@ -166,13 +169,17 @@ private:
   TrayIcon* m_trayIcon = nullptr;
   QTimer* m_catalog_autocheck_timer_ = nullptr;
   QTimer* m_auto_download_timer_ = nullptr;
+  QTimer* m_home_countdown_timer_ = nullptr;  // 1-second tick to update the countdown label
+  QLabel* m_toolbarCountdownLabel = nullptr;  // permanent toolbar countdown (all pages)
   QLabel* m_homeBodyLabel = nullptr;
+  QLabel* m_homeAutoDownloadLabel = nullptr;  // shows "Next auto-download in X min" on Home
   QWidget* m_homeUpNextContainer = nullptr;
   QLabel* m_homeUpNextHeader = nullptr;
   QWidget* m_homeRecentContainer = nullptr;
   QLabel* m_homeRecentHeader = nullptr;
 
   MainWindowPage m_activePage = MainWindowPage::Home;
+  bool m_startup_sync_done_ = false;  // true after the first sync on this run
   // Per-page saved search-box text so switching pages doesn't bleed one page's
   // filter text into another page's query field.
   QHash<int, QString> m_pageSearchTexts_;

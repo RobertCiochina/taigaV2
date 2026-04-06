@@ -177,6 +177,7 @@ void Detection::poll() {
     const QFileInfo fileInfo{QString::fromStdString(file)};
     episode = track::recognition::parseFileInfo(
         fileInfo, {}, taiga::settings.libraryScanLookupParentDirectories());
+    episode.setFilePath(file);
   } else {
     std::string parse_str = title;
     if (res.player.type == anisthesia::PlayerType::WebBrowser) {

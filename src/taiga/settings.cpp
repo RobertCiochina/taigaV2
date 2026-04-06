@@ -197,6 +197,14 @@ bool Settings::recognitionAutoUpdateList() const {
   return value("recognition.listUpdate.auto", true).toBool();
 }
 
+bool Settings::recognitionDeleteAfterWatched() const {
+  return value("recognition.listUpdate.deleteAfterWatched", false).toBool();
+}
+
+void Settings::setRecognitionDeleteAfterWatched(bool enabled) const {
+  setValue("recognition.listUpdate.deleteAfterWatched", enabled);
+}
+
 int Settings::recognitionUpdateDelaySeconds() const {
   return std::clamp(value("recognition.listUpdate.delaySeconds", 120).toInt(), 1, 3600);
 }
@@ -428,6 +436,13 @@ int Settings::torrentAppMode() const {
 
 std::string Settings::torrentAppExecutablePath() const {
   return value("torrent.app.executablePath").toString().toStdString();
+}
+
+QString Settings::torrentSearchTitleForAnime(const int anime_id) const {
+  return value(QStringLiteral("torrent.searchTitleCache.%1").arg(anime_id)).toString();
+}
+void Settings::setTorrentSearchTitleForAnime(const int anime_id, const QString& title) const {
+  setValue(QStringLiteral("torrent.searchTitleCache.%1").arg(anime_id), title);
 }
 
 bool Settings::torrentQBitApiEnabled() const {
@@ -799,6 +814,14 @@ void Settings::setTorrentAppExecutablePath(const std::string& path) const {
 
 void Settings::setAnnounceV1MigrationJson(const std::string& json) const {
   setValue("compat.v1.announceMigration", QString::fromStdString(json));
+}
+
+QString Settings::libraryManualOverridesJson() const {
+  return value("library.manualOverrides", QString{}).toString();
+}
+
+void Settings::setLibraryManualOverridesJson(const QString& json) const {
+  setValue("library.manualOverrides", json);
 }
 
 }  // namespace taiga

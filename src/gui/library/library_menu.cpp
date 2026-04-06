@@ -40,6 +40,7 @@
 #include "gui/models/library_model.hpp"
 #include "gui/utils/theme.hpp"
 #include "media/anime_db.hpp"
+#include "media/anime_list.hpp"
 
 namespace gui {
 
@@ -133,29 +134,43 @@ void LibraryMenu::viewDetails() const {
 void LibraryMenu::assignAnime() const {
   if (!m_model) return;
 
-  // Collect all known anime sorted by display title.
+  // Build a full list of all anime sorted by display title.
   struct AnimeEntry {
     int id;
     QString display;
   };
-  QList<AnimeEntry> list;
+  QList<AnimeEntry> allAnime;
   for (const auto& [id, item] : anime::db.items().asKeyValueRange()) {
     const QString en = QString::fromStdString(item.titles.english);
     const QString ro = QString::fromStdString(item.titles.romaji);
     const QString display = en.isEmpty() ? ro : QStringLiteral("%1  (%2)").arg(en, ro);
-    if (!display.trimmed().isEmpty()) list.append({id, display});
+    if (!display.trimmed().isEmpty()) allAnime.append({id, display});
   }
-  std::sort(list.begin(), list.end(),
+  std::sort(allAnime.begin(), allAnime.end(),
             [](const AnimeEntry& a, const AnimeEntry& b) { return a.display < b.display; });
+
+  // Helper: return anime filtered by list status (Status::NotInList = All).
+  using Status = anime::list::Status;
+  const auto filteredByStatus = [&](Status st) {
+    QList<AnimeEntry> result;
+    for (const auto& e : allAnime) {
+      if (st == Status::NotInList) {
+        result.append(e);
+      } else {
+        const auto* entry = anime::db.entry(e.id);
+        if (entry && entry->status == st) result.append(e);
+      }
+    }
+    return result;
+  };
 
   auto* dlg = new QDialog(parentWidget());
   dlg->setAttribute(Qt::WA_DeleteOnClose);
   dlg->setWindowTitle(tr("Assign anime & episode"));
-  dlg->setMinimumWidth(520);
+  dlg->setMinimumWidth(540);
 
   auto* layout = new QVBoxLayout(dlg);
 
-  // Show filename for context.
   auto* fileLabel = new QLabel(
       QStringLiteral("<b>File:</b> %1").arg(QFileInfo(m_path).fileName().toHtmlEscaped()), dlg);
   fileLabel->setWordWrap(true);
@@ -163,47 +178,71 @@ void LibraryMenu::assignAnime() const {
 
   auto* form = new QFormLayout();
 
-  // Search box to filter combo.
+  // Status filter combo (default: Watching).
+  auto* statusCombo = new QComboBox(dlg);
+  statusCombo->addItem(tr("Watching"),    static_cast<int>(Status::Watching));
+  statusCombo->addItem(tr("Completed"),   static_cast<int>(Status::Completed));
+  statusCombo->addItem(tr("Plan to Watch"), static_cast<int>(Status::PlanToWatch));
+  statusCombo->addItem(tr("On Hold"),     static_cast<int>(Status::OnHold));
+  statusCombo->addItem(tr("Dropped"),     static_cast<int>(Status::Dropped));
+  statusCombo->addItem(tr("All anime"),   static_cast<int>(Status::NotInList));
+  form->addRow(tr("Show:"), statusCombo);
+
+  // Search / filter box.
   auto* searchEdit = new QLineEdit(dlg);
-  searchEdit->setPlaceholderText(tr("Type to filter anime…"));
+  searchEdit->setPlaceholderText(tr("Type to filter…"));
   form->addRow(tr("Filter:"), searchEdit);
 
   auto* combo = new QComboBox(dlg);
   combo->setEditable(false);
   combo->setMaxVisibleItems(20);
-  for (const auto& e : list) combo->addItem(e.display, e.id);
-  // Pre-select the currently assigned anime if any.
-  if (m_anime_id > 0) {
+  form->addRow(tr("Anime:"), combo);
+
+  // Populate combo from status + search filter.
+  const auto rebuildCombo = [&, combo, statusCombo, searchEdit, allAnime]() {
+    const auto st = static_cast<Status>(statusCombo->currentData().toInt());
+    const QList<AnimeEntry> statusList = filteredByStatus(st);
+    const QString lower = searchEdit->text().trimmed().toLower();
+    const int prev_id = combo->currentData().toInt();
+    combo->clear();
+    for (const auto& e : statusList) {
+      if (lower.isEmpty() || e.display.toLower().contains(lower))
+        combo->addItem(e.display, e.id);
+    }
+    // Try to restore selection.
     for (int i = 0; i < combo->count(); ++i) {
-      if (combo->itemData(i).toInt() == m_anime_id) { combo->setCurrentIndex(i); break; }
+      if (combo->itemData(i).toInt() == prev_id) { combo->setCurrentIndex(i); break; }
+    }
+  };
+
+  // Initial population (Watching).
+  {
+    const auto st = static_cast<Status>(statusCombo->currentData().toInt());
+    for (const auto& e : filteredByStatus(st)) combo->addItem(e.display, e.id);
+    // Pre-select the currently assigned anime if any.
+    if (m_anime_id > 0) {
+      for (int i = 0; i < combo->count(); ++i) {
+        if (combo->itemData(i).toInt() == m_anime_id) { combo->setCurrentIndex(i); break; }
+      }
     }
   }
-  form->addRow(tr("Anime:"), combo);
 
   auto* spinEp = new QSpinBox(dlg);
   spinEp->setRange(0, 9999);
   spinEp->setValue(1);
   spinEp->setSpecialValueText(tr("— (unspecified)"));
-  // Pre-fill from current recognized episode.
   const QString cur_ep = m_model->getEpisode(m_path);
   if (!cur_ep.isEmpty()) {
     bool ok = false;
-    const int ep = cur_ep.toInt(&ok);
-    if (ok && ep >= 0) spinEp->setValue(ep);
+    if (const int ep = cur_ep.toInt(&ok); ok && ep >= 0) spinEp->setValue(ep);
   }
   form->addRow(tr("Episode:"), spinEp);
   layout->addLayout(form);
 
-  // Filter combo when search text changes (list captured by value for safety).
-  connect(searchEdit, &QLineEdit::textChanged, dlg, [combo, list](const QString& text) {
-    const QString lower = text.trimmed().toLower();
-    combo->clear();
-    for (const auto& e : list) {
-      if (lower.isEmpty() || e.display.toLower().contains(lower)) {
-        combo->addItem(e.display, e.id);
-      }
-    }
-  });
+  connect(statusCombo, &QComboBox::currentIndexChanged, dlg,
+          [rebuildCombo](int) { rebuildCombo(); });
+  connect(searchEdit, &QLineEdit::textChanged, dlg,
+          [rebuildCombo](const QString&) { rebuildCombo(); });
 
   auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dlg);
   auto* clearBtn = buttons->addButton(tr("Clear assignment"), QDialogButtonBox::ResetRole);
@@ -211,7 +250,6 @@ void LibraryMenu::assignAnime() const {
 
   connect(buttons, &QDialogButtonBox::accepted, dlg, &QDialog::accept);
   connect(buttons, &QDialogButtonBox::rejected, dlg, &QDialog::reject);
-  // Clear → apply immediately then close (reject skips the normal apply-override path below).
   connect(clearBtn, &QPushButton::clicked, dlg, [this, dlg]() {
     m_model->setOverride(m_path, 0, {});
     dlg->reject();

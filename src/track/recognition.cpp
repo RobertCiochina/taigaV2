@@ -73,10 +73,27 @@ Episode parseFileInfo(const QFileInfo& info, const anitomy::Options options,
 
   Episode episode = track::recognition::parse(fileName, options);
 
-  if (use_parent_directory_title_hint && !episode.contains(anitomy::ElementKind::Title)) {
-    auto dirName = info.dir().dirName().toStdString();
-    stripIgnoredSubstrings(dirName);
-    episode.addElement(anitomy::ElementKind::Title, dirName);
+  if (use_parent_directory_title_hint) {
+    // Season 0 (S00Exx) marks specials/OVAs stored in their own named folder.
+    // Prefer the parent directory name as the title in this case, because the
+    // scene abbreviation in the filename (e.g. "Iseleve") typically refers to the
+    // main series while the folder name matches the actual special AniList entry.
+    const auto season_str = episode.element(anitomy::ElementKind::Season);
+    const bool isSeason0 = !season_str.empty() &&
+                           (season_str == "0" || season_str == "00");
+
+    if (!episode.contains(anitomy::ElementKind::Title) || isSeason0) {
+      auto dirName = info.dir().dirName().toStdString();
+      stripIgnoredSubstrings(dirName);
+      if (!dirName.empty()) {
+        if (isSeason0) {
+          // Override the scene abbreviation title with the folder name.
+          episode.setElement(anitomy::ElementKind::Title, dirName);
+        } else {
+          episode.addElement(anitomy::ElementKind::Title, dirName);
+        }
+      }
+    }
   }
 
   return episode;

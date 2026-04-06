@@ -79,7 +79,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   // so the new stack index is available when the tree items are assigned.
   buildDownloadsPage();
 
-  // Hide download settings from Library page (now consolidated in Torrents → Downloads).
+  // Hide all torrent-related widgets from the Library page — fully consolidated in Torrents → Downloads.
   const std::initializer_list<QWidget*> libraryDownloadWidgets = {
       ui_->labelTorrentPathsHelp,
       ui_->labelTorrentClientDownload,
@@ -90,6 +90,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
       ui_->buttonBrowseTorrentFileSave,
       ui_->checkTorrentDownloadUseMagnet,
       ui_->groupTorrentHandling,
+      ui_->groupTorrentSearch,   // RSS / feed URLs, auto-check, sort — now on Torrents → Downloads
   };
   for (auto* w : libraryDownloadWidgets) { if (w) w->hide(); }
 
@@ -113,11 +114,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   add_item("web_asset", "Application", kStackApplication);
   add_item("list_alt", "Anime List", kStackAnimeList);
   add_item("folder", "Library", kStackLibrary);
-  {
-    auto* item = add_item("check_circle", "Recognition", kStackPlaceholder);
-    add_child(item, "Media players");
-    add_child(item, "Web browsers");
-  }
+  add_item("check_circle", "Recognition", kStackPlaceholder);
   {
     auto* item = add_item("rss_feed", "Torrents", kStackPlaceholder);
     auto* dl_item = add_child(item, "Downloads");
@@ -142,8 +139,9 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
               text = u"%1 / %2"_s.arg(parentText, text);
             }
 
-            // If clicking a parent group header that points to the placeholder,
-            // redirect to its first child automatically.
+            // If clicking a parent group header that points to the placeholder
+            // AND has children (e.g. Torrents), redirect to the first child automatically.
+            // Top-level placeholders without children (e.g. Recognition) display inline.
             if (stack == kStackPlaceholder && parentText.isEmpty() && current->childCount() > 0) {
               ui_->treeWidget->setCurrentItem(current->child(0));
               return;
@@ -152,8 +150,14 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
             ui_->stackedWidget->setCurrentIndex(stack);
             ui_->titleLabel->setText(text);
 
-            if (stack == kStackPlaceholder && !parentText.isEmpty()) {
-              populatePlaceholderPage(parentText, current->text(0));
+            if (stack == kStackPlaceholder) {
+              // Top-level placeholder (e.g. Recognition) — pass node text as parent, empty child.
+              // Child-level placeholder — pass parent text + child text.
+              if (parentText.isEmpty()) {
+                populatePlaceholderPage(current->text(0), {});
+              } else {
+                populatePlaceholderPage(parentText, current->text(0));
+              }
             }
           });
 
@@ -344,6 +348,25 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
             [auto_update_ui](Qt::CheckState) { auto_update_ui(); });
     auto_update_ui();
   }
+  // Dynamically create "delete after watched" checkbox (not in the .ui form).
+  {
+    auto* cb = new QCheckBox(tr("Delete local file after it is marked as watched"), this);
+    cb->setChecked(taiga::settings.recognitionDeleteAfterWatched());
+    cb->setToolTip(tr("Permanently deletes the video file after the episode is marked as watched. Use with care."));
+    connect(cb, &QCheckBox::checkStateChanged, this, [cb](Qt::CheckState) {
+      taiga::settings.setRecognitionDeleteAfterWatched(cb->isChecked());
+    });
+    if (ui_->checkAutoUpdateOutOfRange && ui_->checkAutoUpdateOutOfRange->parentWidget()) {
+      auto* parent = ui_->checkAutoUpdateOutOfRange->parentWidget();
+      if (auto* vl = qobject_cast<QVBoxLayout*>(parent->layout())) {
+        const int idx = vl->indexOf(ui_->checkAutoUpdateOutOfRange);
+        if (idx >= 0) vl->insertWidget(idx + 1, cb);
+        else vl->addWidget(cb);
+      } else if (parent->layout()) {
+        parent->layout()->addWidget(cb);
+      }
+    }
+  }
 
   ui_->checkLibraryLookupParent->setChecked(taiga::settings.libraryScanLookupParentDirectories());
   ui_->plainRecognitionIgnored->setPlainText(
@@ -376,8 +399,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   ui_->lineProxyPassword->setText(QString::fromStdString(taiga::settings.proxyPassword()));
   ui_->checkNetworkRelaxedTls->setChecked(taiga::settings.networkRelaxedTls());
   ui_->checkNetworkRelaxedTls->setToolTip(
-      tr("Disables strict TLS peer verification for Taiga HTTP requests (Taiga v1: sslnorevoke). Use "
-         "only with broken proxies or certificates."));
+      tr("Disables strict TLS certificate verification. Use only if you have proxy or certificate issues."));
   ui_->checkSyncOnFocus->setChecked(taiga::settings.syncOnWindowFocus());
   ui_->spinFocusMinutes->setValue(taiga::settings.syncOnWindowFocusMinutes());
 
@@ -447,8 +469,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   {
     QComboBox* const sb = ui_->comboTorrentRssSortBy;
     if (sb->count() == 0) {
-      sb->addItem(tr("Episode number (v1)"), QStringLiteral("episode_number"));
-      sb->addItem(tr("Published date (v1: release_date)"), QStringLiteral("release_date"));
+      sb->addItem(tr("Episode number"), QStringLiteral("episode_number"));
+      sb->addItem(tr("Published date"), QStringLiteral("release_date"));
     }
     const QString want_by = QString::fromStdString(taiga::settings.torrentRssSortBy());
     for (int i = 0; i < sb->count(); ++i) {
@@ -760,13 +782,11 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   ui_->checkListUpdatesEnabled->setChecked(taiga::settings.listSynchronizationEnabled());
   ui_->checkSyncPushAskConfirm->setChecked(taiga::settings.syncListPushAskConfirm());
   ui_->checkSyncPushAskConfirm->setToolTip(
-      tr("Taiga v1: account/update/asktoconfirm. When off, list edits upload without a prompt (subject to "
-         "the debounce delay above)."));
+      tr("When off, list edits upload immediately without a confirmation prompt (subject to the debounce delay above)."));
   ui_->spinListUpdateApiDelay->setValue(taiga::settings.syncListUpdateDelaySeconds());
   ui_->spinListUpdateApiDelay->setToolTip(
-      tr("Seconds to wait after a local list change before pushing the same title to the remote service "
-         "again (Taiga v1: account/update delay; default there was often 120). 0 = immediate. Reduces "
-         "API traffic when you adjust progress several times in a row."));
+      tr("Seconds to wait after a local list change before syncing to the remote service. "
+         "0 = immediate. Useful to reduce API calls when adjusting progress multiple times."));
 
   ui_->comboListTitleLanguage->addItem(tr("Romaji"), static_cast<int>(anime::TitleLanguage::Romaji));
   ui_->comboListTitleLanguage->addItem(tr("English"), static_cast<int>(anime::TitleLanguage::English));
@@ -897,15 +917,8 @@ void SettingsDialog::accept() {
     taiga::settings.setLibraryScanMinFileSizeBytes(v > 0 ? static_cast<qint64>(v) * kMiB : 0);
   }
 
-  taiga::settings.setTorrentDiscoverySearchUrl(ui_->lineTorrentSearchUrl->text().trimmed().toStdString());
-  taiga::settings.setTorrentDiscoveryFeedSourceUrl(ui_->lineTorrentFeedSourceUrl->text().trimmed().toStdString());
-  taiga::settings.setTorrentDiscoveryAutoCheckEnabled(ui_->checkTorrentAutocheckCatalog->isChecked());
-  taiga::settings.setTorrentDiscoveryAutoCheckIntervalMinutes(ui_->spinTorrentAutocheckMinutes->value());
-  taiga::settings.setTorrentDiscoveryNewCatalogAction(static_cast<taiga::TorrentDiscoveryNewCatalogAction>(
-      ui_->comboTorrentNewCatalogAction->currentData().toInt()));
-  taiga::settings.setTorrentRssSortBy(ui_->comboTorrentRssSortBy->currentData().toString().toStdString());
-  taiga::settings.setTorrentRssSortOrder(
-      ui_->comboTorrentRssSortOrder->currentData().toString().toStdString());
+  // RSS source settings are now saved by saveDownloadsPage() below (migrated from Library page).
+  // The old Library-page widgets (lineTorrentSearchUrl, etc.) are hidden and should not be read.
   taiga::settings.setTorrentFeedFilterEnabled(ui_->checkTorrentFeedFilterEnabled->isChecked());
   taiga::settings.setTorrentFeedArchiveMaxItems(ui_->spinTorrentFeedArchiveMax->value());
   taiga::settings.setTorrentFeedIncludeRegexList(
@@ -999,17 +1012,78 @@ void SettingsDialog::buildDownloadsPage() {
     layout->addWidget(lbl);
   };
 
+  // ── RSS sources ─────────────────────────────────────────────────────────
+  addSection(tr("RSS sources"));
+  addHelp(tr("Search URL is used for in-app torrent search. Use <b>%title%</b> as the placeholder for the search term."));
+  {
+    auto* row = new QHBoxLayout();
+    row->addWidget(new QLabel(tr("Search URL:"), page));
+    m_rss_search_url_ = new QLineEdit(page);
+    m_rss_search_url_->setPlaceholderText(u"https://nyaa.si/?page=rss&q=%title%&c=1_2&f=0"_s);
+    m_rss_search_url_->setText(QString::fromStdString(taiga::settings.torrentDiscoverySearchUrl()));
+    row->addWidget(m_rss_search_url_);
+    layout->addLayout(row);
+  }
+  addHelp(tr("Catalog feed: optional RSS browsed on the Torrents page. Leave empty to use the default."));
+  {
+    auto* row = new QHBoxLayout();
+    row->addWidget(new QLabel(tr("Catalog feed URL:"), page));
+    m_rss_feed_url_ = new QLineEdit(page);
+    m_rss_feed_url_->setPlaceholderText(tr("Optional — leave empty for default"));
+    m_rss_feed_url_->setText(QString::fromStdString(taiga::settings.torrentDiscoveryFeedSourceUrl()));
+    row->addWidget(m_rss_feed_url_);
+    layout->addLayout(row);
+  }
+  // Auto-check row
+  {
+    auto* row = new QHBoxLayout();
+    m_rss_autocheck_ = new QCheckBox(tr("Auto-check catalog feed every"), page);
+    m_rss_autocheck_->setChecked(taiga::settings.torrentDiscoveryAutoCheckEnabled());
+    row->addWidget(m_rss_autocheck_);
+    m_rss_autocheck_mins_ = new QSpinBox(page);
+    m_rss_autocheck_mins_->setRange(5, 1440);
+    m_rss_autocheck_mins_->setSuffix(tr(" min"));
+    m_rss_autocheck_mins_->setValue(taiga::settings.torrentDiscoveryAutoCheckIntervalMinutes());
+    row->addWidget(m_rss_autocheck_mins_);
+    row->addStretch();
+    layout->addLayout(row);
+  }
+  // Sort options row
+  {
+    auto* row = new QHBoxLayout();
+    row->addWidget(new QLabel(tr("Sort results by:"), page));
+    m_rss_sort_by_ = new QComboBox(page);
+    m_rss_sort_by_->addItem(tr("Seeders"), QStringLiteral("seeders"));
+    m_rss_sort_by_->addItem(tr("Title"), QStringLiteral("title"));
+    m_rss_sort_by_->addItem(tr("Episode number (v1)"), QStringLiteral("episode_number"));
+    m_rss_sort_by_->addItem(tr("Published date"), QStringLiteral("release_date"));
+    const QString curBy = QString::fromStdString(taiga::settings.torrentRssSortBy());
+    for (int i = 0; i < m_rss_sort_by_->count(); ++i)
+      if (m_rss_sort_by_->itemData(i).toString() == curBy) { m_rss_sort_by_->setCurrentIndex(i); break; }
+    row->addWidget(m_rss_sort_by_);
+    m_rss_sort_order_ = new QComboBox(page);
+    m_rss_sort_order_->addItem(tr("Ascending"), QStringLiteral("ascending"));
+    m_rss_sort_order_->addItem(tr("Descending"), QStringLiteral("descending"));
+    const QString curOrd = QString::fromStdString(taiga::settings.torrentRssSortOrder());
+    for (int i = 0; i < m_rss_sort_order_->count(); ++i)
+      if (m_rss_sort_order_->itemData(i).toString() == curOrd) { m_rss_sort_order_->setCurrentIndex(i); break; }
+    row->addWidget(m_rss_sort_order_);
+    row->addStretch();
+    layout->addLayout(row);
+  }
+  layout->addSpacing(8);
+
   // ── Torrent file preference ─────────────────────────────────────────────
   addSection(tr("Torrent file preference"));
   m_dl_use_magnet_ = new QCheckBox(tr("Prefer magnet links when both a magnet and a .torrent URL are present"), page);
   m_dl_use_magnet_->setChecked(taiga::settings.torrentDownloadUseMagnet());
-  m_dl_use_magnet_->setToolTip(tr("v1: rss/torrent/options/downloadusemagnet — when off, the .torrent URL is used first."));
+  m_dl_use_magnet_->setToolTip(tr("When off, the .torrent file URL is used instead of the magnet link."));
   layout->addWidget(m_dl_use_magnet_);
 
   // ── Download paths ──────────────────────────────────────────────────────
   layout->addSpacing(8);
   addSection(tr("Download paths"));
-  addHelp(tr("These paths are used when Taiga hands a torrent to your client or when downloading .torrent files directly."));
+  addHelp(tr("Paths used when sending a torrent to your client or saving .torrent files."));
 
   {
     auto* row = new QHBoxLayout();
@@ -1045,21 +1119,21 @@ void SettingsDialog::buildDownloadsPage() {
   // ── Folder rules ────────────────────────────────────────────────────────
   layout->addSpacing(8);
   addSection(tr("Torrent client & folder rules"));
-  addHelp(tr("Control where downloaded files are saved by your torrent client."));
+  addHelp(tr("Controls where your torrent client saves downloaded files."));
 
   m_dl_use_anime_folder_ = new QCheckBox(tr("Use anime library folder as download target when available"), page);
   m_dl_use_anime_folder_->setChecked(taiga::settings.torrentDownloadUseAnimeFolder());
-  m_dl_use_anime_folder_->setToolTip(tr("v1: rss/torrent/options/autosetfolder"));
+  m_dl_use_anime_folder_->setToolTip(tr("Saves the torrent directly into the matching anime library folder when found."));
   layout->addWidget(m_dl_use_anime_folder_);
 
   m_dl_fallback_client_ = new QCheckBox(tr("If no per-title folder, use \"Torrent client download folder\" above"), page);
   m_dl_fallback_client_->setChecked(taiga::settings.torrentDownloadFallbackOnClientPath());
-  m_dl_fallback_client_->setToolTip(tr("v1: rss/torrent/options/autousefolder"));
+  m_dl_fallback_client_->setToolTip(tr("Falls back to the torrent client's default folder if no anime library folder matches."));
   layout->addWidget(m_dl_fallback_client_);
 
   m_dl_create_subfolder_ = new QCheckBox(tr("Create a subfolder by anime title under that client download folder"), page);
   m_dl_create_subfolder_->setChecked(taiga::settings.torrentDownloadCreateSubfolder());
-  m_dl_create_subfolder_->setToolTip(tr("v1: rss/torrent/options/autocreatefolder"));
+  m_dl_create_subfolder_->setToolTip(tr("Creates a subfolder named after the anime title inside the client download folder."));
   layout->addWidget(m_dl_create_subfolder_);
 
   const auto updateSubfolderEnabled = [this]() {
@@ -1078,7 +1152,7 @@ void SettingsDialog::buildDownloadsPage() {
 
   m_dl_app_open_ = new QCheckBox(tr("Open torrents with an application after download / on launch"), page);
   m_dl_app_open_->setChecked(taiga::settings.torrentAppOpen());
-  m_dl_app_open_->setToolTip(tr("v1: rss/torrent/application/open"));
+  m_dl_app_open_->setToolTip(tr("Opens each torrent with the configured application after adding it to the queue."));
   layout->addWidget(m_dl_app_open_);
 
   {
@@ -1182,6 +1256,20 @@ void SettingsDialog::buildDownloadsPage() {
 
 void SettingsDialog::saveDownloadsPage() {
   if (!m_dl_use_magnet_) return;  // page not built
+  // RSS sources (migrated from Library page)
+  if (m_rss_search_url_)
+    taiga::settings.setTorrentDiscoverySearchUrl(m_rss_search_url_->text().trimmed().toStdString());
+  if (m_rss_feed_url_)
+    taiga::settings.setTorrentDiscoveryFeedSourceUrl(m_rss_feed_url_->text().trimmed().toStdString());
+  if (m_rss_autocheck_)
+    taiga::settings.setTorrentDiscoveryAutoCheckEnabled(m_rss_autocheck_->isChecked());
+  if (m_rss_autocheck_mins_)
+    taiga::settings.setTorrentDiscoveryAutoCheckIntervalMinutes(m_rss_autocheck_mins_->value());
+  if (m_rss_sort_by_)
+    taiga::settings.setTorrentRssSortBy(m_rss_sort_by_->currentData().toString().toStdString());
+  if (m_rss_sort_order_)
+    taiga::settings.setTorrentRssSortOrder(m_rss_sort_order_->currentData().toString().toStdString());
+
   taiga::settings.setTorrentDownloadUseMagnet(m_dl_use_magnet_->isChecked());
   taiga::settings.setTorrentClientDownloadPath(m_dl_client_path_->text().trimmed().toStdString());
   taiga::settings.setTorrentFileSavePath(m_dl_file_save_path_->text().trimmed().toStdString());
@@ -1229,7 +1317,8 @@ void SettingsDialog::populatePlaceholderPage(const QString& parent, const QStrin
     layout->addWidget(btn);
   };
 
-  if (parent == u"Recognition" && child == u"Media Players") {
+  if (parent == u"Recognition") {
+    // Single unified Recognition page.
     addHeading(tr("Media Players"));
     addParagraph(tr(
         "Taiga polls running processes on Windows to detect the file currently open in a media player. "
@@ -1240,14 +1329,13 @@ void SettingsDialog::populatePlaceholderPage(const QString& parent, const QStrin
         "&nbsp;&nbsp;• MPC-HC / MPC-BE (Media Player Classic)<br>"
         "&nbsp;&nbsp;• mpv<br>"
         "&nbsp;&nbsp;• PotPlayer / Daum PotPlayer<br>"
-        "&nbsp;&nbsp;• GOM Player<br>"
-        "&nbsp;&nbsp;• KMPlayer<br>"
+        "&nbsp;&nbsp;• GOM Player / KMPlayer<br>"
         "&nbsp;&nbsp;• Windows Media Player / Media Player Legacy<br>"
         "&nbsp;&nbsp;• (and many more via the bundled Anisthesia player database)<br><br>"
         "To open episodes from Taiga using a specific player, set its executable path in "
         "<b>Application → Media recognition</b>. "
         "To enable or disable player polling entirely, use the master toggle on the same page."));
-  } else if (parent == u"Recognition" && child == u"Web Browsers") {
+
     addHeading(tr("Web Browsers"));
     addParagraph(tr(
         "Taiga reads the title bar of your web browser to detect anime on streaming sites. "
@@ -1256,7 +1344,6 @@ void SettingsDialog::populatePlaceholderPage(const QString& parent, const QStrin
         "<b>Application → Media recognition</b>.<br><br>"
         "The streaming providers below are the sites whose titles Taiga knows how to parse. "
         "Uncheck a site to ignore it during detection."));
-    // Show the streaming provider checkboxes inline (mirrors Application page state).
     for (const auto& e : track::streaming::providerUiEntries()) {
       auto* cb = new QCheckBox(tr(e.label), page);
       const std::string slug(e.slug);

@@ -19,7 +19,9 @@
 #include "now_playing_widget.hpp"
 
 #include <QBoxLayout>
+#include <QFile>
 #include <QLabel>
+#include <QMessageBox>
 #include <optional>
 
 #include "base/string.hpp"
@@ -27,6 +29,7 @@
 #include "gui/utils/format.hpp"
 #include "gui/utils/list_commit.hpp"
 #include "gui/utils/theme.hpp"
+#include "media/anime.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_list.hpp"
 #include "taiga/session.hpp"
@@ -83,6 +86,19 @@ NowPlayingWidget::NowPlayingWidget(QWidget* parent) : QFrame(parent) {
 
 void NowPlayingWidget::reset() {
   m_countdown_timer_->stop();
+
+  // Auto-delete: if the list was updated and a local file path is known, delete it.
+  if (m_update_committed_ && m_episode && !m_episode->filePath().empty() &&
+      taiga::settings.recognitionDeleteAfterWatched()) {
+    const QString path = QString::fromStdString(m_episode->filePath());
+    if (!QFile::remove(path)) {
+      // Non-fatal — file might already be gone or in use.
+      qWarning() << "Auto-delete: failed to remove watched file:" << path;
+    } else {
+      qDebug() << "Auto-delete: removed watched file:" << path;
+    }
+  }
+
   m_countdown_remaining_ = 0;
   m_update_committed_ = false;
   hide();
@@ -224,8 +240,9 @@ void NowPlayingWidget::refresh() {
   const QString iconName = m_anime ? "check_circle" : "info";
   m_iconLabel->setPixmap(theme.getIcon(iconName).pixmap(QSize(16, 16)));
 
-  const auto title =
-      m_anime ? m_anime->titles.romaji : m_episode->element(anitomy::ElementKind::Title);
+  const std::string title =
+      m_anime ? anime::preferredListTitleString(*m_anime, taiga::settings.listTitleLanguage())
+              : m_episode->element(anitomy::ElementKind::Title);
   const auto episodeNumber = m_episode->element(anitomy::ElementKind::Episode, "1");
   const auto episodeCount = formatNumber(m_anime ? m_anime->episode_count : 0, "?");
 

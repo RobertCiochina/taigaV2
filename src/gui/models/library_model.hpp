@@ -50,8 +50,13 @@ public:
   int getId(const QString& path) const;
 
   /// Manually override the recognized anime and episode for a file path.
-  /// Pass id=0 to clear the override. Emits dataChanged so the view refreshes.
+  /// Pass id=0 to clear the override. Emits dataChanged + libraryOverrideChanged.
   void setOverride(const QString& path, int id, const QString& episode);
+
+signals:
+  /// Emitted after any manual override is applied or cleared, so consumers
+  /// (e.g. the Home dashboard and list color-coding) can refresh.
+  void libraryOverrideChanged();
 
 private:
   struct ParsedData {
@@ -64,6 +69,11 @@ private:
 
   void parseDirectory(const QString& path);
   void parseFileInfo(const QFileInfo& info);
+
+  /// Serialize m_overrides to JSON and save to taiga::settings.
+  void persistOverrides() const;
+  /// Load overrides from taiga::settings, populate m_overrides and register manual episodes.
+  void loadOverrides();
 
   QMap<QString, ParsedData> m_parsed;
   QMap<QString, ParsedData> m_overrides; // manually assigned

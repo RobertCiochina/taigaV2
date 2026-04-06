@@ -35,6 +35,8 @@ namespace track {
 namespace {
 
 std::unordered_map<int, std::unordered_set<int>> g_library_episodes;
+// Manual overrides from Library UI — not cleared by scanLibraryFolders.
+std::unordered_map<int, std::unordered_set<int>> g_manual_episodes;
 
 }  // namespace
 
@@ -45,7 +47,18 @@ const std::unordered_map<int, std::unordered_set<int>>& libraryEpisodeAvailabili
 bool libraryHasLocalEpisode(const int anime_id, const int episode_number) {
   if (episode_number < 1) return false;
   const auto it = g_library_episodes.find(anime_id);
-  return it != g_library_episodes.end() && it->second.contains(episode_number);
+  if (it != g_library_episodes.end() && it->second.contains(episode_number)) return true;
+  const auto it2 = g_manual_episodes.find(anime_id);
+  return it2 != g_manual_episodes.end() && it2->second.contains(episode_number);
+}
+
+void addManualLibraryEpisode(const int anime_id, int episode) {
+  if (episode < 1) episode = 1;
+  g_manual_episodes[anime_id].insert(episode);
+}
+
+void removeManualLibraryEpisode(const int anime_id) {
+  g_manual_episodes.erase(anime_id);
 }
 
 bool nextEpisodeIsOnDisk(const int anime_id, const anime::Details* anime, const anime::list::Entry* entry) {

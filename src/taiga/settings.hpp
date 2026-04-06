@@ -87,6 +87,9 @@ public:
   bool mediaDetectionEnabled() const;
   /// Taiga v1: `account/update/auto` — when true, automatically update watched episode count on recognition.
   bool recognitionAutoUpdateList() const;
+  /// Qt port: after list update is committed and the media player closes, delete the local file.
+  bool recognitionDeleteAfterWatched() const;
+  void setRecognitionDeleteAfterWatched(bool enabled) const;
   /// Taiga v1: `account/update/delay` — seconds to wait after recognition before committing the list update.
   int recognitionUpdateDelaySeconds() const;
   /// Taiga v1: `account/update/outofrange` — skip auto-update if the detected episode exceeds the anime's
@@ -274,6 +277,11 @@ public:
   void setTorrentAppOpen(bool enabled) const;
   void setTorrentAppMode(int mode) const;
   void setTorrentAppExecutablePath(const std::string& path) const;
+  /// Returns a previously saved effective RSS search title for an anime (empty = not cached).
+  QString torrentSearchTitleForAnime(int anime_id) const;
+  /// Saves the effective RSS search title that produced results for a given anime.
+  void setTorrentSearchTitleForAnime(int anime_id, const QString& title) const;
+
   // qBittorrent Web API integration (recommended for controlling save path per anime)
   bool torrentQBitApiEnabled() const;
   std::string torrentQBitApiUrl() const;
@@ -284,6 +292,12 @@ public:
   void setTorrentQBitApiUsername(const std::string& username) const;
   void setTorrentQBitApiPassword(const std::string& password) const;
   void setAnnounceV1MigrationJson(const std::string& json) const;
+
+  /// Returns the persisted library manual overrides as a JSON array string.
+  /// Each entry has "path" (string), "id" (int), "episode" (string).
+  QString libraryManualOverridesJson() const;
+  /// Saves the library manual overrides as a JSON array string.
+  void setLibraryManualOverridesJson(const QString& json) const;
 
 private:
   QString fileName() const override;

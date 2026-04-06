@@ -47,6 +47,13 @@ const std::unordered_map<int, std::unordered_set<int>>& libraryEpisodeAvailabili
 
 bool libraryHasLocalEpisode(int anime_id, int episode_number);
 
+/// Register a manually-assigned episode so libraryHasLocalEpisode() returns true for it.
+/// Call after a UI override is applied. Not cleared by scanLibraryFolders.
+void addManualLibraryEpisode(int anime_id, int episode);
+
+/// Remove all manual episode registrations for an anime (e.g. when clearing an override).
+void removeManualLibraryEpisode(int anime_id);
+
 /// True when episode (watched + 1) exists in the library scan index (Taiga v1 "next episode available").
 bool nextEpisodeIsOnDisk(int anime_id, const anime::Details* anime, const anime::list::Entry* entry);
 

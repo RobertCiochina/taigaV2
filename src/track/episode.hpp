@@ -37,12 +37,18 @@ public:
   bool contains(const anitomy::ElementKind kind) const;
   std::string element(const anitomy::ElementKind kind, const std::string placeholder = {}) const;
   void addElement(const anitomy::ElementKind kind, const std::string& value);
+  void setElement(const anitomy::ElementKind kind, const std::string& value);
+
+  /// Full path of the local media file being played, if known. Empty for browser/streaming.
+  const std::string& filePath() const noexcept { return file_path_; }
+  void setFilePath(const std::string& path) { file_path_ = path; }
 
 private:
   auto find(const anitomy::ElementKind kind) const;
 
   int anime_id_;
   std::vector<anitomy::Element> elements_;
+  std::string file_path_;
 };
 
 }  // namespace track

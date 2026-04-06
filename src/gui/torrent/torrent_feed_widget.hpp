@@ -51,6 +51,27 @@ public:
                                  std::function<void(bool found)> on_done,
                                  const QString& fallback_title = {});
 
+  /// Higher-level auto-download: builds multiple title variants (English, romaji, season-code
+  /// abbreviations), tries them sequentially until RSS results are found, and saves the winning
+  /// title to settings so future calls for the same anime use it directly.
+  /// `anime_id_cache` is the anime DB id used for caching (0 = skip cache).
+  void downloadBestMatchWithFallbacks(const QString& english_title,
+                                      const QString& romaji_title,
+                                      const QString& folder_name,
+                                      std::function<void(bool found)> on_done,
+                                      int anime_id_cache = 0);
+
+  /// Download ALL missing episodes for an anime.
+  /// Tries multiple title variants, parses every RSS item for its episode number,
+  /// then downloads the best-seeded version of each episode not yet on disk.
+  /// For completed anime with a batch torrent available and ≥3 missing episodes, prefers the batch.
+  /// `on_done(downloaded_count)` called when all queued; downloaded_count = items sent.
+  void downloadAllEpisodesForAnime(int anime_id,
+                                   const QString& english_title,
+                                   const QString& romaji_title,
+                                   const QString& folder_name,
+                                   std::function<void(int downloaded)> on_done);
+
 private:
   enum class FetchKind { None, SearchRss, CatalogManual, CatalogAutocheck };
 

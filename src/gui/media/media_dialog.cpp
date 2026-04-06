@@ -18,19 +18,27 @@
 
 #include "media_dialog.hpp"
 
+#include <QDateTime>
 #include <QDesktopServices>
 #include <QDialogButtonBox>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QMenu>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QResizeEvent>
+#include <QToolButton>
 #include <QUrl>
+#include <QVBoxLayout>
 
 #include "base/string.hpp"
 #include "gui/utils/format.hpp"
 #include "gui/utils/list_commit.hpp"
 #include "gui/utils/image_provider.hpp"
+#include "gui/utils/theme.hpp"
 #include "gui/utils/widgets.hpp"
 #include "media/anime_db.hpp"
+#include "media/anime_list.hpp"
 #include "media/anime_season.hpp"
 #include "media/anime_utils.hpp"
 #include "sync/service.hpp"
@@ -336,10 +344,64 @@ void MediaDialog::initDetails() {
   ui_->synopsis->setHidden(synopsis.isEmpty());
 }
 
-void MediaDialog::initList() {
-  ui_->tabWidget->setTabVisible(1, m_entry.has_value());
+void MediaDialog::addToList(anime::list::Status status) {
+  const auto now = QDateTime::currentSecsSinceEpoch();
+  ListEntry entry{};
+  entry.id = -static_cast<int64_t>(m_anime.id);
+  entry.anime_id = m_anime.id;
+  entry.status = status;
+  entry.watched_episodes = 0;
+  entry.last_updated = static_cast<std::time_t>(now);
+  m_entry = entry;
+  gui::commitListEntryLocalAndMaybeRemote(entry, this);
+  initList();
+}
 
-  if (!m_entry.has_value()) return;
+void MediaDialog::initList() {
+  ui_->tabWidget->setTabVisible(1, true);
+
+  // Lazy-create the "not in list" overlay panel (inserted once at position 0 of listTab's layout).
+  if (!m_addToListPanel) {
+    m_addToListPanel = new QWidget(ui_->listTab);
+    auto* vbox = new QVBoxLayout(m_addToListPanel);
+    vbox->setAlignment(Qt::AlignCenter);
+
+    auto* lbl = new QLabel(tr("This title is not in your list yet."), m_addToListPanel);
+    lbl->setAlignment(Qt::AlignCenter);
+    QFont f = lbl->font();
+    f.setPointSizeF(f.pointSizeF() * 1.1);
+    lbl->setFont(f);
+    vbox->addWidget(lbl);
+
+    vbox->addSpacing(12);
+
+    auto* btnRow = new QHBoxLayout;
+    btnRow->setAlignment(Qt::AlignCenter);
+    btnRow->setSpacing(8);
+
+    for (const auto status :
+         {anime::list::Status::Watching, anime::list::Status::PlanToWatch,
+          anime::list::Status::OnHold, anime::list::Status::Dropped,
+          anime::list::Status::Completed}) {
+      auto* btn = new QPushButton(
+          tr("Add as \"%1\"").arg(formatListStatus(status)), m_addToListPanel);
+      connect(btn, &QPushButton::clicked, this, [this, status]() { addToList(status); });
+      btnRow->addWidget(btn);
+    }
+    vbox->addLayout(btnRow);
+
+    qobject_cast<QVBoxLayout*>(ui_->listTab->layout())->insertWidget(0, m_addToListPanel);
+  }
+
+  const bool hasEntry = m_entry.has_value();
+  m_addToListPanel->setVisible(!hasEntry);
+
+  // Show/hide all form widgets in the list tab (everything except m_addToListPanel).
+  for (auto* child : ui_->listTab->findChildren<QWidget*>(QString(), Qt::FindDirectChildrenOnly)) {
+    if (child != m_addToListPanel) child->setVisible(hasEntry);
+  }
+
+  if (!hasEntry) return;
 
   // Episodes watched
   if (m_anime.episode_count > 0) {
