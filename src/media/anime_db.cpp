@@ -72,48 +72,71 @@ const QMap<int, ListEntry>& Database::entries() const {
 }
 
 void Database::updateItem(const Anime& item) {
-  if (!db_.open()) return;
+  // In batch mode the DB is already open and a transaction is active.
+  const bool opened_here = !m_batch_mode_ && !db_.isOpen() && db_.open();
+  if (!db_.isOpen()) return;
 
   QSqlQuery q{db_};
-  if (!q.prepare(sql("insertAnime"))) return;
-  bindItemToQuery(item, q);
-  q.exec();
+  if (q.prepare(sql("insertAnime"))) {
+    bindItemToQuery(item, q);
+    q.exec();
+  }
 
-  db_.close();
+  if (opened_here) db_.close();
 
   items_[item.id] = item;
 
-  emit itemUpdated(item.id);
+  if (!m_batch_mode_) emit itemUpdated(item.id);
 }
 
 void Database::updateEntry(const ListEntry& entry) {
-  if (!db_.open()) return;
+  const bool opened_here = !m_batch_mode_ && !db_.isOpen() && db_.open();
+  if (!db_.isOpen()) return;
 
   QSqlQuery q{db_};
-  if (!q.prepare(sql("insertAnimeList"))) return;
-  bindEntryToQuery(entry, q);
-  q.exec();
+  if (q.prepare(sql("insertAnimeList"))) {
+    bindEntryToQuery(entry, q);
+    q.exec();
+  }
 
-  db_.close();
+  if (opened_here) db_.close();
 
   entries_[entry.anime_id] = entry;
 
-  emit entryUpdated(entry.anime_id);
+  if (!m_batch_mode_) emit entryUpdated(entry.anime_id);
+}
+
+void Database::beginBatch() {
+  m_batch_mode_ = true;
+  if (db_.open()) {
+    db_.transaction();
+  }
+}
+
+void Database::endBatch() {
+  if (db_.isOpen()) {
+    db_.commit();
+    db_.close();
+  }
+  m_batch_mode_ = false;
+  emit batchFinished();
 }
 
 void Database::deleteEntry(const int anime_id) {
-  if (!db_.open()) return;
+  const bool opened_here = !m_batch_mode_ && !db_.isOpen() && db_.open();
+  if (!db_.isOpen()) return;
 
   QSqlQuery q{db_};
-  if (!q.prepare(sql("deleteAnimeList"))) return;
-  q.bindValue(":media_id", anime_id);
-  q.exec();
+  if (q.prepare(sql("deleteAnimeList"))) {
+    q.bindValue(":media_id", anime_id);
+    q.exec();
+  }
 
-  db_.close();
+  if (opened_here) db_.close();
 
   entries_.remove(anime_id);
 
-  emit entryUpdated(anime_id);
+  if (!m_batch_mode_) emit entryUpdated(anime_id);
 }
 
 QString Database::fileName() const {

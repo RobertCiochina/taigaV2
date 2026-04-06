@@ -430,6 +430,31 @@ std::string Settings::torrentAppExecutablePath() const {
   return value("torrent.app.executablePath").toString().toStdString();
 }
 
+bool Settings::torrentQBitApiEnabled() const {
+  return value("torrent.qbit.apiEnabled", false).toBool();
+}
+std::string Settings::torrentQBitApiUrl() const {
+  return value("torrent.qbit.apiUrl", QStringLiteral("http://localhost:8080")).toString().toStdString();
+}
+std::string Settings::torrentQBitApiUsername() const {
+  return value("torrent.qbit.apiUsername").toString().toStdString();
+}
+std::string Settings::torrentQBitApiPassword() const {
+  return value("torrent.qbit.apiPassword").toString().toStdString();
+}
+void Settings::setTorrentQBitApiEnabled(const bool enabled) const {
+  setValue("torrent.qbit.apiEnabled", enabled);
+}
+void Settings::setTorrentQBitApiUrl(const std::string& url) const {
+  setValue("torrent.qbit.apiUrl", QString::fromStdString(url));
+}
+void Settings::setTorrentQBitApiUsername(const std::string& username) const {
+  setValue("torrent.qbit.apiUsername", QString::fromStdString(username));
+}
+void Settings::setTorrentQBitApiPassword(const std::string& password) const {
+  setValue("torrent.qbit.apiPassword", QString::fromStdString(password));
+}
+
 std::string Settings::announceV1MigrationJson() const {
   return value("compat.v1.announceMigration").toString().toStdString();
 }

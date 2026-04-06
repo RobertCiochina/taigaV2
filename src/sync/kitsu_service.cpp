@@ -89,7 +89,13 @@ Service* Service::instance() {
 void Service::fetchListEntries(ListFetchComplete on_complete) {
   token_.clear();
   user_id_.clear();
-  authenticate(std::move(on_complete), true);
+  // Wrap the completion so all library pages share one SQLite transaction.
+  anime::db.beginBatch();
+  const auto batch_finish = [on_complete = std::move(on_complete)](const bool ok, QString msg) {
+    anime::db.endBatch();
+    if (on_complete) on_complete(ok, std::move(msg));
+  };
+  authenticate(std::move(batch_finish), true);
 }
 
 void Service::authenticate(ListFetchComplete then, const bool continue_with_library) {

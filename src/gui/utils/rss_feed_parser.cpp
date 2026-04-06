@@ -55,6 +55,11 @@ rss::Item parseRssItem(QXmlStreamReader& xml) {
       item.enclosure.type = xml.attributes().value(u"type").toString().toStdString();
       item.enclosure.length = xml.attributes().value(u"length").toString().toStdString();
       xml.skipCurrentElement();
+    } else if (tagEq(n, u"seeders") || tagEq(n, u"leechers") ||
+               tagEq(n, u"downloads") || tagEq(n, u"size") || tagEq(n, u"infoHash")) {
+      // Capture extended namespace elements (e.g. nyaa:seeders, nyaa:size).
+      const std::string key = n.toString().toStdString();
+      item.namespace_elements[key] = xml.readElementText().toStdString();
     } else {
       xml.skipCurrentElement();
     }

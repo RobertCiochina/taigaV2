@@ -6,8 +6,10 @@
 #pragma once
 
 #include <QQueue>
+#include <QString>
 #include <QUrl>
 #include <QWidget>
+#include <functional>
 
 #include "base/rss.hpp"
 
@@ -30,6 +32,8 @@ public:
   explicit TorrentFeedWidget(QLineEdit* toolbar_query_edit, QWidget* parent = nullptr);
 
   void runSearch();
+  /// Set an alternative search title to retry automatically if the primary search returns 0 results.
+  void setSearchFallback(const QString& fallback);
   void refreshCatalogFeed();
   /// Background catalog RSS fetch (Taiga v1 timer); silent unless new items vs last session snapshot.
   void runCatalogAutocheckFetch();
@@ -37,6 +41,15 @@ public:
   void resortRssTableFromSettings();
   /// Persist torrent table header layout to `session.json` (call on app close).
   void saveSessionState();
+
+  /// Auto-download: fetch RSS for `search_title`, apply current filters, pick the best-seeded
+  /// match and download it using `folder_name` as the subfolder hint.
+  /// If the primary search returns no results and `fallback_title` is non-empty, it is tried next.
+  /// `on_done(found)` is called when finished (on the GUI thread).
+  void downloadBestMatchForTitle(const QString& search_title,
+                                 const QString& folder_name,
+                                 std::function<void(bool found)> on_done,
+                                 const QString& fallback_title = {});
 
 private:
   enum class FetchKind { None, SearchRss, CatalogManual, CatalogAutocheck };
@@ -62,12 +75,21 @@ private:
   void setQueueRowStatus(int row, const QString& status, bool error);
   void beginSaveTorrent(const QUrl& url, const QString& title_hint);
 
+  QNetworkReply* m_bg_fetch_reply_ = nullptr;
+  QNetworkReply* m_qbit_login_reply_ = nullptr;
+
+  /// qBittorrent Web API: send a magnet/torrent URL with a target save path.
+  /// Authenticates first if username/password are set, then POSTs to /api/v2/torrents/add.
+  void addTorrentViaQBitApi(const QString& torrent_url, const QString& save_path,
+                             std::function<void(bool ok, QString error)> on_done);
+
   QLineEdit* m_query_edit_ = nullptr;
   QLineEdit* m_filter_edit_ = nullptr;
   QPushButton* m_btn_fetch_ = nullptr;
   QPushButton* m_btn_browser_ = nullptr;
   QPushButton* m_btn_catalog_ = nullptr;
   QPushButton* m_btn_download_selected_ = nullptr;
+  QPushButton* m_btn_download_best_ = nullptr;
   QPushButton* m_btn_cancel_downloads_ = nullptr;
   QPushButton* m_btn_clear_queue_ = nullptr;
   QTableWidget* m_table_ = nullptr;
@@ -78,6 +100,8 @@ private:
   int m_save_queue_total_ = 0;
   QString m_save_queue_dir_;
   FetchKind m_active_fetch_ = FetchKind::None;
+  // When the primary search returns 0 results, the fallback title is tried once.
+  QString m_search_fallback_title_;
 };
 
 }  // namespace gui

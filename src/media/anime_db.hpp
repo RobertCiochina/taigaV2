@@ -47,9 +47,17 @@ public:
   void updateEntry(const ListEntry& entry);
   void deleteEntry(int anime_id);
 
+  /// Begin a batch update: opens the DB once and starts a transaction.
+  /// Per-item signals are suppressed until endBatch().
+  void beginBatch();
+  /// Commit the batch transaction and emit batchFinished().
+  void endBatch();
+
 signals:
   void itemUpdated(const int id);
   void entryUpdated(const int id);
+  /// Emitted after endBatch() completes — use instead of per-item signals for bulk updates.
+  void batchFinished();
 
 private:
   QString fileName() const;
@@ -74,6 +82,8 @@ private:
 
   QMap<int, Anime> items_;
   QMap<int, ListEntry> entries_;
+
+  bool m_batch_mode_ = false;
 };
 
 inline Database db;

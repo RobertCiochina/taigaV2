@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include <QHash>
 #include <QMainWindow>
 #include <optional>
 #include <vector>
@@ -94,10 +95,13 @@ public slots:
   void startListSynchronization();
   void importAnimeListMalXml();
   /// Switches to Torrents, sets the toolbar query when non-empty, and runs an in-app RSS fetch.
-  void openTorrentSearchInApp(const QString& title);
+  /// \p fallback is tried automatically if the primary search returns no results.
+  void openTorrentSearchInApp(const QString& title, const QString& fallback = {});
   void postTrayMessage(const QString& title, const QString& message);
   void refreshTorrentCatalogAutocheckTimer();
   void resortTorrentRssTableFromSettings();
+  /// Kick off the auto-download run (checks all watching anime for new episodes and downloads best match).
+  void runAutoDownload(bool silent = false);
 
 private slots:
   void about();
@@ -107,6 +111,7 @@ private slots:
   void profile();
   void statistics();
   void onTorrentCatalogAutocheckTimer();
+  void onAutoDownloadTimer();
 
 protected:
   void changeEvent(QEvent* event) override;
@@ -160,9 +165,17 @@ private:
   TorrentFeedWidget* m_torrentFeedWidget = nullptr;
   TrayIcon* m_trayIcon = nullptr;
   QTimer* m_catalog_autocheck_timer_ = nullptr;
+  QTimer* m_auto_download_timer_ = nullptr;
   QLabel* m_homeBodyLabel = nullptr;
+  QWidget* m_homeUpNextContainer = nullptr;
+  QLabel* m_homeUpNextHeader = nullptr;
+  QWidget* m_homeRecentContainer = nullptr;
+  QLabel* m_homeRecentHeader = nullptr;
 
   MainWindowPage m_activePage = MainWindowPage::Home;
+  // Per-page saved search-box text so switching pages doesn't bleed one page's
+  // filter text into another page's query field.
+  QHash<int, QString> m_pageSearchTexts_;
   bool m_welcomeCheckScheduled = false;
   qint64 m_lastDeactivateMs = 0;
 

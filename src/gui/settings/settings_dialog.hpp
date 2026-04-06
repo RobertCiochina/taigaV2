@@ -30,6 +30,8 @@ class SettingsDialog;
 
 class QCheckBox;
 class QLineEdit;
+class QRadioButton;
+class QSpinBox;
 
 namespace gui {
 
@@ -50,6 +52,9 @@ protected:
 
 private:
   void selectStackPageByRole(int stack_index);
+  void populatePlaceholderPage(const QString& parent, const QString& child);
+  void buildDownloadsPage();
+  void saveDownloadsPage();
 
   Ui::SettingsDialog* ui_ = nullptr;
 
@@ -59,6 +64,23 @@ private:
   QLineEdit* m_mal_username_ = nullptr;
   QLineEdit* m_mal_access_ = nullptr;
   QLineEdit* m_mal_refresh_ = nullptr;
+
+  // Torrents → Downloads page widgets (programmatic page, saves on accept()).
+  QCheckBox* m_dl_use_magnet_ = nullptr;
+  QLineEdit* m_dl_client_path_ = nullptr;
+  QLineEdit* m_dl_file_save_path_ = nullptr;
+  QCheckBox* m_dl_use_anime_folder_ = nullptr;
+  QCheckBox* m_dl_fallback_client_ = nullptr;
+  QCheckBox* m_dl_create_subfolder_ = nullptr;
+  QCheckBox* m_dl_app_open_ = nullptr;
+  QRadioButton* m_dl_app_default_ = nullptr;
+  QRadioButton* m_dl_app_custom_ = nullptr;
+  QLineEdit* m_dl_app_exe_ = nullptr;
+  // qBittorrent Web API
+  QCheckBox* m_dl_qbit_api_enabled_ = nullptr;
+  QLineEdit* m_dl_qbit_api_url_ = nullptr;
+  QLineEdit* m_dl_qbit_api_user_ = nullptr;
+  QLineEdit* m_dl_qbit_api_pass_ = nullptr;
 
   std::vector<std::pair<std::string, QCheckBox*>> streaming_provider_checks_;
 };

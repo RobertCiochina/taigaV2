@@ -35,6 +35,10 @@ public:
   void fetchPoster(const int id);
   const QPixmap* loadPoster(const int id);
   void reloadPoster(const int id);
+  /// Delete all cached poster files from disk and clear the in-memory pixmap cache.
+  void clearPosterCache();
+  /// Returns the on-disk size of the poster cache in bytes, and (via out-param) the file count.
+  qint64 posterCacheSize(int* fileCount = nullptr) const;
 
 signals:
   void posterChanged(const int id);

@@ -23,12 +23,15 @@
 
 namespace gui {
 
+class LibraryModel;
+
 class LibraryMenu final : public QMenu {
   Q_OBJECT
   Q_DISABLE_COPY_MOVE(LibraryMenu)
 
 public:
-  LibraryMenu(QWidget* parent, const QString& path, int anime_id);
+  /// `model` may be null (menu will skip the assignment action in that case).
+  LibraryMenu(QWidget* parent, const QString& path, int anime_id, LibraryModel* model = nullptr);
   ~LibraryMenu() = default;
 
   void popup();
@@ -39,10 +42,12 @@ private slots:
   void remove() const;
   void rename() const;
   void viewDetails() const;
+  void assignAnime() const;
 
 private:
   int m_anime_id = 0;
   QString m_path;
+  LibraryModel* m_model = nullptr;
 };
 
 }  // namespace gui

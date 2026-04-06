@@ -45,6 +45,8 @@
 #include <QtWidgets>
 
 #include <algorithm>
+#include <functional>
+#include <memory>
 #include <ranges>
 
 #include <anitomy.hpp>
@@ -55,6 +57,7 @@
 #include "gui/list/list_widget.hpp"
 #include "gui/main/about_dialog.hpp"
 #include "gui/main/navigation_widget.hpp"
+#include "gui/media/media_dialog.hpp"
 #include "gui/main/stats_dialog.hpp"
 #include "gui/main/now_playing_widget.hpp"
 #include "gui/search/search_widget.hpp"
@@ -77,10 +80,13 @@
 #include "taiga/tray_balloon_format.hpp"
 #include "taiga/update_check.hpp"
 #include "taiga/user_feedback.hpp"
+#include "media/anime_history.hpp"
+#include "media/anime_list.hpp"
 #include "track/episode.hpp"
 #include "track/library_watcher.hpp"
 #include "track/media.hpp"
 #include "track/play.hpp"
+#include "track/recognition_cache.hpp"
 #include "track/scanner.hpp"
 #include "ui_main_window.h"
 
@@ -183,6 +189,13 @@ void MainWindow::init() {
   connect(m_catalog_autocheck_timer_, &QTimer::timeout, this,
           &MainWindow::onTorrentCatalogAutocheckTimer);
   refreshTorrentCatalogAutocheckTimer();
+
+  // Auto-download every 2 hours (silent, no confirmation when timer fires).
+  m_auto_download_timer_ = new QTimer(this);
+  m_auto_download_timer_->setTimerType(Qt::VeryCoarseTimer);
+  m_auto_download_timer_->setInterval(2 * 60 * 60 * 1000);  // 2 hours
+  connect(m_auto_download_timer_, &QTimer::timeout, this, &MainWindow::onAutoDownloadTimer);
+  m_auto_download_timer_->start();
 
   {
     auto* shortcut_find = new QShortcut(QKeySequence::Find, this);
@@ -325,44 +338,80 @@ void MainWindow::initPage(MainWindowPage page) {
 
   switch (page) {
     case MainWindowPage::Home: {
-      if (auto* l = qobject_cast<QVBoxLayout*>(ui_->homePage->layout())) {
-        while (l->count()) {
-          QLayoutItem* it = l->takeAt(0);
+      if (auto* outerLayout = qobject_cast<QVBoxLayout*>(ui_->homePage->layout())) {
+        // Clear any existing home content
+        while (outerLayout->count()) {
+          QLayoutItem* it = outerLayout->takeAt(0);
           if (it->widget()) delete it->widget();
           delete it;
         }
-        auto* title = new QLabel(tr("Taiga"), ui_->homePage);
-        QFont tf = title->font();
-        tf.setBold(true);
-        tf.setPointSizeF(tf.pointSizeF() + 6);
-        title->setFont(tf);
-        title->setAlignment(Qt::AlignHCenter);
-        auto* body = new QLabel(ui_->homePage);
-        body->setWordWrap(true);
-        body->setAlignment(Qt::AlignTop | Qt::AlignHCenter);
-        m_homeBodyLabel = body;
-        refreshHomeDashboard();
 
-        auto* actions = new QHBoxLayout();
-        actions->addStretch(1);
-        auto* sync_btn = new QPushButton(tr("Synchronize now"), ui_->homePage);
+        // ── Scrollable dashboard ──────────────────────────────────────────────
+        auto* scroll = new QScrollArea(ui_->homePage);
+        scroll->setWidgetResizable(true);
+        scroll->setFrameShape(QFrame::NoFrame);
+        auto* body = new QWidget();
+        auto* lay = new QVBoxLayout(body);
+        lay->setContentsMargins(24, 16, 24, 16);
+        lay->setSpacing(4);
+
+        // Stats summary (replaces the old m_homeBodyLabel text blob)
+        auto* statsLabel = new QLabel(body);
+        statsLabel->setWordWrap(true);
+        statsLabel->setTextFormat(Qt::RichText);
+        statsLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+        m_homeBodyLabel = statsLabel;
+        lay->addWidget(statsLabel);
+
+        // ── Section: Up next ─────────────────────────────────────────────────
+        lay->addSpacing(12);
+        auto* upNextHeader = new QLabel(tr("<b>Up next — episodes ready to watch</b>"), body);
+        upNextHeader->setTextFormat(Qt::RichText);
+        m_homeUpNextHeader = upNextHeader;
+        lay->addWidget(upNextHeader);
+
+        auto* upNextContainer = new QWidget(body);
+        upNextContainer->setLayout(new QVBoxLayout());
+        upNextContainer->layout()->setContentsMargins(0, 4, 0, 0);
+        upNextContainer->layout()->setSpacing(2);
+        m_homeUpNextContainer = upNextContainer;
+        lay->addWidget(upNextContainer);
+
+        // ── Section: Upcoming & recently aired ──────────────────────────────
+        lay->addSpacing(12);
+        auto* recentHeader = new QLabel(tr("<b>Upcoming &amp; recently aired</b>"), body);
+        recentHeader->setTextFormat(Qt::RichText);
+        m_homeRecentHeader = recentHeader;
+        lay->addWidget(recentHeader);
+
+        auto* recentContainer = new QWidget(body);
+        recentContainer->setLayout(new QVBoxLayout());
+        recentContainer->layout()->setContentsMargins(0, 4, 0, 0);
+        recentContainer->layout()->setSpacing(2);
+        m_homeRecentContainer = recentContainer;
+        lay->addWidget(recentContainer);
+
+        // ── Action buttons ───────────────────────────────────────────────────
+        lay->addSpacing(16);
+        auto* actionsRow = new QHBoxLayout();
+        auto* sync_btn = new QPushButton(tr("Synchronize now"), body);
         connect(sync_btn, &QPushButton::clicked, this, &MainWindow::startListSynchronization);
-        auto* settings_btn = new QPushButton(tr("Settings…"), ui_->homePage);
+        auto* scan_btn = new QPushButton(tr("Scan episodes"), body);
+        connect(scan_btn, &QPushButton::clicked, this, &MainWindow::runInteractiveLibraryScan);
+        auto* settings_btn = new QPushButton(tr("Settings…"), body);
         connect(settings_btn, &QPushButton::clicked, this,
                 [this]() { SettingsDialog::show(this); });
-        auto* acct_btn = new QPushButton(tr("Account && credentials…"), ui_->homePage);
-        connect(acct_btn, &QPushButton::clicked, this,
-                [this]() { SettingsDialog::showAccounts(this); });
-        actions->addWidget(sync_btn);
-        actions->addWidget(settings_btn);
-        actions->addWidget(acct_btn);
-        actions->addStretch(1);
+        actionsRow->addWidget(sync_btn);
+        actionsRow->addWidget(scan_btn);
+        actionsRow->addWidget(settings_btn);
+        actionsRow->addStretch(1);
+        lay->addLayout(actionsRow);
 
-        l->addStretch(1);
-        l->addWidget(title);
-        l->addWidget(body);
-        l->addLayout(actions);
-        l->addStretch(2);
+        lay->addStretch(1);
+        scroll->setWidget(body);
+        outerLayout->addWidget(scroll);
+
+        refreshHomeDashboard();
       }
       break;
     }
@@ -483,9 +532,14 @@ void MainWindow::initToolbar() {
       view_menu->addAction(ui_->actionToggleNavigationSidebar);
       view_menu->addAction(ui_->actionToggleStatusbar);
       view_menu->addAction(ui_->actionToggleNowPlaying);
+      view_menu->addSeparator();
+      view_menu->addAction(ui_->actionToggleDetection);
+      view_menu->addAction(ui_->actionToggleSynchronization);
       menu->addSeparator();
-      menu->addAction(ui_->actionToggleDetection);
-      menu->addAction(ui_->actionToggleSynchronization);
+      auto* act_autodownload = menu->addAction(tr("Auto-download new episodes…"));
+      act_autodownload->setToolTip(
+          tr("Search and download best-seeded torrent for each Watching anime with unreleased episodes."));
+      connect(act_autodownload, &QAction::triggered, this, [this]() { runAutoDownload(false); });
       menu->addSeparator();
       menu->addMenu(ui_->menuHelp);
       menu->addSeparator();
@@ -529,7 +583,7 @@ void MainWindow::initTrayIcon() {
   menu->setDefaultAction(ui_->actionDisplayWindow);
   menu->addSeparator();
   menu->addAction(ui_->actionSynchronize);
-  menu->addAction(ui_->actionStatistics);
+  menu->addAction(ui_->actionScanAvailableEpisodes);
   menu->addAction(ui_->actionPlayNextEpisode);
   menu->addSeparator();
   menu->addAction(ui_->actionToggleDetection);
@@ -624,23 +678,65 @@ void MainWindow::navigateTo(MainWindowPage page) {
   }
 }
 
-void MainWindow::openTorrentSearchInApp(const QString& title) {
+void MainWindow::openTorrentSearchInApp(const QString& title, const QString& fallback) {
   navigateTo(MainWindowPage::Torrents);
+  auto stripSubtitle = [](QString q) -> QString {
+    // Strip episode-title suffix separated by " - " (e.g. "Anime (Special) - Arc Title").
+    // RSS sites don't index episode subtitles, so searching the full string gives 0 results.
+    const int dashIdx = q.indexOf(QStringLiteral(" - "));
+    if (dashIdx > 0) q = q.left(dashIdx).trimmed();
+    return q;
+  };
   if (m_searchBox && !title.trimmed().isEmpty()) {
-    m_searchBox->setText(title.trimmed());
+    m_searchBox->setText(stripSubtitle(title.trimmed()));
   }
   if (m_torrentFeedWidget) {
+    // Register fallback before search so onFetchFinished can auto-retry.
+    const QString fb = fallback.trimmed();
+    m_torrentFeedWidget->setSearchFallback(fb.isEmpty() ? QString{} : stripSubtitle(fb));
     m_torrentFeedWidget->runSearch();
   }
+  // Persist the torrent query so it's restored when switching back to this page.
+  m_pageSearchTexts_[static_cast<int>(MainWindowPage::Torrents)] =
+      m_searchBox ? m_searchBox->text() : QString{};
 }
 
 void MainWindow::applyMainPage(const MainWindowPage page) {
+  // Save the current search-box text for the page we're leaving, so navigating
+  // back restores it exactly as the user left it.
+  if (m_searchBox) {
+    m_pageSearchTexts_[static_cast<int>(m_activePage)] = m_searchBox->text();
+  }
+
   m_activePage = page;
   initPage(page);
-  if (page == MainWindowPage::Torrents && m_searchBox && m_searchBox->text().trimmed().isEmpty()) {
-    const QString last = taiga::session.torrentPanelLastQuery();
-    if (!last.isEmpty()) m_searchBox->setText(last);
+
+  // Restore the saved text for the new page.  For Torrents, fall back to the
+  // persisted last-query session value if no text was ever saved this session.
+  if (m_searchBox) {
+    const QString saved = m_pageSearchTexts_.value(static_cast<int>(page));
+    if (!saved.isEmpty()) {
+      m_searchBox->blockSignals(true);
+      m_searchBox->setText(saved);
+      m_searchBox->blockSignals(false);
+    } else if (page == MainWindowPage::Torrents) {
+      const QString last = taiga::session.torrentPanelLastQuery();
+      if (!last.isEmpty()) {
+        m_searchBox->blockSignals(true);
+        m_searchBox->setText(last);
+        m_searchBox->blockSignals(false);
+      } else {
+        m_searchBox->blockSignals(true);
+        m_searchBox->clear();
+        m_searchBox->blockSignals(false);
+      }
+    } else {
+      m_searchBox->blockSignals(true);
+      m_searchBox->clear();
+      m_searchBox->blockSignals(false);
+    }
   }
+
   ui_->statusbar->clearMessage();
   ui_->stackedWidget->setCurrentIndex(static_cast<int>(page));
   updateToolbarSearchPlaceholder();
@@ -940,6 +1036,9 @@ void MainWindow::startListSynchronization() {
 void MainWindow::handleListSyncFinished(bool ok, QString message) {
   refreshSyncActionState();
   if (ok) {
+    // Invalidate the recognition cache so newly-synced titles are indexed
+    // on the next library scan / media-detection lookup.
+    track::recognition::cache()->clear();
     if (m_navigationWidget) m_navigationWidget->refresh();
     if (m_listWidget) m_listWidget->reloadAnimeList();
     if (m_searchWidget) m_searchWidget->reloadAnimeList();
@@ -1037,6 +1136,8 @@ void MainWindow::runLibraryScan(const bool startup_silent) {
   }
   refreshAnimeListProgressDecorations();
   refreshAnimeListNewEpisodeHighlight();
+  // Keep the Home "Up next" section in sync after every scan (watcher or interactive).
+  refreshHomeDashboard();
 }
 
 void MainWindow::maybeNotifyMediaDetectionBalloon(const std::optional<track::Episode>& episode) {
@@ -1150,8 +1251,110 @@ void MainWindow::onTorrentCatalogAutocheckTimer() {
   }
 }
 
+void MainWindow::onAutoDownloadTimer() {
+  runAutoDownload(/*silent=*/true);
+}
+
+void MainWindow::runAutoDownload(const bool silent) {
+  if (!m_torrentFeedWidget) return;
+
+  // Collect anime on the Watching list where an episode has aired but is not yet on disk.
+  struct Candidate {
+    int anime_id;
+    QString search_title;   // primary (English if available, else romaji)
+    QString fallback_title; // secondary (romaji when English was primary, else empty)
+    QString folder_name;    // always English title for folder name
+  };
+  QList<Candidate> candidates;
+  for (const auto& [anime_id, entry] : anime::db.entries().asKeyValueRange()) {
+    if (entry.status != anime::list::Status::Watching) continue;
+    const auto* item = anime::db.item(anime_id);
+    if (!item) continue;
+    const int last_aired = item->last_aired_episode;
+    const int watched = entry.watched_episodes;
+    if (last_aired <= watched) continue;
+    // Skip if the next episode is already on disk.
+    if (track::nextEpisodeIsOnDisk(anime_id, item, &entry)) continue;
+
+    const QString en = QString::fromStdString(item->titles.english);
+    const QString romaji = QString::fromStdString(item->titles.romaji);
+    // Prefer English title as primary search, use romaji as fallback (Nyaa often uses romaji).
+    const QString primary = en.isEmpty() ? romaji : en;
+    const QString fallback = en.isEmpty() ? QString{} : romaji;
+    const QString folder = en.isEmpty() ? romaji : en;
+    if (!primary.isEmpty()) {
+      candidates.push_back(Candidate{anime_id, primary, fallback, folder});
+    }
+  }
+
+  if (candidates.isEmpty()) {
+    if (!silent) {
+      QMessageBox::information(this, tr("Auto-download"),
+                               tr("No anime require episode downloads right now.\n"
+                                  "All watching entries are either caught up or the next episode is already on disk."));
+    }
+    return;
+  }
+
+  if (!silent) {
+    // Show confirmation dialog.
+    QString msg = tr("The following anime have unreleased/undownloaded episodes. "
+                     "The app will search for and download the best matching torrent for each:\n\n");
+    for (const auto& c : candidates) {
+      msg += u"  • %1\n"_s.arg(c.search_title);
+    }
+    msg += u"\n%1 anime total.\n\nProceed?"_s.arg(candidates.size());
+    if (QMessageBox::question(this, tr("Auto-download"), msg,
+                              QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes) {
+      return;
+    }
+  }
+
+  // Process candidates sequentially via a shared state + shared_ptr to the step function.
+  struct State {
+    QList<Candidate> queue;
+    int total = 0;
+    int found = 0;
+  };
+  auto state = std::make_shared<State>();
+  state->queue = candidates;
+  state->total = candidates.size();
+
+  // Use a shared_ptr to the step function so it can refer to itself.
+  auto step_fn = std::make_shared<std::function<void()>>();
+  *step_fn = [this, state, step_fn]() {
+    if (state->queue.isEmpty()) {
+      statusBar()->showMessage(
+          tr("Auto-download complete: downloaded %1 / %2 anime.")
+              .arg(state->found).arg(state->total),
+          8000);
+      return;
+    }
+    auto c = state->queue.takeFirst();
+    statusBar()->showMessage(
+        tr("Auto-download: fetching RSS for %1 (%2 remaining)…")
+            .arg(c.search_title)
+            .arg(state->queue.size() + 1),
+        0);
+    initPage(MainWindowPage::Torrents);  // ensure widget is initialized
+    m_torrentFeedWidget->downloadBestMatchForTitle(
+        c.search_title, c.folder_name,
+        [this, state, step_fn](bool found) {
+          if (found) ++state->found;
+          // Small delay to avoid hammering the RSS server.
+          QTimer::singleShot(2000, this, [step_fn]() { (*step_fn)(); });
+        },
+        c.fallback_title);
+  };
+
+  // Kick off the first step.
+  (*step_fn)();
+}
+
 void MainWindow::refreshHomeDashboard() {
   if (!m_homeBodyLabel) return;
+
+  // ── Stats summary ─────────────────────────────────────────────────────────
   const taiga::ListStatistics st = taiga::computeListStatistics();
   const QString spent = [&] {
     if (st.spent_watch_seconds <= 0) return tr("—");
@@ -1164,23 +1367,284 @@ void MainWindow::refreshHomeDashboard() {
   }();
   const QString mean =
       st.scored_title_count > 0
-          ? tr("%1 / 10").arg(QString::number(static_cast<double>(st.mean_score_0_100) / 10.0, 'f', 1))
+          ? tr("%1 / 10").arg(
+                QString::number(static_cast<double>(st.mean_score_0_100) / 10.0, 'f', 1))
           : tr("—");
-
   m_homeBodyLabel->setText(
-      tr("<p style=\"margin-top:0.5em\">You have <b>%1</b> titles on your list and <b>%2</b> "
-         "anime in the local database.</p>"
-         "<p><b>Est. time spent watching:</b> %3 · <b>Mean score:</b> %4 "
-         "<span style=\"color:#666;font-size:small\">(%5 scored)</span></p>"
-         "<p>Use the sidebar for <b>Anime list</b>, <b>Search</b>, <b>History</b>, and "
-         "<b>Library</b>. <b>Tools → Statistics</b> shows the full breakdown (as in Taiga v1).</p>"
-         "<p>Toolbar <b>Synchronize</b> downloads your list from the active site (AniList, "
-         "MyAnimeList, Kitsu).</p>")
+      tr("<span style=\"color:#888;font-size:small\">"
+         "%1 titles on list &nbsp;·&nbsp; %2 in database &nbsp;·&nbsp; "
+         "Time spent: %3 &nbsp;·&nbsp; Mean score: %4"
+         "</span>")
           .arg(anime::db.entries().size())
           .arg(anime::db.items().size())
           .arg(spent)
-          .arg(mean)
-          .arg(st.scored_title_count));
+          .arg(mean));
+
+  // Helper: clear all children from a container widget
+  const auto clearContainer = [](QWidget* w) {
+    if (!w || !w->layout()) return;
+    while (w->layout()->count()) {
+      QLayoutItem* it = w->layout()->takeAt(0);
+      if (it->widget()) it->widget()->deleteLater();
+      delete it;
+    }
+  };
+
+  // ── "Up next" section ────────────────────────────────────────────────────
+  if (m_homeUpNextContainer) {
+    clearContainer(m_homeUpNextContainer);
+    auto* vl = qobject_cast<QVBoxLayout*>(m_homeUpNextContainer->layout());
+
+    // Collect Watching entries that have the next episode on disk, sorted by title
+    struct UpNextEntry { QString title; int anime_id; int next_ep; };
+    QList<UpNextEntry> upNext;
+    for (const auto& entry : anime::db.entries()) {
+      if (entry.status != anime::list::Status::Watching) continue;
+      const int next_ep = entry.watched_episodes + 1;
+      if (!track::libraryHasLocalEpisode(entry.anime_id, next_ep)) continue;
+      const auto* item = anime::db.item(entry.anime_id);
+      if (!item) continue;
+      upNext.push_back({QString::fromStdString(item->titles.romaji), entry.anime_id, next_ep});
+    }
+    std::sort(upNext.begin(), upNext.end(),
+              [](const UpNextEntry& a, const UpNextEntry& b) {
+                return a.title.toLower() < b.title.toLower();
+              });
+
+    if (upNext.isEmpty()) {
+      auto* empty = new QLabel(
+          tr("<span style=\"color:#888\">None — scan your library or "
+             "add a folder in Settings → Library.</span>"),
+          m_homeUpNextContainer);
+      empty->setTextFormat(Qt::RichText);
+      vl->addWidget(empty);
+    } else {
+      for (const auto& ue : upNext) {
+        auto* row = new QWidget(m_homeUpNextContainer);
+        auto* rl = new QHBoxLayout(row);
+        rl->setContentsMargins(0, 0, 0, 0);
+        rl->setSpacing(8);
+
+        auto* titleLbl = new QLabel(ue.title.toHtmlEscaped(), row);
+        titleLbl->setTextFormat(Qt::RichText);
+        titleLbl->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+
+        const QString epLabel = tr("Ep %1").arg(ue.next_ep);
+        auto* epLbl = new QLabel(
+            u"<span style=\"color:#888\">%1</span>"_s.arg(epLabel.toHtmlEscaped()), row);
+        epLbl->setTextFormat(Qt::RichText);
+        epLbl->setFixedWidth(54);
+
+        auto* playBtn = new QPushButton(tr("▶ Play"), row);
+        playBtn->setFixedWidth(72);
+        const int aid = ue.anime_id;
+        connect(playBtn, &QPushButton::clicked, this, [this, aid]() {
+          if (!track::playNextEpisode(aid)) {
+            statusBar()->showMessage(tr("Episode not found in library folders."), 3000);
+          }
+        });
+
+        rl->addWidget(titleLbl);
+        rl->addWidget(epLbl);
+        rl->addWidget(playBtn);
+        vl->addWidget(row);
+      }
+    }
+
+    if (m_homeUpNextHeader) {
+      m_homeUpNextHeader->setVisible(!upNext.isEmpty() || true);  // always show header
+    }
+  }
+
+  // ── "Upcoming & recently aired" section ─────────────────────────────────
+  if (m_homeRecentContainer) {
+    clearContainer(m_homeRecentContainer);
+    auto* vl = qobject_cast<QVBoxLayout*>(m_homeRecentContainer->layout());
+
+    const qint64 now_secs = QDateTime::currentSecsSinceEpoch();
+    const QDate today = QDate::currentDate();
+
+    // Helper: preferred display title
+    auto preferredTitle = [](const Anime& item) -> QString {
+      return QString::fromStdString(
+          anime::preferredListTitleString(item, taiga::settings.listTitleLanguage()));
+    };
+
+    // ---- Sub-section: Upcoming episodes this week -------------------------
+    struct UpcomingEntry {
+      QString title;
+      int anime_id;
+      int episode;
+      qint64 air_time;
+    };
+    QList<UpcomingEntry> upcoming;
+    for (const auto& entry : anime::db.entries()) {
+      if (entry.status != anime::list::Status::Watching &&
+          entry.status != anime::list::Status::PlanToWatch)
+        continue;
+      const auto* item = anime::db.item(entry.anime_id);
+      if (!item || item->next_episode_time <= now_secs) continue;
+      const qint64 secs_until = item->next_episode_time - now_secs;
+      if (secs_until > 7LL * 86400) continue;
+      const int next_ep = item->last_aired_episode + 1;
+      upcoming.push_back({preferredTitle(*item), entry.anime_id, next_ep, item->next_episode_time});
+    }
+    std::sort(upcoming.begin(), upcoming.end(),
+              [](const UpcomingEntry& a, const UpcomingEntry& b) {
+                return a.air_time < b.air_time;
+              });
+
+    if (!upcoming.isEmpty()) {
+      auto* subHdr = new QLabel(
+          u"<span style=\"color:#aaa;font-size:small\"><b>%1</b></span>"_s.arg(
+              tr("UPCOMING THIS WEEK")),
+          m_homeRecentContainer);
+      subHdr->setTextFormat(Qt::RichText);
+      vl->addWidget(subHdr);
+
+      for (const auto& ue : upcoming) {
+        const qint64 secs_until = ue.air_time - now_secs;
+        const int days = static_cast<int>(secs_until / 86400);
+        const int hours = static_cast<int>((secs_until % 86400) / 3600);
+        QString when;
+        if (days == 0)
+          when = hours > 0 ? tr("in %1 h").arg(hours) : tr("today");
+        else if (days == 1)
+          when = tr("tomorrow");
+        else
+          when = tr("in %1 d").arg(days);
+
+        auto* row = new QWidget(m_homeRecentContainer);
+        auto* rl = new QHBoxLayout(row);
+        rl->setContentsMargins(0, 0, 0, 0);
+        rl->setSpacing(8);
+
+        auto* titleBtn = new QPushButton(ue.title, row);
+        titleBtn->setFlat(true);
+        titleBtn->setCursor(Qt::PointingHandCursor);
+        titleBtn->setStyleSheet(u"text-align:left; color: palette(link); text-decoration: underline; border: none; padding: 0;"_s);
+        titleBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        connect(titleBtn, &QPushButton::clicked, this, [this, anime_id = ue.anime_id]() {
+          const auto* item = anime::db.item(anime_id);
+          if (!item) return;
+          const auto* e = anime::db.entry(anime_id);
+          std::optional<ListEntry> entry;
+          if (e) entry = *e;
+          gui::MediaDialog::show(this, gui::MediaDialogPage::Details, *item, entry);
+        });
+
+        auto* epLbl = new QLabel(
+            u"<span style=\"color:#888\">Ep %1</span>"_s.arg(ue.episode), row);
+        epLbl->setTextFormat(Qt::RichText);
+        epLbl->setFixedWidth(54);
+
+        auto* whenLbl = new QLabel(
+            u"<span style=\"color:#888;font-size:small\">%1</span>"_s.arg(
+                when.toHtmlEscaped()),
+            row);
+        whenLbl->setTextFormat(Qt::RichText);
+        whenLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        whenLbl->setFixedWidth(84);
+
+        rl->addWidget(titleBtn);
+        rl->addWidget(epLbl);
+        rl->addWidget(whenLbl);
+        vl->addWidget(row);
+      }
+      vl->addSpacing(8);
+    }
+
+    // ---- Sub-section: Finished airing in the last 7 days -----------------
+    struct RecentlyAiredEntry {
+      QString title;
+      int anime_id;
+      QDate finished;
+    };
+    QList<RecentlyAiredEntry> recentlyAired;
+    for (const auto& entry : anime::db.entries()) {
+      const auto* item = anime::db.item(entry.anime_id);
+      if (!item || item->date_finished.empty()) continue;
+      const int yr = item->date_finished.year();
+      const int mo = item->date_finished.month();
+      const int dy = item->date_finished.day();
+      if (yr == 0 || mo == 0 || dy == 0) continue;
+      const QDate finishedDate(yr, mo, dy);
+      if (!finishedDate.isValid()) continue;
+      const int daysAgo = finishedDate.daysTo(today);
+      if (daysAgo < 0 || daysAgo > 7) continue;
+      // Avoid duplicates (multiple list entries for same anime)
+      const bool already = std::any_of(recentlyAired.cbegin(), recentlyAired.cend(),
+                                       [&](const RecentlyAiredEntry& r) {
+                                         return r.anime_id == entry.anime_id;
+                                       });
+      if (already) continue;
+      recentlyAired.push_back({preferredTitle(*item), entry.anime_id, finishedDate});
+    }
+    std::sort(recentlyAired.begin(), recentlyAired.end(),
+              [](const RecentlyAiredEntry& a, const RecentlyAiredEntry& b) {
+                return b.finished < a.finished;  // most recently finished first
+              });
+
+    if (!recentlyAired.isEmpty()) {
+      auto* subHdr = new QLabel(
+          u"<span style=\"color:#aaa;font-size:small\"><b>%1</b></span>"_s.arg(
+              tr("FINISHED AIRING THIS WEEK")),
+          m_homeRecentContainer);
+      subHdr->setTextFormat(Qt::RichText);
+      vl->addWidget(subHdr);
+
+      for (const auto& ra : recentlyAired) {
+        const int daysAgo = ra.finished.daysTo(today);
+        QString when;
+        if (daysAgo == 0)
+          when = tr("today");
+        else if (daysAgo == 1)
+          when = tr("yesterday");
+        else
+          when = tr("%1 days ago").arg(daysAgo);
+
+        auto* row = new QWidget(m_homeRecentContainer);
+        auto* rl = new QHBoxLayout(row);
+        rl->setContentsMargins(0, 0, 0, 0);
+        rl->setSpacing(8);
+
+        auto* titleBtn = new QPushButton(ra.title, row);
+        titleBtn->setFlat(true);
+        titleBtn->setCursor(Qt::PointingHandCursor);
+        titleBtn->setStyleSheet(u"text-align:left; color: palette(link); text-decoration: underline; border: none; padding: 0;"_s);
+        titleBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        connect(titleBtn, &QPushButton::clicked, this, [this, anime_id = ra.anime_id]() {
+          const auto* item = anime::db.item(anime_id);
+          if (!item) return;
+          const auto* e = anime::db.entry(anime_id);
+          std::optional<ListEntry> entry;
+          if (e) entry = *e;
+          gui::MediaDialog::show(this, gui::MediaDialogPage::Details, *item, entry);
+        });
+
+        auto* whenLbl = new QLabel(
+            u"<span style=\"color:#888;font-size:small\">%1</span>"_s.arg(
+                when.toHtmlEscaped()),
+            row);
+        whenLbl->setTextFormat(Qt::RichText);
+        whenLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        whenLbl->setFixedWidth(90);
+
+        rl->addWidget(titleBtn);
+        rl->addWidget(whenLbl);
+        vl->addWidget(row);
+      }
+    }
+
+    if (upcoming.isEmpty() && recentlyAired.isEmpty()) {
+      auto* empty = new QLabel(
+          tr("<span style=\"color:#888\">Nothing upcoming or finished airing in the last 7 "
+             "days — sync your list to get airing schedules.</span>"),
+          m_homeRecentContainer);
+      empty->setTextFormat(Qt::RichText);
+      vl->addWidget(empty);
+    }
+  }
 }
 
 void MainWindow::restoreViewChromeFromSession() {

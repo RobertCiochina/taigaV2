@@ -312,6 +312,7 @@ void Service::fetchListEntries(ListFetchComplete on_complete) {
     const auto collection = root["data"].toObject()["MediaListCollection"].toObject();
     const auto lists = collection["lists"].toArray();
     int count = 0;
+    anime::db.beginBatch();
     for (const auto& listVal : lists) {
       const auto entries = listVal.toObject()["entries"].toArray();
       for (const auto& entryVal : entries) {
@@ -331,6 +332,7 @@ void Service::fetchListEntries(ListFetchComplete on_complete) {
         }
       }
     }
+    anime::db.endBatch();
 
     finish(true, QStringLiteral("%1 entries updated").arg(count));
   };

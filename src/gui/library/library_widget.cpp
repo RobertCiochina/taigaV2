@@ -145,7 +145,7 @@ void LibraryWidget::showContextMenu() const {
 
   const QString path = m_model->fileInfo(index).filePath();
 
-  auto* menu = new LibraryMenu(m_view, path, m_model->getId(path));
+  auto* menu = new LibraryMenu(m_view, path, m_model->getId(path), m_model);
   menu->popup();
 }
 

@@ -117,6 +117,31 @@ void ImageProvider::reloadPoster(const int id) {
   emit posterChanged(id);
 }
 
+void ImageProvider::clearPosterCache() {
+  m_pixmaps.clear();
+  QDir dir(cacheDir());
+  if (!dir.exists()) return;
+  for (const auto& info : dir.entryInfoList(QDir::Files | QDir::NoDotAndDotDot)) {
+    dir.remove(info.fileName());
+  }
+}
+
+qint64 ImageProvider::posterCacheSize(int* fileCount) const {
+  QDir dir(cacheDir());
+  if (!dir.exists()) {
+    if (fileCount) *fileCount = 0;
+    return 0;
+  }
+  qint64 total = 0;
+  int count = 0;
+  for (const auto& info : dir.entryInfoList(QDir::Files | QDir::NoDotAndDotDot)) {
+    total += info.size();
+    ++count;
+  }
+  if (fileCount) *fileCount = count;
+  return total;
+}
+
 QString ImageProvider::cacheDir() const {
   const auto path = QString::fromStdString(taiga::get_data_path());
   return u"%1/v1/db/image"_s.arg(path);

@@ -182,6 +182,8 @@ void NowPlayingWidget::commitListUpdate() {
     updated.status = anime::list::Status::Watching;
   }
   m_update_committed_ = true;
+  // Prompt to move to Completed when the last episode is reached
+  gui::maybePromptCompletion(this, *item, updated);
   gui::commitListEntryLocalAndMaybeRemote(updated, this);
 }
 

@@ -118,13 +118,17 @@ void normalizeRomanNumbers(QString& str) {
 
 void normalizeSeasonNumbers(QString& str) {
   // This works considerably faster than regular expressions.
+  // "part N" covers common AniList/MAL English-title patterns like "Bookworm: Part 4".
+  // Zero-padded forms (s02, s03 …) appear in some DB synonyms.
   static const QList<QPair<const char*, QList<const char*>>> values{
-      {"1", {"1st season", "season 1", "series 1", "s1"}},
-      {"2", {"2nd season", "season 2", "series 2", "s2"}},
-      {"3", {"3rd season", "season 3", "series 3", "s3"}},
-      {"4", {"4th season", "season 4", "series 4", "s4"}},
-      {"5", {"5th season", "season 5", "series 5", "s5"}},
-      {"6", {"6th season", "season 6", "series 6", "s6"}},
+      {"1", {"1st season", "season 1", "series 1", "s1", "s01", "part 1"}},
+      {"2", {"2nd season", "season 2", "series 2", "s2", "s02", "part 2"}},
+      {"3", {"3rd season", "season 3", "series 3", "s3", "s03", "part 3"}},
+      {"4", {"4th season", "season 4", "series 4", "s4", "s04", "part 4"}},
+      {"5", {"5th season", "season 5", "series 5", "s5", "s05", "part 5"}},
+      {"6", {"6th season", "season 6", "series 6", "s6", "s06", "part 6"}},
+      {"7", {"7th season", "season 7", "series 7", "s7", "s07", "part 7"}},
+      {"8", {"8th season", "season 8", "series 8", "s8", "s08", "part 8"}},
   };
 
   for (auto [after, list] : values) {

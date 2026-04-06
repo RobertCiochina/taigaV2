@@ -49,6 +49,10 @@ public:
   QString getEpisode(const QString& path) const;
   int getId(const QString& path) const;
 
+  /// Manually override the recognized anime and episode for a file path.
+  /// Pass id=0 to clear the override. Emits dataChanged so the view refreshes.
+  void setOverride(const QString& path, int id, const QString& episode);
+
 private:
   struct ParsedData {
     QString title;
@@ -62,6 +66,7 @@ private:
   void parseFileInfo(const QFileInfo& info);
 
   QMap<QString, ParsedData> m_parsed;
+  QMap<QString, ParsedData> m_overrides; // manually assigned
 };
 
 }  // namespace gui

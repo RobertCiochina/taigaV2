@@ -24,6 +24,9 @@
 
 #include "gui/common/anime_list_view_base.hpp"
 #include "gui/common/page_widget.hpp"
+#include "media/anime_list.hpp"
+
+class QTabBar;
 
 namespace gui {
 
@@ -52,16 +55,21 @@ public:
   void refreshProgressColumnDisplay();
   void refreshNewEpisodeHighlightDisplay();
 
-  /// First selected list row’s anime id, if the list view exists and something is selected.
+  /// First selected list row's anime id, if the list view exists and something is selected.
   std::optional<int> selectedAnimeId() const;
 
   void applyToolbarTextFilter(const QString& text);
+
+  /// Programmatically select a status tab (e.g. from sidebar navigation).
+  void selectStatusTab(anime::list::Status status);
 
 private:
   void initToolbar();
   void initSortMenu();
   void initViewMenu();
   void initMoreMenu();
+  void initStatusTabBar();
+  void refreshStatusTabCounts();
 
   AnimeListModel* m_model = nullptr;
   AnimeListProxyModel* m_proxyModel = nullptr;
@@ -71,6 +79,8 @@ private:
   QMenu* m_sortMenu = nullptr;
   QMenu* m_viewMenu = nullptr;
   QMenu* m_moreMenu = nullptr;
+  QTabBar* m_statusTabBar = nullptr;
+  bool m_suppressTabSync = false;
 };
 
 }  // namespace gui

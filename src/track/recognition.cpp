@@ -24,6 +24,7 @@
 #include <QString>
 #include <algorithm>
 #include <anitomy.hpp>
+#include <format>
 #include <ranges>
 #include <vector>
 
@@ -87,10 +88,36 @@ int identify(Episode& episode) {
   const auto title = episode.element(anitomy::ElementKind::Title);
   const auto normalizedTitle = normalize(title);
 
+  // Season number extracted by anitomy (e.g. "04" from "S04E01"; toInt() gives 4).
+  const auto season_str = episode.element(anitomy::ElementKind::Season);
+  const int season_num = season_str.empty() ? 0 : QString::fromStdString(season_str).toInt();
+
   std::vector<Cache::Data::Match> matches;
 
+  // Primary lookup by title alone.
   if (const auto data = cache()->find(normalizedTitle)) {
     matches.append_range(data->matches | std::views::values | std::ranges::to<std::vector>());
+  }
+
+  // Season-aware secondary lookup: "Title Season N" normalises to the same key as
+  // "Title Part N" / "Title Nth Season" etc., so season-specific DB entries are
+  // preferred over an ambiguously-named base season.
+  if (season_num > 1) {
+    const auto titleWithSeason =
+        normalize(std::format("{} season {}", title, season_num));
+    if (const auto data = cache()->find(titleWithSeason)) {
+      for (const auto& [id, match] : data->matches) {
+        constexpr float kSeasonBoost = 0.6f;
+        const float boosted = match.weight + kSeasonBoost;
+        const auto it = std::ranges::find_if(
+            matches, [id = id](const Cache::Data::Match& m) { return m.id == id; });
+        if (it == matches.end()) {
+          matches.push_back({.id = id, .weight = boosted});
+        } else if (it->weight < boosted) {
+          it->weight = boosted;
+        }
+      }
+    }
   }
 
   std::ranges::sort(matches, std::ranges::greater{}, &Cache::Data::Match::weight);

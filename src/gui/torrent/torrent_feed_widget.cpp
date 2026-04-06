@@ -23,6 +23,7 @@
 #include <QListWidget>
 #include <QMenu>
 #include <QModelIndex>
+#include <QNetworkCookie>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPushButton>
@@ -31,6 +32,7 @@
 #include <QStatusBar>
 #include <QTableWidget>
 #include <QTableWidgetItem>
+#include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -187,11 +189,21 @@ QList<const rss::Item*> filterRssItemsBySettings(const rss::Feed& feed) {
       const int id = track::recognition::identify(ep);
       const ListEntry* entry = (id != anime::kUnknownId) ? anime::db.entry(id) : nullptr;
       const auto st = entry ? entry->status : anime::list::Status::NotInList;
-      if (hide_not_in_list && st == anime::list::Status::NotInList) continue;
+      // Only apply "not in list" when the anime was positively identified.
+      // Unrecognized items (id == kUnknownId) have no list membership data —
+      // hiding them would silently discard Specials/OVAs that merely failed recognition.
+      if (hide_not_in_list && id != anime::kUnknownId && st == anime::list::Status::NotInList) continue;
       if (hide_dropped && st == anime::list::Status::Dropped) continue;
 
       const int ep_no = QString::fromStdString(ep.element(anitomy::ElementKind::Episode)).toInt();
-      if (id != anime::kUnknownId && ep_no > 0) {
+      // S00 (season 0) is the Nyaa / AniDB convention for Specials/OVAs.
+      // Their episode numbers live in a different namespace from the main series, so
+      // comparing S00E01 against main-series watched_episodes gives false positives.
+      // Skip episode-based checks entirely for season-0 releases.
+      const auto season_val_str = ep.element(anitomy::ElementKind::Season);
+      const bool is_season_zero =
+          !season_val_str.empty() && QString::fromStdString(season_val_str).toInt() == 0;
+      if (id != anime::kUnknownId && ep_no > 0 && !is_season_zero) {
         if (hide_watched && entry && ep_no <= entry->watched_episodes) continue;
         if (hide_available && track::libraryHasLocalEpisode(id, ep_no)) continue;
         if (hide_older_versions && !max_version_for_key.isEmpty()) {
@@ -207,6 +219,21 @@ QList<const rss::Item*> filterRssItemsBySettings(const rss::Feed& feed) {
     filtered.push_back(&it);
   }
   return filtered;
+}
+
+/// Return the best folder name for an anime download:
+/// English title if available, otherwise the provided hint (anitomy-parsed title).
+/// Falls back to the hint if no database match is found.
+QString bestFolderNameForAnime(const QString& anitomy_title_hint) {
+  if (anitomy_title_hint.isEmpty()) return anitomy_title_hint;
+  for (const auto& [id, item] : anime::db.items().asKeyValueRange()) {
+    const QString romaji = QString::fromStdString(item.titles.romaji);
+    if (romaji.compare(anitomy_title_hint, Qt::CaseInsensitive) == 0) {
+      const QString en = QString::fromStdString(item.titles.english);
+      return en.isEmpty() ? anitomy_title_hint : en;
+    }
+  }
+  return anitomy_title_hint;
 }
 
 QString sanitizedTorrentBaseName(QString title) {
@@ -332,6 +359,11 @@ TorrentFeedWidget::TorrentFeedWidget(QLineEdit* toolbar_query_edit, QWidget* par
          "(default handler or custom executable). Magnet-only rows are opened directly.\n"
          "Tip: use Ctrl/Shift to select multiple rows."));
   row->addWidget(m_btn_download_selected_);
+  m_btn_download_best_ = new QPushButton(tr("⬇ Best match"), this);
+  m_btn_download_best_->setToolTip(
+      tr("Download the visible result with the highest seeder count (or the first visible result "
+         "if seeder data is unavailable). Apply filters first for best results."));
+  row->addWidget(m_btn_download_best_);
   m_btn_cancel_downloads_ = new QPushButton(tr("Cancel downloads"), this);
   m_btn_cancel_downloads_->setToolTip(tr("Cancel the active .torrent download and clear the queue."));
   m_btn_cancel_downloads_->setEnabled(false);
@@ -361,11 +393,11 @@ TorrentFeedWidget::TorrentFeedWidget(QLineEdit* toolbar_query_edit, QWidget* par
   }
 
   m_table_ = new QTableWidget(this);
-  m_table_->setColumnCount(8);
+  m_table_->setColumnCount(9);
   m_table_->setHorizontalHeaderLabels(
       {tr("Title"), tr("Published"), tr("Page"), tr("Torrent"), tr("Anime"), tr("Ep"), tr("Group"),
-       tr("Video")});
-  m_table_->horizontalHeader()->setStretchLastSection(true);
+       tr("Video"), tr("Seeds")});
+  m_table_->horizontalHeader()->setStretchLastSection(false);
   m_table_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
   m_table_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
   m_table_->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
@@ -373,6 +405,7 @@ TorrentFeedWidget::TorrentFeedWidget(QLineEdit* toolbar_query_edit, QWidget* par
   m_table_->horizontalHeader()->setSectionResizeMode(5, QHeaderView::ResizeToContents);
   m_table_->horizontalHeader()->setSectionResizeMode(6, QHeaderView::ResizeToContents);
   m_table_->horizontalHeader()->setSectionResizeMode(7, QHeaderView::ResizeToContents);
+  m_table_->horizontalHeader()->setSectionResizeMode(8, QHeaderView::ResizeToContents);
   m_table_->setSelectionBehavior(QAbstractItemView::SelectRows);
   m_table_->setSelectionMode(QAbstractItemView::ExtendedSelection);
   m_table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -452,8 +485,14 @@ TorrentFeedWidget::TorrentFeedWidget(QLineEdit* toolbar_query_edit, QWidget* par
       const QString tor_u = c3 ? c3->text() : QString{};
       const QVariant mag_v = c3 ? c3->data(kTableMagnetDataRole) : QVariant{};
       const QString magnet_u = mag_v.isValid() ? mag_v.toString() : QString{};
-      const QString title =
-          m_table_->item(rowIdx, 0) ? m_table_->item(rowIdx, 0)->text() : QString{};
+      // Use recognized anime title → look up English title in DB for folder naming.
+      const QTableWidgetItem* animecol = m_table_->item(rowIdx, 4);
+      const QString anime_title = animecol ? animecol->text().trimmed() : QString{};
+      const QTableWidgetItem* titlecol = m_table_->item(rowIdx, 0);
+      const QString raw_hint = anime_title.isEmpty()
+          ? (titlecol ? titlecol->text() : QString{})
+          : anime_title;
+      const QString title = bestFolderNameForAnime(raw_hint);
 
       if (const auto tor_http = httpUrlFromUserString(tor_u)) {
         enqueueSaveTorrent(*tor_http, title);
@@ -490,6 +529,67 @@ TorrentFeedWidget::TorrentFeedWidget(QLineEdit* toolbar_query_edit, QWidget* par
       QString msg = tr("Queued %1 .torrent file(s).").arg(enqueued);
       if (opened > 0) msg += tr(" Opened %1 link(s).").arg(opened);
       mw->statusBar()->showMessage(msg, 6000);
+    }
+  });
+  connect(m_btn_download_best_, &QPushButton::clicked, this, [this]() {
+    if (!m_table_) return;
+    if (m_save_reply_ || !m_save_queue_.isEmpty()) {
+      taiga::userFeedback(tr("A download queue is already running. Cancel it first if needed."), true);
+      return;
+    }
+
+    // Find the visible row with the most seeders (column 8).
+    // Fall back to the first visible row if seeder data is absent.
+    int best_row = -1;
+    qlonglong best_seeds = -1;
+    for (int r = 0; r < m_table_->rowCount(); ++r) {
+      if (m_table_->isRowHidden(r)) continue;
+      const QTableWidgetItem* seed_item = m_table_->item(r, 8);
+      const qlonglong seeds = seed_item
+          ? seed_item->data(kNumericSortKeyRole).toLongLong()
+          : 0;
+      if (best_row == -1 || seeds > best_seeds) {
+        best_row = r;
+        best_seeds = seeds;
+      }
+    }
+    if (best_row < 0) {
+      taiga::userFeedback(tr("No results visible — try fetching the RSS feed first."), true);
+      return;
+    }
+
+    const QTableWidgetItem* c3 = m_table_->item(best_row, 3);
+    const QString tor_u = c3 ? c3->text() : QString{};
+    const QVariant mag_v = c3 ? c3->data(kTableMagnetDataRole) : QVariant{};
+    const QString magnet_u = mag_v.isValid() ? mag_v.toString() : QString{};
+    const QTableWidgetItem* animecol = m_table_->item(best_row, 4);
+    const QString anime_title = animecol ? animecol->text().trimmed() : QString{};
+    const QTableWidgetItem* titlecol = m_table_->item(best_row, 0);
+    const QString raw_hint = anime_title.isEmpty()
+        ? (titlecol ? titlecol->text() : QString{})
+        : anime_title;
+    const QString title = bestFolderNameForAnime(raw_hint);
+
+    if (const auto tor_http = httpUrlFromUserString(tor_u)) {
+      enqueueSaveTorrent(*tor_http, title);
+      startNextQueuedSave();
+      if (auto* mw = mainWindow()) {
+        const QString seeds_str = best_seeds > 0
+            ? tr(" (Seeds: %1)").arg(best_seeds)
+            : QString{};
+        mw->statusBar()->showMessage(
+            tr("Downloading best match: %1%2").arg(title, seeds_str), 6000);
+      }
+    } else {
+      const QString link = !magnet_u.isEmpty() ? magnet_u : primaryUrlForRow(best_row, m_table_);
+      if (!link.isEmpty()) {
+        openPrimaryTorrentUrl(link);
+        if (auto* mw = mainWindow()) {
+          mw->statusBar()->showMessage(tr("Opened best match: %1").arg(title), 6000);
+        }
+      } else {
+        taiga::userFeedback(tr("No download link found for the best match."), true);
+      }
     }
   });
   connect(m_btn_cancel_downloads_, &QPushButton::clicked, this, [this]() {
@@ -696,9 +796,198 @@ TorrentFeedWidget::TorrentFeedWidget(QLineEdit* toolbar_query_edit, QWidget* par
   });
 }
 
+void TorrentFeedWidget::addTorrentViaQBitApi(const QString& torrent_url, const QString& save_path,
+                                              std::function<void(bool ok, QString error)> on_done) {
+  const QString base_url =
+      QString::fromStdString(taiga::settings.torrentQBitApiUrl()).trimmed().trimmed();
+  const QString username =
+      QString::fromStdString(taiga::settings.torrentQBitApiUsername()).trimmed();
+  const QString password = QString::fromStdString(taiga::settings.torrentQBitApiPassword());
+
+  const auto do_add = [=](const QString& cookie) {
+    QNetworkRequest req(QUrl(base_url + QStringLiteral("/api/v2/torrents/add")));
+    req.setHeader(QNetworkRequest::ContentTypeHeader,
+                  QStringLiteral("application/x-www-form-urlencoded"));
+    if (!cookie.isEmpty()) req.setRawHeader("Cookie", cookie.toUtf8());
+
+    QByteArray body = QByteArrayLiteral("urls=") +
+                      QUrl::toPercentEncoding(torrent_url);
+    if (!save_path.isEmpty()) {
+      // Ensure the save directory exists before telling qBittorrent to use it.
+      QDir().mkpath(save_path);
+      body += QByteArrayLiteral("&savepath=") + QUrl::toPercentEncoding(save_path);
+    }
+
+    auto* reply = taiga::network()->post(req, body);
+    connect(reply, &QNetworkReply::finished, this, [reply, on_done]() mutable {
+      reply->deleteLater();
+      if (reply->error() != QNetworkReply::NoError) {
+        if (on_done) on_done(false, reply->errorString());
+        return;
+      }
+      const QString resp = QString::fromUtf8(reply->readAll()).trimmed();
+      const bool ok = resp.compare(QStringLiteral("Ok."), Qt::CaseInsensitive) == 0 ||
+                      resp.startsWith(QStringLiteral("Ok"), Qt::CaseInsensitive);
+      if (on_done) on_done(ok, ok ? QString{} : resp);
+    });
+  };
+
+  if (username.isEmpty()) {
+    do_add({});
+    return;
+  }
+
+  QNetworkRequest login_req(QUrl(base_url + QStringLiteral("/api/v2/auth/login")));
+  login_req.setHeader(QNetworkRequest::ContentTypeHeader,
+                      QStringLiteral("application/x-www-form-urlencoded"));
+  const QByteArray login_body =
+      QByteArrayLiteral("username=") + username.toUtf8() +
+      QByteArrayLiteral("&password=") + password.toUtf8();
+  m_qbit_login_reply_ = taiga::network()->post(login_req, login_body);
+  connect(m_qbit_login_reply_, &QNetworkReply::finished, this,
+          [this, do_add]() {
+            auto* r = m_qbit_login_reply_;
+            m_qbit_login_reply_ = nullptr;
+            if (!r) { do_add({}); return; }
+            r->deleteLater();
+            // Extract SID cookie.
+            QString cookie_str;
+            const QVariant cv = r->header(QNetworkRequest::SetCookieHeader);
+            if (cv.isValid()) {
+              for (const QNetworkCookie& c : cv.value<QList<QNetworkCookie>>()) {
+                if (!cookie_str.isEmpty()) cookie_str += QStringLiteral("; ");
+                cookie_str += QString::fromUtf8(c.name()) + QStringLiteral("=") +
+                              QString::fromUtf8(c.value());
+              }
+            }
+            do_add(cookie_str);
+          });
+}
+
 void TorrentFeedWidget::saveSessionState() {
   if (!m_table_) return;
   taiga::session.setTorrentRssTableHeaderState(m_table_->horizontalHeader()->saveState());
+}
+
+void TorrentFeedWidget::downloadBestMatchForTitle(const QString& search_title,
+                                                  const QString& folder_name,
+                                                  std::function<void(bool found)> on_done,
+                                                  const QString& fallback_title) {
+  // Cancel any in-progress background fetch.
+  if (m_bg_fetch_reply_) {
+    m_bg_fetch_reply_->disconnect();
+    m_bg_fetch_reply_->abort();
+    m_bg_fetch_reply_->deleteLater();
+    m_bg_fetch_reply_ = nullptr;
+  }
+
+  const QString tmpl = QString::fromStdString(taiga::settings.torrentDiscoverySearchUrl());
+  const QUrl url = taiga::torrentDiscoveryFeedFetchUrl(tmpl, search_title);
+  if (!url.isValid()) {
+    if (on_done) on_done(false);
+    return;
+  }
+
+  QNetworkRequest req(url);
+  taiga::applyCommonHeaders(req);
+  m_bg_fetch_reply_ = taiga::network()->get(req);
+
+  connect(m_bg_fetch_reply_, &QNetworkReply::finished, this,
+          [this, folder_name, fallback_title, on_done](){ 
+            auto* reply = m_bg_fetch_reply_;
+            m_bg_fetch_reply_ = nullptr;
+            if (!reply) { if (on_done) on_done(false); return; }
+            reply->deleteLater();
+            if (reply->error() != QNetworkReply::NoError) {
+              if (on_done) on_done(false);
+              return;
+            }
+            const QByteArray data = reply->readAll();
+            const rss::Feed feed = gui::parseSyndicationFeed(data).value_or(rss::Feed{});
+            const QList<const rss::Item*> filtered = filterRssItemsBySettings(feed);
+
+            // If no results and we have a fallback title, retry once with that.
+            if (filtered.isEmpty() && !fallback_title.isEmpty()) {
+              downloadBestMatchForTitle(fallback_title, folder_name, on_done, {});
+              return;
+            }
+            if (filtered.isEmpty()) { if (on_done) on_done(false); return; }
+
+            // Pick the item with the highest seeder count.
+            const rss::Item* best = nullptr;
+            int best_seeds = -1;
+            for (const rss::Item* it : filtered) {
+              const auto seed_it = it->namespace_elements.find("seeders");
+              const int seeds = (seed_it != it->namespace_elements.end())
+                                    ? QString::fromStdString(seed_it->second).toInt()
+                                    : 0;
+              if (seeds > best_seeds) { best_seeds = seeds; best = it; }
+            }
+            if (!best) best = filtered.first();
+
+            const QString effective_folder =
+                folder_name.isEmpty() ? QString::fromStdString(best->title) : folder_name;
+
+            // ── Mode 1: qBittorrent Web API (preferred) ───────────────────
+            if (taiga::settings.torrentQBitApiEnabled()) {
+              // Prefer magnet link → .torrent URL → page link.
+              QString api_url;
+              if (const auto m = best->namespace_elements.find(kTorrentFeedMagnetKey);
+                  m != best->namespace_elements.end()) {
+                api_url = QString::fromStdString(m->second);
+              }
+              if (api_url.isEmpty()) {
+                api_url = QString::fromStdString(best->enclosure.url);
+              }
+              if (api_url.isEmpty()) api_url = QString::fromStdString(best->link);
+              if (api_url.isEmpty()) { if (on_done) on_done(false); return; }
+
+              const QString save_path = resolvedTorrentDownloadDirForSavedTorrent(effective_folder);
+              addTorrentViaQBitApi(api_url, save_path, [on_done](bool ok, const QString& err) {
+                if (!err.isEmpty())
+                  taiga::userFeedback(
+                      QStringLiteral("qBittorrent Web API error: ") + err, true);
+                if (on_done) on_done(ok);
+              });
+              return;
+            }
+
+            // ── Mode 2: Prefer magnet (open directly) ─────────────────────
+            const QString tor_url = QString::fromStdString(best->enclosure.url);
+            const bool has_http = !tor_url.isEmpty() && httpUrlFromUserString(tor_url).has_value();
+
+            if (taiga::settings.torrentDownloadUseMagnet() || !has_http) {
+              QString link;
+              if (const auto m = best->namespace_elements.find(kTorrentFeedMagnetKey);
+                  m != best->namespace_elements.end()) {
+                link = QString::fromStdString(m->second);
+              }
+              if (!link.isEmpty()) {
+                openPrimaryTorrentUrl(link);
+                if (on_done) on_done(true);
+                return;
+              }
+            }
+
+            // ── Mode 3: Download .torrent file then open client ────────────
+            if (has_http) {
+              if (const auto u = httpUrlFromUserString(tor_url)) {
+                enqueueSaveTorrent(*u, effective_folder);
+                startNextQueuedSave();  // kick off the queue (safe to call even if active)
+                if (on_done) on_done(true);
+                return;
+              }
+            }
+
+            // Last resort: open page link
+            const QString page_link = QString::fromStdString(best->link);
+            if (!page_link.isEmpty()) {
+              openPrimaryTorrentUrl(page_link);
+              if (on_done) on_done(true);
+            } else {
+              if (on_done) on_done(false);
+            }
+          });
 }
 
 void TorrentFeedWidget::cancelPending() {
@@ -922,6 +1211,10 @@ void TorrentFeedWidget::beginSaveTorrent(const QUrl& url, const QString& title_h
   });
 }
 
+void TorrentFeedWidget::setSearchFallback(const QString& fallback) {
+  m_search_fallback_title_ = fallback.trimmed();
+}
+
 void TorrentFeedWidget::runSearch() {
   if (!m_query_edit_) return;
   const QString q = m_query_edit_->text().trimmed();
@@ -1027,9 +1320,27 @@ void TorrentFeedWidget::onFetchFinished(QNetworkReply* reply) {
     return;
   }
   if (feed->items.empty()) {
+    // Auto-retry with the fallback title (e.g. English title when romaji gave 0 results).
+    if (kind == FetchKind::SearchRss && !m_search_fallback_title_.isEmpty() && m_query_edit_) {
+      const QString fallback = m_search_fallback_title_;
+      m_search_fallback_title_.clear();
+      if (auto* mw = mainWindow()) {
+        mw->statusBar()->showMessage(
+            tr("No results for '%1', retrying with '%2'…")
+                .arg(m_query_edit_->text().trimmed(), fallback),
+            4000);
+      }
+      m_query_edit_->setText(fallback);
+      QTimer::singleShot(0, this, &TorrentFeedWidget::runSearch);
+      return;
+    }
     if (!silent) {
       if (auto* mw = mainWindow()) {
-        mw->statusBar()->showMessage(tr("Feed contained no items."), 5000);
+        QString msg = tr("Feed contained no items.");
+        if (kind == FetchKind::SearchRss) {
+          msg += u" " + tr("Tip: try a shorter title — e.g. remove the subtitle after ':' or ' — '.");
+        }
+        mw->statusBar()->showMessage(msg, 8000);
       }
     }
   }
@@ -1044,7 +1355,15 @@ void TorrentFeedWidget::onFetchFinished(QNetworkReply* reply) {
       const int total = static_cast<int>(feed->items.size());
       const int shown = m_table_ ? m_table_->rowCount() : total;
       QString msg = tr("Loaded %1 item(s).").arg(shown);
-      if (shown < total) {
+      if (shown == 0 && total > 0) {
+        // Feed returned items but all were hidden by active filters.
+        msg = tr("All %1 result(s) were hidden by active filters (list filters, regex, or archive "
+                 "limit). Disable some filters in Settings → Library → Torrents → Filters.")
+                  .arg(total);
+        if (kind == FetchKind::SearchRss) {
+          msg += u" " + tr("Tip: try a shorter search title too.");
+        }
+      } else if (shown < total) {
         const bool any_regex =
             !QString::fromStdString(taiga::settings.torrentFeedIncludeRegexList()).trimmed().isEmpty() ||
             !QString::fromStdString(taiga::settings.torrentFeedExcludeRegexList()).trimmed().isEmpty();
@@ -1200,6 +1519,17 @@ void TorrentFeedWidget::populateTable(const rss::Feed& feed) {
     m_table_->setItem(i, 5, ep_item);
     m_table_->setItem(i, 6, new QTableWidgetItem(group));
     m_table_->setItem(i, 7, new QTableWidgetItem(video));
+
+    // Column 8: Seeders (from nyaa/extended namespace elements).
+    int seeders_val = 0;
+    if (const auto s = it.namespace_elements.find("seeders"); s != it.namespace_elements.end()) {
+      bool ok = false;
+      const int v = QString::fromStdString(s->second).toInt(&ok);
+      if (ok && v >= 0) seeders_val = v;
+    }
+    auto* seed_item = new NumericSortItem(seeders_val > 0 ? QString::number(seeders_val) : QString{});
+    if (seeders_val > 0) seed_item->setData(kNumericSortKeyRole, static_cast<qlonglong>(seeders_val));
+    m_table_->setItem(i, 8, seed_item);
   }
 
   m_table_->resizeRowsToContents();
@@ -1211,7 +1541,7 @@ void TorrentFeedWidget::populateTable(const rss::Feed& feed) {
 void TorrentFeedWidget::applyRssTableSortFromSettings() {
   if (!m_table_ || m_table_->rowCount() <= 0) return;
   const std::string sb = taiga::settings.torrentRssSortBy();
-  // Columns: Title=0, Published=1, Page=2, Torrent=3, Anime=4, Ep=5, Group=6, Video=7
+  // Columns: Title=0, Published=1, Page=2, Torrent=3, Anime=4, Ep=5, Group=6, Video=7, Seeds=8
   int sort_col = 0;
   if (sb == "release_date") {
     sort_col = 1;

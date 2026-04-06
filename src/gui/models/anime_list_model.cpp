@@ -162,12 +162,32 @@ QVariant AnimeListModel::data(const QModelIndex& index, int role) const {
       const auto disabledTextColor =
           qApp->palette().color(QPalette::ColorGroup::Disabled, QPalette::ColorRole::Text);
       switch (index.column()) {
-        case COLUMN_TITLE:
-          if (taiga::settings.listHighlightNextEpisodeOnDisk() && entry &&
+        case COLUMN_TITLE: {
+          if (!entry) break;
+
+          // Priority 1 – "Seen / caught up": all aired episodes watched.
+          // Use a muted green that reads well on both light and dark themes.
+          const int last_aired = anime->last_aired_episode;
+          const int watched = entry->watched_episodes;
+          const bool caught_up = last_aired > 0 && watched >= last_aired;
+          const bool fully_done = anime->episode_count > 0 && watched >= anime->episode_count;
+          if (caught_up || fully_done) {
+            return QColor(0x4c, 0xaf, 0x50);  // material green
+          }
+
+          // Priority 2 – "Downloaded / ready to watch": next episode file is on disk.
+          if (taiga::settings.listHighlightNextEpisodeOnDisk() &&
               track::nextEpisodeIsOnDisk(anime->id, anime, entry)) {
-            return qApp->palette().color(QPalette::ColorRole::Highlight);
+            return QColor(0x42, 0xa5, 0xf5);  // material blue
+          }
+
+          // Priority 3 – "Released but not yet downloaded": a new episode aired
+          // but is not on disk yet.
+          if (last_aired > watched) {
+            return QColor(0x9e, 0x9e, 0x9e);  // material grey
           }
           break;
+        }
         case COLUMN_AVERAGE:
           if (!anime->score) return disabledTextColor;
           break;

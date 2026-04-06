@@ -30,6 +30,7 @@
 #include <QItemSelectionModel>
 #include <QListView>
 #include <QMenu>
+#include <QTabBar>
 #include <QToolBar>
 #include <QToolButton>
 #include <format>
@@ -38,10 +39,14 @@
 #include "gui/common/anime_list_view.hpp"
 #include "gui/common/anime_list_view_cards.hpp"
 #include "gui/main/main_window.hpp"
+#include "gui/main/navigation_item_delegate.hpp"
 #include "gui/main/navigation_widget.hpp"
 #include "gui/models/anime_list_model.hpp"
 #include "gui/models/anime_list_proxy_model.hpp"
+#include "gui/utils/format.hpp"
 #include "gui/utils/theme.hpp"
+#include "media/anime_db.hpp"
+#include "media/anime_list.hpp"
 #include "media/anime_list_export.hpp"
 #include "taiga/session.hpp"
 #include "taiga/user_feedback.hpp"
@@ -86,14 +91,26 @@ ListWidget::ListWidget(QWidget* parent)
                                 taiga::session.animeListSortOrderSecondary());
 
   initToolbar();
+  initStatusTabBar();
   setViewMode(taiga::session.animeListViewMode());
 
   connect(m_sortMenu, &QMenu::aboutToShow, this, &ListWidget::initSortMenu);
   connect(m_viewMenu, &QMenu::aboutToShow, this, &ListWidget::initViewMenu);
   connect(m_moreMenu, &QMenu::aboutToShow, this, &ListWidget::initMoreMenu);
 
+  // Keep tab bar in sync with model changes (counts update after sync, import, etc.)
+  connect(m_model, &AnimeListModel::modelReset, this, &ListWidget::refreshStatusTabCounts);
+  connect(m_model, &AnimeListModel::rowsInserted, this, &ListWidget::refreshStatusTabCounts);
+  connect(m_model, &AnimeListModel::rowsRemoved, this, &ListWidget::refreshStatusTabCounts);
+  connect(m_model, &AnimeListModel::dataChanged, this, &ListWidget::refreshStatusTabCounts);
+
+  // Sync sidebar → tab bar
   connect(mainWindow()->navigation(), &NavigationWidget::currentListStatusChanged, this,
           [this](anime::list::Status status) {
+            const QSignalBlocker b(m_statusTabBar);
+            m_suppressTabSync = true;
+            selectStatusTab(status);
+            m_suppressTabSync = false;
             m_proxyModel->setListStatusFilter({
                 .status = static_cast<int>(status),
                 .anyStatus = !static_cast<int>(status),
@@ -148,6 +165,86 @@ void ListWidget::saveState() {
   taiga::session.setAnimeListViewMode(m_viewMode);
   if (m_listView) {
     taiga::session.setAnimeListHeaderState(m_listView->header()->saveState());
+  }
+}
+
+void ListWidget::initStatusTabBar() {
+  m_statusTabBar = new QTabBar(this);
+  m_statusTabBar->setObjectName("statusTabBar");
+  m_statusTabBar->setExpanding(false);
+  m_statusTabBar->setDrawBase(false);
+  m_statusTabBar->setDocumentMode(true);
+
+  // Tab index 0 = "All", indices 1-N = each status in kStatuses order
+  m_statusTabBar->addTab(tr("All"));
+  m_statusTabBar->setTabData(0, QVariant::fromValue(static_cast<int>(anime::list::Status::NotInList)));
+  for (const auto status : anime::list::kStatuses) {
+    const int idx = m_statusTabBar->addTab(formatListStatus(status));
+    m_statusTabBar->setTabData(idx, QVariant::fromValue(static_cast<int>(status)));
+  }
+
+  refreshStatusTabCounts();
+
+  // Tab click → update proxy filter + sync sidebar
+  connect(m_statusTabBar, &QTabBar::currentChanged, this, [this](int idx) {
+    if (m_suppressTabSync) return;
+    const int raw = m_statusTabBar->tabData(idx).toInt();
+    const bool any = (raw == static_cast<int>(anime::list::Status::NotInList));
+    m_proxyModel->setListStatusFilter({.status = raw, .anyStatus = any});
+
+    // Sync sidebar navigation to match
+    if (!any && mainWindow()) {
+      const auto status = static_cast<anime::list::Status>(raw);
+      if (auto* nav = mainWindow()->navigation()) {
+        if (auto* item = nav->findItemByPage(MainWindowPage::List)) {
+          for (int c = 0; c < item->childCount(); ++c) {
+            const auto childStatus = static_cast<anime::list::Status>(
+                item->child(c)->data(0, static_cast<int>(NavigationItemDataRole::ListStatus)).toInt());
+            if (childStatus == status) {
+              const QSignalBlocker b(nav);
+              nav->setCurrentItem(item->child(c));
+              break;
+            }
+          }
+        }
+      }
+    }
+  });
+
+  // Insert the tab bar between toolbar row and list content
+  if (auto* vl = qobject_cast<QVBoxLayout*>(layout())) {
+    vl->insertWidget(1, m_statusTabBar);
+  }
+}
+
+void ListWidget::refreshStatusTabCounts() {
+  if (!m_statusTabBar) return;
+  // Count entries per status
+  QMap<anime::list::Status, int> counts;
+  for (const auto& entry : anime::db.entries()) {
+    counts[entry.status] += 1;
+  }
+  const int total = static_cast<int>(anime::db.entries().size());
+
+  // Tab 0 = All
+  m_statusTabBar->setTabText(0, total > 0 ? tr("All (%1)").arg(total) : tr("All"));
+
+  for (int i = 1; i < m_statusTabBar->count(); ++i) {
+    const auto status = static_cast<anime::list::Status>(m_statusTabBar->tabData(i).toInt());
+    const int n = counts.value(status, 0);
+    m_statusTabBar->setTabText(i, n > 0 ? tr("%1 (%2)").arg(formatListStatus(status)).arg(n)
+                                        : formatListStatus(status));
+  }
+}
+
+void ListWidget::selectStatusTab(const anime::list::Status status) {
+  if (!m_statusTabBar) return;
+  for (int i = 0; i < m_statusTabBar->count(); ++i) {
+    const auto s = static_cast<anime::list::Status>(m_statusTabBar->tabData(i).toInt());
+    if (s == status || (i == 0 && !static_cast<int>(status))) {
+      m_statusTabBar->setCurrentIndex(i);
+      return;
+    }
   }
 }
 

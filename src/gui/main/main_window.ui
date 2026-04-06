@@ -149,14 +149,14 @@
     <addaction name="actionToggleNavigationSidebar"/>
     <addaction name="actionToggleStatusbar"/>
     <addaction name="actionToggleNowPlaying"/>
+    <addaction name="separator"/>
+    <addaction name="actionToggleDetection"/>
+    <addaction name="actionToggleSynchronization"/>
    </widget>
    <widget class="QMenu" name="menuTools">
     <property name="title">
      <string>&amp;Tools</string>
     </property>
-    <addaction name="actionToggleDetection"/>
-    <addaction name="actionToggleSynchronization"/>
-    <addaction name="separator"/>
     <addaction name="actionStatistics"/>
     <addaction name="actionProfile"/>
     <addaction name="separator"/>
@@ -223,6 +223,7 @@
    </attribute>
    <addaction name="actionMenu"/>
    <addaction name="actionSynchronize"/>
+   <addaction name="actionScanAvailableEpisodes"/>
    <addaction name="actionSettings"/>
    <addaction name="actionProfile"/>
   </widget>
@@ -234,6 +235,12 @@
   <action name="actionScanAvailableEpisodes">
    <property name="text">
     <string>Scan available episodes</string>
+   </property>
+   <property name="toolTip">
+    <string>Scan library folders for available episodes (F6)</string>
+   </property>
+   <property name="shortcut">
+    <string>F6</string>
    </property>
   </action>
   <action name="actionPlayNextEpisode">

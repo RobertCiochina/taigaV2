@@ -100,17 +100,21 @@ Service* Service::instance() {
 }
 
 void Service::fetchListEntries(ListFetchComplete on_complete) {
-  const auto finish = [on_complete](const bool ok, QString message) {
-    if (on_complete) on_complete(ok, std::move(message));
-  };
-
   if (taiga::accounts.myanimelistAccessToken().empty()) {
-    finish(false, QStringLiteral("MyAnimeList access token is missing; sign in first."));
+    if (on_complete) on_complete(false, QStringLiteral("MyAnimeList access token is missing; sign in first."));
     return;
   }
 
+  // Begin a batch so all pages share one SQLite transaction (prevents per-item
+  // open/commit/close cycles which cause the 30-second UI stall).
+  anime::db.beginBatch();
+  const auto batch_finish = [on_complete = std::move(on_complete)](const bool ok, QString msg) {
+    anime::db.endBatch();
+    if (on_complete) on_complete(ok, std::move(msg));
+  };
+
   api_.setBearerToken(QByteArray::fromStdString(taiga::accounts.myanimelistAccessToken()));
-  fetchListPage(0, 0, std::move(finish));
+  fetchListPage(0, 0, std::move(batch_finish));
 }
 
 void Service::refreshAccessToken(std::function<void(bool ok, QString err)> done) {

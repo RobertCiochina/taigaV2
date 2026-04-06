@@ -92,7 +92,13 @@ LibraryScanSummary scanLibraryFolders(const std::vector<std::string>& folders,
         ++s.recognized;
         const int ep =
             QString::fromStdString(episode.element(anitomy::ElementKind::Episode, {})).toInt();
-        if (ep > 0) g_library_episodes[aid].insert(ep);
+        if (ep > 0) {
+          g_library_episodes[aid].insert(ep);
+        } else {
+          // No episode number in filename (movie, batch, or single-file release).
+          // Treat as episode 1 so the entry appears in "Up next" and library lookups.
+          g_library_episodes[aid].insert(1);
+        }
       }
     }
   }

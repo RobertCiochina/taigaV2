@@ -274,6 +274,15 @@ public:
   void setTorrentAppOpen(bool enabled) const;
   void setTorrentAppMode(int mode) const;
   void setTorrentAppExecutablePath(const std::string& path) const;
+  // qBittorrent Web API integration (recommended for controlling save path per anime)
+  bool torrentQBitApiEnabled() const;
+  std::string torrentQBitApiUrl() const;
+  std::string torrentQBitApiUsername() const;
+  std::string torrentQBitApiPassword() const;
+  void setTorrentQBitApiEnabled(bool enabled) const;
+  void setTorrentQBitApiUrl(const std::string& url) const;
+  void setTorrentQBitApiUsername(const std::string& username) const;
+  void setTorrentQBitApiPassword(const std::string& password) const;
   void setAnnounceV1MigrationJson(const std::string& json) const;
 
 private:

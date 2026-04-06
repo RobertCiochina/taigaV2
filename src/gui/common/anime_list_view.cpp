@@ -43,7 +43,10 @@ ListView::ListView(QWidget* parent, AnimeListModel* model, AnimeListProxyModel* 
   setExpandsOnDoubleClick(false);
   setItemsExpandable(false);
   setRootIsDecorated(false);
-  setUniformRowHeights(true);
+  // Word wrap on the title column: rows auto-size to fit. setUniformRowHeights(false)
+  // is required for variable row heights; the modest perf cost is acceptable.
+  setUniformRowHeights(false);
+  setWordWrap(true);
 
   header()->setFirstSectionMovable(true);
   header()->setStretchLastSection(false);

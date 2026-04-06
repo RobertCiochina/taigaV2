@@ -140,8 +140,25 @@ void MediaMenu::editEpisode() const {
     ListEntry e = *it;
     e.watched_episodes = value;
     e.last_updated = now;
+    gui::maybePromptCompletion(parentWidget(), item, e);
     commitListEntry(this, e);
   }
+}
+
+void MediaMenu::incrementEpisode() const {
+  if (m_items.empty()) return;
+  const auto& item = m_items.front();
+  const auto* entry = getEntry(item.id);
+  if (!entry) return;
+
+  const int max = item.episode_count > 0 ? item.episode_count : anime::kMaxEpisodeCount;
+  if (entry->watched_episodes >= max) return;
+
+  ListEntry e = *entry;
+  e.watched_episodes += 1;
+  e.last_updated = static_cast<std::time_t>(QDateTime::currentSecsSinceEpoch());
+  gui::maybePromptCompletion(parentWidget(), item, e);
+  commitListEntry(this, e);
 }
 
 void MediaMenu::editNotes() const {
@@ -333,10 +350,23 @@ void MediaMenu::searchYouTube() const {
 
 void MediaMenu::torrents() const {
   const auto& item = m_items.front();
-  const QString q = QString::fromStdString(
-      anime::preferredListTitleString(item, taiga::settings.listTitleLanguage()));
+  // Primary: romaji — Nyaa/torrent sites index by Japanese/romaji title.
+  // Fallback: English title, tried automatically if primary returns 0 results.
+  const bool has_romaji = !item.titles.romaji.empty();
+  const QString primary = has_romaji
+      ? QString::fromStdString(item.titles.romaji)
+      : QString::fromStdString(
+            anime::preferredListTitleString(item, taiga::settings.listTitleLanguage()));
+  // Build a fallback: use English title if available and different from primary.
+  QString fallback;
+  if (has_romaji && !item.titles.english.empty()) {
+    const QString english = QString::fromStdString(item.titles.english);
+    if (english.compare(primary, Qt::CaseInsensitive) != 0) {
+      fallback = english;
+    }
+  }
   if (auto* mw = mainWindow()) {
-    mw->openTorrentSearchInApp(q);
+    mw->openTorrentSearchInApp(primary, fallback);
   }
 }
 
@@ -501,6 +531,22 @@ void MediaMenu::addListItems() {
 
   // Edit
   if (!isBatch()) {
+    // Quick increment (+1 episode) — v1-style fast update
+    {
+      const auto& item = m_items.front();
+      const auto* entry = getEntry(item.id);
+      if (entry) {
+        const int max = item.episode_count > 0 ? item.episode_count : anime::kMaxEpisodeCount;
+        if (entry->watched_episodes < max) {
+          const int next = entry->watched_episodes + 1;
+          const QString label = item.episode_count > 0
+              ? tr("+1 episode (→ %1/%2)").arg(next).arg(item.episode_count)
+              : tr("+1 episode (→ %1)").arg(next);
+          addAction(theme.getIcon("add"), label, this, &MediaMenu::incrementEpisode);
+        }
+      }
+    }
+
     addAction(theme.getIcon("edit"), tr("Edit..."), this, &MediaMenu::edit);
 
   } else {

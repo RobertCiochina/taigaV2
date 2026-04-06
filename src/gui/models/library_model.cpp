@@ -149,20 +149,48 @@ bool LibraryModel::isEnabled(const QModelIndex& index) const {
 }
 
 QString LibraryModel::getTitle(const QString& path) const {
+  // Override takes priority over auto-recognition.
+  if (m_overrides.contains(path)) {
+    const int oid = m_overrides[path].id;
+    if (oid > 0) {
+      const auto item = anime::db.item(oid);
+      if (item) return QString::fromStdString(item->titles.romaji);
+    }
+    return m_overrides[path].title;
+  }
   if (m_parsed[path].id) {
     const auto item = anime::db.item(m_parsed[path].id);
     if (item) return QString::fromStdString(item->titles.romaji);
   }
-
   return m_parsed[path].title;
 }
 
 QString LibraryModel::getEpisode(const QString& path) const {
+  if (m_overrides.contains(path)) return m_overrides[path].episode;
   return m_parsed[path].episode;
 }
 
 int LibraryModel::getId(const QString& path) const {
+  if (m_overrides.contains(path)) return m_overrides[path].id;
   return m_parsed[path].id;
+}
+
+void LibraryModel::setOverride(const QString& path, const int id, const QString& episode) {
+  if (id <= 0) {
+    m_overrides.remove(path);
+  } else {
+    QString title;
+    if (const auto item = anime::db.item(id)) {
+      title = QString::fromStdString(item->titles.romaji);
+    }
+    m_overrides[path] = ParsedData{.title = title, .episode = episode, .id = id};
+  }
+  // Emit dataChanged for all columns of this file so the view refreshes.
+  const QModelIndex name_idx = index(path);
+  if (name_idx.isValid()) {
+    const QModelIndex last = name_idx.siblingAtColumn(NUM_COLUMNS - 1);
+    emit dataChanged(name_idx, last);
+  }
 }
 
 void LibraryModel::parseDirectory(const QString& path) {

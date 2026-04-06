@@ -19,6 +19,9 @@
 #include "media_dialog.hpp"
 
 #include <QDesktopServices>
+#include <QDialogButtonBox>
+#include <QMessageBox>
+#include <QPushButton>
 #include <QResizeEvent>
 #include <QUrl>
 
@@ -32,6 +35,7 @@
 #include "media/anime_utils.hpp"
 #include "sync/service.hpp"
 #include "taiga/session.hpp"
+#include "track/play.hpp"
 #include "ui_media_dialog.h"
 
 #ifdef Q_OS_WINDOWS
@@ -120,6 +124,22 @@ MediaDialog::MediaDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::MediaDi
           [this](Qt::CheckState state) {
             ui_->dateCompleted->setEnabled(state == Qt::CheckState::Checked);
           });
+
+  // Hide the unimplemented Settings tab (placeholder only)
+  ui_->tabWidget->setTabVisible(static_cast<int>(MediaDialogPage::Settings), false);
+
+  // Add a "Play next episode" button to the left side of the button box
+  auto* playBtn = ui_->buttonBox->addButton(tr("Play next episode"), QDialogButtonBox::ActionRole);
+  playBtn->setObjectName("playNextEpisodeBtn");
+  connect(playBtn, &QPushButton::clicked, this, [this]() {
+    const int anime_id = m_anime.id;
+    if (anime_id <= 0) return;
+    if (!track::playNextEpisode(anime_id)) {
+      QMessageBox::information(
+          this, tr("Taiga"),
+          tr("Could not find the next episode in your library folders for this title."));
+    }
+  });
 }
 
 void MediaDialog::closeEvent(QCloseEvent* event) {
@@ -248,6 +268,63 @@ void MediaDialog::initDetails() {
                             get_row_label(joinStrings(m_anime.producers)));
   }
 
+  // Age rating
+  {
+    using R = anime::AgeRating;
+    const auto ratingStr = [this]() -> QString {
+      switch (m_anime.age_rating) {
+        case R::G:   return u"G — All ages"_s;
+        case R::PG:  return u"PG — Children"_s;
+        case R::PG13:return u"PG-13 — Teens 13+"_s;
+        case R::R17: return u"R — 17+"_s;
+        case R::R18: return u"R+ — Adults"_s;
+        default:     return {};
+      }
+    }();
+    if (!ratingStr.isEmpty()) {
+      ui_->infoLayout->addRow(get_row_title(tr("Rating:")), get_row_label(ratingStr));
+    }
+  }
+
+  // Popularity rank
+  if (m_anime.popularity_rank > 0) {
+    ui_->infoLayout->addRow(get_row_title(tr("Popularity:")),
+                            get_row_label(u"#%1"_s.arg(m_anime.popularity_rank)));
+  }
+
+  // Airing info: last aired episode and next episode countdown
+  if (m_anime.status == anime::Status::Airing) {
+    if (m_anime.last_aired_episode > 0) {
+      ui_->infoLayout->addRow(
+          get_row_title(tr("Last aired:")),
+          get_row_label(tr("Episode %1").arg(m_anime.last_aired_episode)));
+    }
+    if (m_anime.next_episode_time > 0) {
+      const QString rel = formatAsRelativeTime(static_cast<qint64>(m_anime.next_episode_time));
+      const int next_ep = m_anime.last_aired_episode + 1;
+      const QString next_ep_label = next_ep > 0
+          ? tr("Episode %1 — %2").arg(next_ep).arg(rel)
+          : rel;
+      auto* next_label = get_row_label(next_ep_label);
+      next_label->setToolTip(
+          QDateTime::fromSecsSinceEpoch(static_cast<qint64>(m_anime.next_episode_time))
+              .toString(Qt::RFC2822Date));
+      ui_->infoLayout->addRow(get_row_title(tr("Next episode:")), next_label);
+    }
+  }
+
+  // Trailer (YouTube link)
+  if (!m_anime.trailer_id.empty()) {
+    const QString trailerUrl =
+        u"https://www.youtube.com/watch?v=%1"_s.arg(
+            QString::fromStdString(m_anime.trailer_id));
+    auto* trailer_label = get_row_label(
+        u"<a href=\"%1\">Watch on YouTube</a>"_s.arg(trailerUrl));
+    trailer_label->setOpenExternalLinks(true);
+    trailer_label->setTextFormat(Qt::RichText);
+    ui_->infoLayout->addRow(get_row_title(tr("Trailer:")), trailer_label);
+  }
+
   const auto synopsis = QString::fromStdString(m_anime.synopsis);
 
   ui_->synopsisHeader->setHidden(synopsis.isEmpty());
@@ -352,6 +429,9 @@ void MediaDialog::accept() {
                                 : FuzzyDate{};
   m_entry->notes = ui_->plainTextEditNotes->toPlainText().toStdString();
   m_entry->last_updated = QDateTime::currentSecsSinceEpoch();
+
+  // v1-style completion prompt: show dialog if episodes now equals the total
+  gui::maybePromptCompletion(this, m_anime, *m_entry);
 
   gui::commitListEntryLocalAndMaybeRemote(*m_entry, this);
 
