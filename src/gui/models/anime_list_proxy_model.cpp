@@ -56,6 +56,21 @@ AnimeListProxyModel::AnimeListProxyModel(QObject* parent) : QSortFilterProxyMode
   setSortRole(Qt::UserRole);
 }
 
+std::optional<int> AnimeListProxyModel::secondarySortColumn() const {
+  return m_secondarySortColumn;
+}
+
+Qt::SortOrder AnimeListProxyModel::secondarySortOrder() const {
+  return m_secondarySortOrder;
+}
+
+void AnimeListProxyModel::setSecondarySort(std::optional<int> column, const Qt::SortOrder order) {
+  m_secondarySortColumn = column;
+  m_secondarySortOrder = order;
+  invalidate();
+  sort(sortColumn(), sortOrder());
+}
+
 const AnimeListProxyModelFilter& AnimeListProxyModel::filters() const {
   return m_filter;
 }
@@ -165,63 +180,199 @@ bool AnimeListProxyModel::lessThan(const QModelIndex& lhs, const QModelIndex& rh
   const auto lhs_entry = getListEntry(lhs);
   const auto rhs_entry = getListEntry(rhs);
 
+  const auto cmp_title = [&] {
+    const auto lang = taiga::settings.listTitleLanguage();
+    const std::string l = anime::preferredListTitleString(*lhs_anime, lang);
+    const std::string r = anime::preferredListTitleString(*rhs_anime, lang);
+    const int c = compareStrings(l, r, Qt::CaseInsensitive);
+    if (c != 0) return c;
+    // Stable tie-breaker: keep strict weak ordering even when titles match.
+    return lhs_anime->id < rhs_anime->id ? -1 : (lhs_anime->id > rhs_anime->id ? 1 : 0);
+  };
+
+  const auto cmp_col = [&](const int col) -> int {
+    switch (col) {
+      case AnimeListModel::COLUMN_TITLE:
+        return cmp_title();
+
+      case AnimeListModel::COLUMN_DURATION:
+        if (lhs_anime->episode_length != rhs_anime->episode_length) {
+          return lhs_anime->episode_length < rhs_anime->episode_length ? -1 : 1;
+        }
+        return 0;
+
+      case AnimeListModel::COLUMN_AVERAGE:
+        if (lhs_anime->score != rhs_anime->score) return lhs_anime->score < rhs_anime->score ? -1 : 1;
+        return 0;
+
+      case AnimeListModel::COLUMN_TYPE:
+        if (lhs_anime->type != rhs_anime->type) return lhs_anime->type < rhs_anime->type ? -1 : 1;
+        return 0;
+
+      case AnimeListModel::COLUMN_PROGRESS: {
+        const auto lhs_ratio = anime::list::getProgressRatio(lhs_anime, lhs_entry);
+        const auto rhs_ratio = anime::list::getProgressRatio(rhs_anime, rhs_entry);
+        if (lhs_ratio != rhs_ratio) return lhs_ratio < rhs_ratio ? -1 : 1;
+        const int lhs_ec = anime::estimateEpisodeCount(*lhs_anime, 0);
+        const int rhs_ec = anime::estimateEpisodeCount(*rhs_anime, 0);
+        if (lhs_ec != rhs_ec) return lhs_ec < rhs_ec ? -1 : 1;
+        return 0;
+      }
+
+      case AnimeListModel::COLUMN_REWATCHES: {
+        const int l = lhs_entry ? lhs_entry->rewatched_times : 0;
+        const int r = rhs_entry ? rhs_entry->rewatched_times : 0;
+        if (l != r) return l < r ? -1 : 1;
+        return 0;
+      }
+
+      case AnimeListModel::COLUMN_SCORE: {
+        const int l = lhs_entry ? lhs_entry->score : 0;
+        const int r = rhs_entry ? rhs_entry->score : 0;
+        if (l != r) return l < r ? -1 : 1;
+        return 0;
+      }
+
+      case AnimeListModel::COLUMN_SEASON:
+        if (lhs_anime->date_started != rhs_anime->date_started) {
+          return lhs_anime->date_started < rhs_anime->date_started ? -1 : 1;
+        }
+        return 0;
+
+      case AnimeListModel::COLUMN_STARTED: {
+        const FuzzyDate l = lhs_entry ? lhs_entry->date_started : FuzzyDate{};
+        const FuzzyDate r = rhs_entry ? rhs_entry->date_started : FuzzyDate{};
+        if (l != r) return l < r ? -1 : 1;
+        return 0;
+      }
+
+      case AnimeListModel::COLUMN_COMPLETED: {
+        const FuzzyDate l = lhs_entry ? lhs_entry->date_completed : FuzzyDate{};
+        const FuzzyDate r = rhs_entry ? rhs_entry->date_completed : FuzzyDate{};
+        if (l != r) return l < r ? -1 : 1;
+        return 0;
+      }
+
+      case AnimeListModel::COLUMN_LAST_UPDATED: {
+        const int64_t l = lhs_entry ? lhs_entry->last_updated : 0;
+        const int64_t r = rhs_entry ? rhs_entry->last_updated : 0;
+        if (l != r) return l < r ? -1 : 1;
+        return 0;
+      }
+
+      case AnimeListModel::COLUMN_NOTES: {
+        const std::string& l = lhs_entry ? lhs_entry->notes : std::string{};
+        const std::string& r = rhs_entry ? rhs_entry->notes : std::string{};
+        if (l != r) return l < r ? -1 : 1;
+        return 0;
+      }
+    }
+    return 0;
+  };
+
   if (taiga::settings.listHighlightNextEpisodeOnDisk() && taiga::settings.listHighlightAvailableOnTop()) {
     const int rank_lhs = track::nextEpisodeIsOnDisk(lhs_anime->id, lhs_anime, lhs_entry) ? 0 : 1;
     const int rank_rhs = track::nextEpisodeIsOnDisk(rhs_anime->id, rhs_anime, rhs_entry) ? 0 : 1;
-    if (rank_lhs != rank_rhs) return rank_lhs < rank_rhs;
+    if (rank_lhs != rank_rhs) {
+      // Keep "next episode on disk" items on top regardless of sort order.
+      return sortOrder() == Qt::SortOrder::DescendingOrder ? (rank_lhs > rank_rhs)
+                                                          : (rank_lhs < rank_rhs);
+    }
   }
 
-  switch (lhs.column()) {
-    case AnimeListModel::COLUMN_TITLE: {
-      const auto lang = taiga::settings.listTitleLanguage();
-      const std::string l = anime::preferredListTitleString(*lhs_anime, lang);
-      const std::string r = anime::preferredListTitleString(*rhs_anime, lang);
-      return compareStrings(l, r, Qt::CaseInsensitive) < 0;
+  int c = cmp_col(sortColumn());
+  if (c == 0 && m_secondarySortColumn && *m_secondarySortColumn != sortColumn()) {
+    // QSortFilterProxyModel in descending order swaps lhs/rhs when calling lessThan.
+    // Secondary sort order is user-defined (v1 parity), so keep it stable regardless of primary order.
+    const QModelIndex& lhs2 = sortOrder() == Qt::SortOrder::DescendingOrder ? rhs : lhs;
+    const QModelIndex& rhs2 = sortOrder() == Qt::SortOrder::DescendingOrder ? lhs : rhs;
+    const auto lhs2_anime = getAnime(lhs2);
+    const auto rhs2_anime = getAnime(rhs2);
+    if (lhs2_anime && rhs2_anime) {
+      const auto lhs2_entry = getListEntry(lhs2);
+      const auto rhs2_entry = getListEntry(rhs2);
+      // Re-evaluate the secondary comparison using the unswapped order.
+      // We intentionally do not reuse cmp_col() directly since it closes over lhs/rhs.
+      const auto cmp_col2 = [&](const int col) -> int {
+        switch (col) {
+          case AnimeListModel::COLUMN_TITLE: {
+            const auto lang = taiga::settings.listTitleLanguage();
+            const std::string l = anime::preferredListTitleString(*lhs2_anime, lang);
+            const std::string r = anime::preferredListTitleString(*rhs2_anime, lang);
+            const int cc = compareStrings(l, r, Qt::CaseInsensitive);
+            if (cc != 0) return cc;
+            return lhs2_anime->id < rhs2_anime->id ? -1 : (lhs2_anime->id > rhs2_anime->id ? 1 : 0);
+          }
+          case AnimeListModel::COLUMN_DURATION:
+            if (lhs2_anime->episode_length != rhs2_anime->episode_length) {
+              return lhs2_anime->episode_length < rhs2_anime->episode_length ? -1 : 1;
+            }
+            return 0;
+          case AnimeListModel::COLUMN_AVERAGE:
+            if (lhs2_anime->score != rhs2_anime->score) return lhs2_anime->score < rhs2_anime->score ? -1 : 1;
+            return 0;
+          case AnimeListModel::COLUMN_TYPE:
+            if (lhs2_anime->type != rhs2_anime->type) return lhs2_anime->type < rhs2_anime->type ? -1 : 1;
+            return 0;
+          case AnimeListModel::COLUMN_PROGRESS: {
+            const auto lhs_ratio = anime::list::getProgressRatio(lhs2_anime, lhs2_entry);
+            const auto rhs_ratio = anime::list::getProgressRatio(rhs2_anime, rhs2_entry);
+            if (lhs_ratio != rhs_ratio) return lhs_ratio < rhs_ratio ? -1 : 1;
+            const int lhs_ec = anime::estimateEpisodeCount(*lhs2_anime, 0);
+            const int rhs_ec = anime::estimateEpisodeCount(*rhs2_anime, 0);
+            if (lhs_ec != rhs_ec) return lhs_ec < rhs_ec ? -1 : 1;
+            return 0;
+          }
+          case AnimeListModel::COLUMN_REWATCHES: {
+            const int l = lhs2_entry ? lhs2_entry->rewatched_times : 0;
+            const int r = rhs2_entry ? rhs2_entry->rewatched_times : 0;
+            if (l != r) return l < r ? -1 : 1;
+            return 0;
+          }
+          case AnimeListModel::COLUMN_SCORE: {
+            const int l = lhs2_entry ? lhs2_entry->score : 0;
+            const int r = rhs2_entry ? rhs2_entry->score : 0;
+            if (l != r) return l < r ? -1 : 1;
+            return 0;
+          }
+          case AnimeListModel::COLUMN_SEASON:
+            if (lhs2_anime->date_started != rhs2_anime->date_started) {
+              return lhs2_anime->date_started < rhs2_anime->date_started ? -1 : 1;
+            }
+            return 0;
+          case AnimeListModel::COLUMN_STARTED: {
+            const FuzzyDate l = lhs2_entry ? lhs2_entry->date_started : FuzzyDate{};
+            const FuzzyDate r = rhs2_entry ? rhs2_entry->date_started : FuzzyDate{};
+            if (l != r) return l < r ? -1 : 1;
+            return 0;
+          }
+          case AnimeListModel::COLUMN_COMPLETED: {
+            const FuzzyDate l = lhs2_entry ? lhs2_entry->date_completed : FuzzyDate{};
+            const FuzzyDate r = rhs2_entry ? rhs2_entry->date_completed : FuzzyDate{};
+            if (l != r) return l < r ? -1 : 1;
+            return 0;
+          }
+          case AnimeListModel::COLUMN_LAST_UPDATED: {
+            const int64_t l = lhs2_entry ? lhs2_entry->last_updated : 0;
+            const int64_t r = rhs2_entry ? rhs2_entry->last_updated : 0;
+            if (l != r) return l < r ? -1 : 1;
+            return 0;
+          }
+          case AnimeListModel::COLUMN_NOTES: {
+            const std::string& l = lhs2_entry ? lhs2_entry->notes : std::string{};
+            const std::string& r = rhs2_entry ? rhs2_entry->notes : std::string{};
+            if (l != r) return l < r ? -1 : 1;
+            return 0;
+          }
+        }
+        return 0;
+      };
+      c = cmp_col2(*m_secondarySortColumn);
+      if (m_secondarySortOrder == Qt::SortOrder::DescendingOrder) c = -c;
     }
-
-    case AnimeListModel::COLUMN_DURATION:
-      return lhs_anime->episode_length < rhs_anime->episode_length;
-
-    case AnimeListModel::COLUMN_AVERAGE:
-      return lhs_anime->score < rhs_anime->score;
-
-    case AnimeListModel::COLUMN_TYPE:
-      return lhs_anime->type < rhs_anime->type;
-
-    case AnimeListModel::COLUMN_PROGRESS: {
-      const auto lhs_ratio = anime::list::getProgressRatio(lhs_anime, lhs_entry);
-      const auto rhs_ratio = anime::list::getProgressRatio(rhs_anime, rhs_entry);
-      if (lhs_ratio != rhs_ratio) return lhs_ratio < rhs_ratio;
-      return anime::estimateEpisodeCount(*lhs_anime, 0) <
-             anime::estimateEpisodeCount(*rhs_anime, 0);
-    }
-
-    case AnimeListModel::COLUMN_REWATCHES:
-      return (lhs_entry ? lhs_entry->rewatched_times : 0) <
-             (rhs_entry ? rhs_entry->rewatched_times : 0);
-
-    case AnimeListModel::COLUMN_SCORE:
-      return (lhs_entry ? lhs_entry->score : 0) < (rhs_entry ? rhs_entry->score : 0);
-
-    case AnimeListModel::COLUMN_SEASON:
-      return lhs_anime->date_started < rhs_anime->date_started;
-
-    case AnimeListModel::COLUMN_STARTED:
-      return (lhs_entry ? lhs_entry->date_started : FuzzyDate{}) <
-             (rhs_entry ? rhs_entry->date_started : FuzzyDate{});
-
-    case AnimeListModel::COLUMN_COMPLETED:
-      return (lhs_entry ? lhs_entry->date_completed : FuzzyDate{}) <
-             (rhs_entry ? rhs_entry->date_completed : FuzzyDate{});
-
-    case AnimeListModel::COLUMN_LAST_UPDATED:
-      return (lhs_entry ? lhs_entry->last_updated : 0) < (rhs_entry ? rhs_entry->last_updated : 0);
-
-    case AnimeListModel::COLUMN_NOTES:
-      return (lhs_entry ? lhs_entry->notes : "") < (rhs_entry ? rhs_entry->notes : "");
   }
-
-  return false;
+  if (c == 0) c = cmp_title();
+  return c < 0;
 }
 
 }  // namespace gui

@@ -35,6 +35,8 @@ class Session final : public base::Settings {
 public:
   int animeListSortColumn() const;
   Qt::SortOrder animeListSortOrder() const;
+  std::optional<int> animeListSortColumnSecondary() const;
+  Qt::SortOrder animeListSortOrderSecondary() const;
   gui::ListViewMode animeListViewMode() const;
   /// `QHeaderView::saveState` for the anime list table (widths, order, shown/hidden columns).
   QByteArray animeListHeaderState() const;
@@ -50,6 +52,8 @@ public:
   gui::AnimeListProxyModelFilter searchListFilters() const;
   int searchListSortColumn() const;
   Qt::SortOrder searchListSortOrder() const;
+  std::optional<int> searchListSortColumnSecondary() const;
+  Qt::SortOrder searchListSortOrderSecondary() const;
   gui::ListViewMode searchListViewMode() const;
   QString torrentPanelLastQuery() const;
   /// Substring filter on the Torrents RSS table (restored when reopening the app).
@@ -61,6 +65,8 @@ public:
 
   void setAnimeListSortColumn(const int column) const;
   void setAnimeListSortOrder(const Qt::SortOrder order) const;
+  void setAnimeListSortColumnSecondary(std::optional<int> column) const;
+  void setAnimeListSortOrderSecondary(const Qt::SortOrder order) const;
   void setAnimeListViewMode(const gui::ListViewMode mode) const;
   void setAnimeListHeaderState(const QByteArray& state) const;
   void setMainWindowGeometry(const QByteArray& geometry) const;
@@ -72,6 +78,8 @@ public:
   void setSearchListFilters(const gui::AnimeListProxyModelFilter& filters) const;
   void setSearchListSortColumn(const int column) const;
   void setSearchListSortOrder(const Qt::SortOrder order) const;
+  void setSearchListSortColumnSecondary(std::optional<int> column) const;
+  void setSearchListSortOrderSecondary(const Qt::SortOrder order) const;
   void setSearchListViewMode(const gui::ListViewMode mode) const;
   void setTorrentPanelLastQuery(const QString& query) const;
   void setTorrentPanelResultFilter(const QString& text) const;

@@ -20,10 +20,15 @@
 
 #include <QDialog>
 
+#include <string>
+#include <utility>
+#include <vector>
+
 namespace Ui {
 class SettingsDialog;
 }
 
+class QCheckBox;
 class QLineEdit;
 
 namespace gui {
@@ -54,6 +59,8 @@ private:
   QLineEdit* m_mal_username_ = nullptr;
   QLineEdit* m_mal_access_ = nullptr;
   QLineEdit* m_mal_refresh_ = nullptr;
+
+  std::vector<std::pair<std::string, QCheckBox*>> streaming_provider_checks_;
 };
 
 }  // namespace gui

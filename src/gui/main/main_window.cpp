@@ -74,7 +74,7 @@
 #include "taiga/session.hpp"
 #include "taiga/settings.hpp"
 #include "taiga/stats.hpp"
-#include "taiga/http_announce.hpp"
+#include "taiga/tray_balloon_format.hpp"
 #include "taiga/update_check.hpp"
 #include "taiga/user_feedback.hpp"
 #include "track/episode.hpp"
@@ -485,7 +485,6 @@ void MainWindow::initToolbar() {
       view_menu->addAction(ui_->actionToggleNowPlaying);
       menu->addSeparator();
       menu->addAction(ui_->actionToggleDetection);
-      menu->addAction(ui_->actionToggleSharing);
       menu->addAction(ui_->actionToggleSynchronization);
       menu->addSeparator();
       menu->addMenu(ui_->menuHelp);
@@ -703,25 +702,14 @@ void MainWindow::updateNavHistoryActions() {
 void MainWindow::initFeatureToggleActions() {
   {
     const QSignalBlocker b1(ui_->actionToggleDetection);
-    const QSignalBlocker b2(ui_->actionToggleSharing);
     const QSignalBlocker b3(ui_->actionToggleSynchronization);
     ui_->actionToggleDetection->setChecked(taiga::settings.mediaDetectionEnabled());
-    ui_->actionToggleSharing->setChecked(taiga::settings.sharingEnabled());
     ui_->actionToggleSynchronization->setChecked(taiga::settings.listSynchronizationEnabled());
   }
 
   connect(ui_->actionToggleDetection, &QAction::toggled, this, [](const bool on) {
     taiga::settings.setMediaDetectionEnabled(on);
     track::media::detection()->setPollingEnabled(taiga::settings.mediaDetectionPollingActive());
-  });
-  connect(ui_->actionToggleSharing, &QAction::toggled, this, [this](const bool on) {
-    taiga::settings.setSharingEnabled(on);
-    if (on) {
-      statusBar()->showMessage(
-          tr("Discord / HTTP / mIRC sharing is not available in this Qt 6 build yet; your preference "
-             "is saved."),
-          10000);
-    }
   });
   connect(ui_->actionToggleSynchronization, &QAction::toggled, this, [this](const bool on) {
     taiga::settings.setListSynchronizationEnabled(on);
@@ -1052,10 +1040,6 @@ void MainWindow::runLibraryScan(const bool startup_silent) {
 }
 
 void MainWindow::maybeNotifyMediaDetectionBalloon(const std::optional<track::Episode>& episode) {
-  if (episode && episode->animeId() > 0) {
-    taiga::http_announce::postRecognizedEpisodeIfConfigured(*episode);
-  }
-
   if (!m_trayIcon || !QSystemTrayIcon::supportsMessages()) return;
   if (!taiga::settings.mediaDetectionPollingActive()) return;
 
@@ -1065,12 +1049,16 @@ void MainWindow::maybeNotifyMediaDetectionBalloon(const std::optional<track::Epi
   if (episode && episode->animeId() > 0) {
     if (!taiga::settings.mediaNotifyRecognizedBalloon()) return;
     if (const auto item = anime::db.item(episode->animeId())) {
-      const QString romaji = QString::fromStdString(item->titles.romaji);
       const QString epn =
           QString::fromStdString(episode->element(anitomy::ElementKind::Episode, std::string{"?"}));
       sig = QStringLiteral("ok:%1:%2").arg(episode->animeId()).arg(epn);
       title = tr("Now playing");
-      body = item->episode_count > 1 ? tr("%1 — episode %2").arg(romaji, epn) : romaji;
+      body = taiga::tray_balloon::formatTemplate(
+          QString::fromStdString(taiga::settings.mediaNotifyBalloonFormatRecognized()), *episode, item);
+      if (body.trimmed().isEmpty()) {
+        const QString romaji = QString::fromStdString(item->titles.romaji);
+        body = item->episode_count > 1 ? tr("%1 — episode %2").arg(romaji, epn) : romaji;
+      }
     } else {
       return;
     }
@@ -1080,7 +1068,16 @@ void MainWindow::maybeNotifyMediaDetectionBalloon(const std::optional<track::Epi
     if (raw.isEmpty()) return;
     sig = QStringLiteral("bad:%1").arg(raw);
     title = tr("Unrecognized media");
-    body = tr("Could not match: %1").arg(raw);
+    body = taiga::tray_balloon::formatTemplate(
+        QString::fromStdString(taiga::settings.mediaNotifyBalloonFormatUnrecognized()), *episode,
+        nullptr);
+    if (body.trimmed().isEmpty()) {
+      body = tr("Could not match: %1").arg(raw);
+    }
+    if (taiga::settings.mediaNotifyBalloonUnrecognizedAppendHint()) {
+      body += QLatin1Char('\n');
+      body += tr("Click here to view similar titles for this anime.");
+    }
   } else {
     m_last_media_balloon_sig_.clear();
     return;

@@ -203,7 +203,9 @@ QVariant AnimeListModel::data(const QModelIndex& index, int role) const {
       return QVariant::fromValue(entry);
     }
     case static_cast<int>(AnimeListItemDataRole::Poster): {
-      return QVariant::fromValue(imageProvider.loadPoster(anime->id));
+      // Pass QPixmap by value — `const QPixmap*` in QVariant is not reliably registered, so delegates
+      // often got nullptr and drew no poster (Cards view). QPixmap is implicitly shared.
+      return QVariant::fromValue(*imageProvider.loadPoster(anime->id));
     }
   }
 

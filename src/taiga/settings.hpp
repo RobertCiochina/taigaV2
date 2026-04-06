@@ -85,6 +85,13 @@ public:
 
   /// Taiga v1: program/general/enablerecognition
   bool mediaDetectionEnabled() const;
+  /// Taiga v1: `account/update/auto` — when true, automatically update watched episode count on recognition.
+  bool recognitionAutoUpdateList() const;
+  /// Taiga v1: `account/update/delay` — seconds to wait after recognition before committing the list update.
+  int recognitionUpdateDelaySeconds() const;
+  /// Taiga v1: `account/update/outofrange` — skip auto-update if the detected episode exceeds the anime's
+  /// total episode count.
+  bool recognitionUpdateOutOfRange() const;
   /// Taiga v1: `recognition/mediaplayers/enabled` — when false, desktop player polling is off.
   bool mediaDetectionPlayersEnabled() const;
   /// Taiga v1: `recognition/streaming/enabled` — include web browsers in media detection (Windows).
@@ -94,17 +101,19 @@ public:
   /// Taiga v1 `recognition/anitomy/ignored_strings` (removed from modern Anitomy): substrings stripped from
   /// filenames/titles before parsing (newline, comma, or semicolon separated).
   std::string recognitionIgnoredSubstrings() const;
+  /// Taiga v1: `recognition/streaming/providers/<slug>` — when the URL matches a known provider, that
+  /// provider must be enabled or the detection pass is skipped (default: all **on**).
+  bool streamProviderEnabled(const std::string& slug) const;
   /// Taiga v1: `program/notifications/balloon/recognized` — tray message when a playing title is matched.
   bool mediaNotifyRecognizedBalloon() const;
   /// Taiga v1: `program/notifications/balloon/notrecognized` — tray message for unmatched media.
   bool mediaNotifyUnrecognizedBalloon() const;
-  /// Taiga v1: program/general/enablesharing
-  bool sharingEnabled() const;
-  /// Taiga v1: `announce/http/enabled` — POST now-playing updates (requires **sharing** on).
-  bool announceHttpEnabled() const;
-  std::string announceHttpUrl() const;
-  /// Default matches v1 `ShareHttpFormat` (form-urlencoded tokens are percent-encoded in values).
-  std::string announceHttpBodyFormat() const;
+  /// Taiga v1: `program/notifications/balloon/format` — body text for recognized tray messages (`%title%`, `%episode%`, …).
+  std::string mediaNotifyBalloonFormatRecognized() const;
+  /// Body template when the parser could not match a list entry (typically `%name%`).
+  std::string mediaNotifyBalloonFormatUnrecognized() const;
+  /// Extra line appended to unrecognized balloons (v1 suggested similar titles); can be disabled.
+  bool mediaNotifyBalloonUnrecognizedAppendHint() const;
   /// Taiga v1: program/general/enablesync — when false, manual/auto list sync is skipped.
   bool listSynchronizationEnabled() const;
   /// Taiga v1: `account/update/delay` — seconds before pushing the same title after a local change
@@ -152,6 +161,26 @@ public:
   bool torrentFeedFilterEnabled() const;
   /// Taiga v1: `rss/torrent/filter/archive_maxcount` — max feed items in the Torrents table when filter is on.
   int torrentFeedArchiveMaxItems() const;
+  /// Qt port: simple in-app RSS filtering (regex, one per line).
+  /// If non-empty, at least one include regex must match the row text for it to appear.
+  std::string torrentFeedIncludeRegexList() const;
+  /// Qt port: simple in-app RSS filtering (regex, one per line).
+  /// If any exclude regex matches the row text, the row is hidden.
+  std::string torrentFeedExcludeRegexList() const;
+  /// Qt port: torrent RSS filter — hide items that match anime on your Dropped list.
+  bool torrentFeedHideDropped() const;
+  /// Qt port: torrent RSS filter — hide items that do not match any anime on your list.
+  bool torrentFeedHideNotInList() const;
+  /// Taiga v1 default filter: discard items at or below your watched progress.
+  bool torrentFeedHideWatchedEpisodes() const;
+  /// Taiga v1 default filter: discard items already available locally.
+  bool torrentFeedHideAvailableEpisodes() const;
+  /// Taiga v1 preset: prefer new versions (v2+). When enabled, older versions of the same episode are hidden
+  /// if a newer version exists in the current RSS view.
+  bool torrentFeedHideOlderVersionsWhenNewerExists() const;
+  /// Taiga v1: torrent archive (discarded items). Exact-match title list applied on RSS fill.
+  /// Stored in settings for persistence across runs.
+  QStringList torrentFeedDiscardedTitleArchive() const;
   /// Taiga v1: `rss/torrent/options/downloadusemagnet` — when true, prefer magnet over HTTP .torrent when both exist.
   bool torrentDownloadUseMagnet() const;
   /// Taiga v1: `rss/torrent/options/downloadpath` — default directory passed to the torrent client (when supported).
@@ -194,15 +223,18 @@ public:
   void setStartMinimized(bool enabled) const;
   void setStartWithWindows(bool enabled) const;
   void setMediaDetectionEnabled(bool enabled) const;
+  void setRecognitionAutoUpdateList(bool enabled) const;
+  void setRecognitionUpdateDelaySeconds(int seconds) const;
+  void setRecognitionUpdateOutOfRange(bool enabled) const;
   void setMediaDetectionPlayersEnabled(bool enabled) const;
   void setMediaDetectionStreamingEnabled(bool enabled) const;
   void setRecognitionIgnoredSubstrings(const std::string& text) const;
+  void setStreamProviderEnabled(const std::string& slug, bool enabled) const;
   void setMediaNotifyRecognizedBalloon(bool enabled) const;
   void setMediaNotifyUnrecognizedBalloon(bool enabled) const;
-  void setSharingEnabled(bool enabled) const;
-  void setAnnounceHttpEnabled(bool enabled) const;
-  void setAnnounceHttpUrl(const std::string& url) const;
-  void setAnnounceHttpBodyFormat(const std::string& format) const;
+  void setMediaNotifyBalloonFormatRecognized(const std::string& format) const;
+  void setMediaNotifyBalloonFormatUnrecognized(const std::string& format) const;
+  void setMediaNotifyBalloonUnrecognizedAppendHint(bool enabled) const;
   void setListSynchronizationEnabled(bool enabled) const;
   void setSyncListUpdateDelaySeconds(int seconds) const;
   void setSyncListPushAskConfirm(bool enabled) const;
@@ -225,6 +257,14 @@ public:
   void setTorrentRssSortOrder(const std::string& value) const;
   void setTorrentFeedFilterEnabled(bool enabled) const;
   void setTorrentFeedArchiveMaxItems(int count) const;
+  void setTorrentFeedIncludeRegexList(const std::string& text) const;
+  void setTorrentFeedExcludeRegexList(const std::string& text) const;
+  void setTorrentFeedHideDropped(bool enabled) const;
+  void setTorrentFeedHideNotInList(bool enabled) const;
+  void setTorrentFeedHideWatchedEpisodes(bool enabled) const;
+  void setTorrentFeedHideAvailableEpisodes(bool enabled) const;
+  void setTorrentFeedHideOlderVersionsWhenNewerExists(bool enabled) const;
+  void setTorrentFeedDiscardedTitleArchive(const QStringList& titles) const;
   void setTorrentDownloadUseMagnet(bool enabled) const;
   void setTorrentClientDownloadPath(const std::string& path) const;
   void setTorrentFileSavePath(const std::string& path) const;

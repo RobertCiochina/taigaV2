@@ -18,6 +18,7 @@
 
 #pragma once
 
+#include <QMenu>
 #include <QString>
 
 #include "gui/common/anime_list_view_base.hpp"
@@ -28,6 +29,7 @@ namespace gui {
 
 class AnimeListModel;
 class AnimeListProxyModel;
+class ListView;
 class ListViewCards;
 
 class SearchWidget final : public PageWidget {
@@ -49,14 +51,24 @@ public:
   void applyToolbarTextFilter(const QString& text);
 
 private:
+  void setViewMode(ListViewMode mode);
+  void initToolbar();
+  void initSortMenu();
+  void initViewMenu();
+  void initMoreMenu();
+
   AnimeListModel* m_model = nullptr;
   AnimeListProxyModel* m_proxyModel = nullptr;
   ComboBox* m_comboYear = nullptr;
   ComboBox* m_comboSeason = nullptr;
   ComboBox* m_comboType = nullptr;
   ComboBox* m_comboStatus = nullptr;
+  ListView* m_listView = nullptr;
   ListViewCards* m_listViewCards = nullptr;
   ListViewMode m_viewMode = ListViewMode::Cards;
+  QMenu* m_sortMenu = nullptr;
+  QMenu* m_viewMenu = nullptr;
+  QMenu* m_moreMenu = nullptr;
 };
 
 }  // namespace gui

@@ -18,6 +18,8 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QRegularExpression>
+#include <QDialogButtonBox>
 #include <QSystemTrayIcon>
 #include <QTreeWidgetItem>
 #include <QUrl>
@@ -25,9 +27,11 @@
 #include "base/string.hpp"
 #include "gui/main/main_window.hpp"
 #include "gui/settings/anilist_auth_dialog.hpp"
+#include "gui/settings/torrent_filters_dialog.hpp"
 #include "gui/utils/theme.hpp"
 #include "track/library_watcher.hpp"
 #include "track/media.hpp"
+#include "track/streaming_sites.hpp"
 #include "sync/anilist_utils.hpp"
 #include "sync/service.hpp"
 #include "media/anime.hpp"
@@ -85,13 +89,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   {
     auto* item = add_item("check_circle", "Recognition", kStackPlaceholder);
     add_child(item, "Media players");
-    add_child(item, "Streaming");
-  }
-  {
-    auto* item = add_item("share", "Sharing", kStackPlaceholder);
-    add_child(item, "Discord");
-    add_child(item, "HTTP");
-    add_child(item, "mIRC");
+    add_child(item, "Web browsers");
   }
   {
     auto* item = add_item("rss_feed", "Torrents", kStackPlaceholder);
@@ -115,6 +113,12 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
               text = u"%1 / %2"_s.arg(current->parent()->text(0), text);
             }
             ui_->titleLabel->setText(text);
+
+            if (current->parent() && current->parent()->text(0) == u"Torrents" &&
+                current->text(0) == u"Filters") {
+              TorrentFiltersDialog dlg(this);
+              dlg.exec();
+            }
           });
 
   {
@@ -232,8 +236,30 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   ui_->checkMediaDetection->setChecked(taiga::settings.mediaDetectionEnabled());
   ui_->checkMediaPlayerPolling->setChecked(taiga::settings.mediaDetectionPlayersEnabled());
   ui_->checkMediaStreaming->setChecked(taiga::settings.mediaDetectionStreamingEnabled());
+  streaming_provider_checks_.clear();
+  {
+    int row = 0;
+    int col = 0;
+    for (const auto& e : track::streaming::providerUiEntries()) {
+      auto* cb = new QCheckBox(tr(e.label), ui_->groupStreamingProviders);
+      cb->setChecked(taiga::settings.streamProviderEnabled(std::string(e.slug)));
+      ui_->gridStreamingProviders->addWidget(cb, row, col);
+      streaming_provider_checks_.emplace_back(std::string(e.slug), cb);
+      ++col;
+      if (col >= 2) {
+        col = 0;
+        ++row;
+      }
+    }
+  }
   ui_->checkNotifyMediaRecognized->setChecked(taiga::settings.mediaNotifyRecognizedBalloon());
   ui_->checkNotifyMediaUnrecognized->setChecked(taiga::settings.mediaNotifyUnrecognizedBalloon());
+  ui_->plainBalloonFormatRecognized->setPlainText(
+      QString::fromStdString(taiga::settings.mediaNotifyBalloonFormatRecognized()));
+  ui_->plainBalloonFormatUnrecognized->setPlainText(
+      QString::fromStdString(taiga::settings.mediaNotifyBalloonFormatUnrecognized()));
+  ui_->checkBalloonUnrecognizedAppendHint->setChecked(
+      taiga::settings.mediaNotifyBalloonUnrecognizedAppendHint());
   ui_->spinDetectionInterval->setValue(static_cast<int>(taiga::settings.mediaDetectionInterval().count() / 1000));
 #ifndef Q_OS_WINDOWS
   ui_->checkMediaDetection->setEnabled(false);
@@ -242,6 +268,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   ui_->checkNotifyMediaRecognized->setEnabled(false);
   ui_->checkNotifyMediaUnrecognized->setEnabled(false);
   ui_->spinDetectionInterval->setEnabled(false);
+  ui_->groupStreamingProviders->setEnabled(false);
 #endif
   {
     const auto rec_ui = [this] {
@@ -254,6 +281,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
       ui_->checkNotifyMediaRecognized->setEnabled(master);
       ui_->checkNotifyMediaUnrecognized->setEnabled(master);
       ui_->spinDetectionInterval->setEnabled(master && any_source);
+      ui_->groupStreamingProviders->setEnabled(master && ui_->checkMediaStreaming->isChecked());
 #else
       (void)0;
 #endif
@@ -267,13 +295,23 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
     rec_ui();
   }
 
+  ui_->checkAutoUpdateList->setChecked(taiga::settings.recognitionAutoUpdateList());
+  ui_->spinAutoUpdateDelay->setValue(taiga::settings.recognitionUpdateDelaySeconds());
+  ui_->checkAutoUpdateOutOfRange->setChecked(taiga::settings.recognitionUpdateOutOfRange());
+  {
+    const auto auto_update_ui = [this] {
+      const bool on = ui_->checkAutoUpdateList->isChecked();
+      ui_->spinAutoUpdateDelay->setEnabled(on);
+      ui_->checkAutoUpdateOutOfRange->setEnabled(on);
+    };
+    connect(ui_->checkAutoUpdateList, &QCheckBox::checkStateChanged, this,
+            [auto_update_ui](Qt::CheckState) { auto_update_ui(); });
+    auto_update_ui();
+  }
+
   ui_->checkLibraryLookupParent->setChecked(taiga::settings.libraryScanLookupParentDirectories());
   ui_->plainRecognitionIgnored->setPlainText(
       QString::fromStdString(taiga::settings.recognitionIgnoredSubstrings()));
-  ui_->checkAnnounceHttp->setChecked(taiga::settings.announceHttpEnabled());
-  ui_->lineAnnounceHttpUrl->setText(QString::fromStdString(taiga::settings.announceHttpUrl()));
-  ui_->plainAnnounceHttpBody->setPlainText(
-      QString::fromStdString(taiga::settings.announceHttpBodyFormat()));
   ui_->lineMediaPlayerExecutable->setText(
       QString::fromStdString(taiga::settings.mediaPlayerExecutablePath()));
   connect(ui_->buttonBrowseMediaPlayerExecutable, &QPushButton::clicked, this, [this] {
@@ -373,7 +411,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   {
     QComboBox* const sb = ui_->comboTorrentRssSortBy;
     if (sb->count() == 0) {
-      sb->addItem(tr("Title (v1: episode_number)"), QStringLiteral("episode_number"));
+      sb->addItem(tr("Episode number (v1)"), QStringLiteral("episode_number"));
       sb->addItem(tr("Published date (v1: release_date)"), QStringLiteral("release_date"));
     }
     const QString want_by = QString::fromStdString(taiga::settings.torrentRssSortBy());
@@ -400,6 +438,172 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   }
   ui_->checkTorrentFeedFilterEnabled->setChecked(taiga::settings.torrentFeedFilterEnabled());
   ui_->spinTorrentFeedArchiveMax->setValue(taiga::settings.torrentFeedArchiveMaxItems());
+  ui_->plainTorrentFeedIncludeRegex->setPlainText(
+      QString::fromStdString(taiga::settings.torrentFeedIncludeRegexList()));
+  ui_->plainTorrentFeedExcludeRegex->setPlainText(
+      QString::fromStdString(taiga::settings.torrentFeedExcludeRegexList()));
+  {
+    QPushButton* ok_btn = ui_->buttonBox->button(QDialogButtonBox::Ok);
+    const auto update_valid = [this, ok_btn]() {
+      const auto lines = [](const QString& t) {
+        QStringList out;
+        for (QString s : t.split(QRegularExpression(QStringLiteral("[\\r\\n]+")), Qt::SkipEmptyParts)) {
+          s = s.trimmed();
+          if (!s.isEmpty()) out.push_back(s);
+        }
+        return out;
+      };
+      const QStringList inc = lines(ui_->plainTorrentFeedIncludeRegex->toPlainText());
+      const QStringList exc = lines(ui_->plainTorrentFeedExcludeRegex->toPlainText());
+      const QSet<QString> exc_set(exc.begin(), exc.end());
+
+      QString warning;
+      bool valid = true;
+
+      if (!inc.isEmpty() && exc_set.contains(QStringLiteral(".*"))) {
+        warning = tr("Your “Hide if matches” list contains <code>.*</code>, which hides everything, so no results can appear.");
+        valid = false;
+      } else if (!inc.isEmpty()) {
+        int covered = 0;
+        for (const QString& s : inc) {
+          if (exc_set.contains(s)) ++covered;
+        }
+        if (covered == inc.size()) {
+          warning = tr("All “Show only if matches” rules are also present in “Hide if matches”, so no results can appear.");
+          valid = false;
+        }
+      }
+
+      if (ui_->labelTorrentFeedRegexWarning) {
+        ui_->labelTorrentFeedRegexWarning->setText(
+            warning.isEmpty() ? QString{} : (u"<span style=\"color:#c33\"><b>%1</b></span>"_s.arg(warning)));
+      }
+      if (ok_btn) ok_btn->setEnabled(valid);
+    };
+    connect(ui_->plainTorrentFeedIncludeRegex, &QPlainTextEdit::textChanged, this, update_valid);
+    connect(ui_->plainTorrentFeedExcludeRegex, &QPlainTextEdit::textChanged, this, update_valid);
+    update_valid();
+  }
+  {
+    const auto addLine = [](QPlainTextEdit* edit, const QString& line) {
+      if (!edit) return;
+      const QString trimmed = line.trimmed();
+      if (trimmed.isEmpty()) return;
+      QStringList lines = edit->toPlainText().split(QRegularExpression(QStringLiteral("[\\r\\n]+")),
+                                                    Qt::SkipEmptyParts);
+      for (QString& s : lines) s = s.trimmed();
+      if (lines.contains(trimmed)) return;
+      QString cur = edit->toPlainText().trimmed();
+      if (!cur.isEmpty() && !cur.endsWith('\n')) cur += QLatin1Char('\n');
+      cur += trimmed;
+      edit->setPlainText(cur + QLatin1Char('\n'));
+    };
+
+    connect(ui_->buttonTorrentPresetDiscardBadVideo, &QPushButton::clicked, this, [this, addLine]() {
+      // v1 preset: discard AVI, DIVX, LQ, RMVB, SD, WMV, XVID
+      addLine(ui_->plainTorrentFeedExcludeRegex, QStringLiteral("\\b(AVI|DIVX|LQ|RMVB|SD|WMV|XVID)\\b"));
+    });
+    connect(ui_->buttonTorrentPresetPrefer1080p, &QPushButton::clicked, this, [this, addLine]() {
+      // v1 preset: prefer high-res
+      addLine(ui_->plainTorrentFeedIncludeRegex, QStringLiteral("\\b1080p\\b"));
+    });
+    connect(ui_->buttonTorrentPresetPreferV2, &QPushButton::clicked, this, [this, addLine]() {
+      // v1 preset: prefer v2+ when multiple exist
+      addLine(ui_->plainTorrentFeedIncludeRegex, QStringLiteral("\\bv[2-9]\\b"));
+      addLine(ui_->plainTorrentFeedIncludeRegex, QStringLiteral("\\bv\\d{2,}\\b"));
+    });
+    connect(ui_->buttonTorrentPresetDiscardCams, &QPushButton::clicked, this, [this, addLine]() {
+      addLine(ui_->plainTorrentFeedExcludeRegex, QStringLiteral("\\b(CAM|TS|TC)\\b"));
+    });
+    connect(ui_->buttonTorrentPresetPreferX265, &QPushButton::clicked, this, [this, addLine]() {
+      addLine(ui_->plainTorrentFeedIncludeRegex, QStringLiteral("\\b(x265|hevc)\\b"));
+    });
+    connect(ui_->buttonTorrentPresetPreferMKV, &QPushButton::clicked, this, [this, addLine]() {
+      addLine(ui_->plainTorrentFeedIncludeRegex, QStringLiteral("\\bMKV\\b"));
+    });
+    connect(ui_->buttonTorrentPresetPreferAAC, &QPushButton::clicked, this, [this, addLine]() {
+      addLine(ui_->plainTorrentFeedIncludeRegex, QStringLiteral("\\b(AAC|FLAC)\\b"));
+    });
+    connect(ui_->buttonTorrentRegexAddRule, &QPushButton::clicked, this, [this, addLine]() {
+      QDialog dlg(this);
+      dlg.setWindowTitle(tr("Add torrent filter rule"));
+      auto* layout = new QVBoxLayout(&dlg);
+
+      auto* form = new QFormLayout();
+      auto* target = new QComboBox(&dlg);
+      target->addItem(tr("Show only if matches"), 0);
+      target->addItem(tr("Hide if matches"), 1);
+      auto* mode = new QComboBox(&dlg);
+      mode->addItem(tr("Contains (case-insensitive)"), 0);
+      mode->addItem(tr("Whole word (case-insensitive)"), 1);
+      mode->addItem(tr("Regular expression"), 2);
+      auto* text = new QLineEdit(&dlg);
+      text->setPlaceholderText(tr("Example: 1080p"));
+      form->addRow(tr("Apply to:"), target);
+      form->addRow(tr("Match:"), mode);
+      form->addRow(tr("Text / regex:"), text);
+      layout->addLayout(form);
+
+      auto* help = new QLabel(
+          tr("This creates a line in the torrent RSS regex lists. You can always edit the result "
+             "manually afterwards."),
+          &dlg);
+      help->setWordWrap(true);
+      layout->addWidget(help);
+
+      auto* box = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+      QPushButton* ok = box->button(QDialogButtonBox::Ok);
+      ok->setEnabled(false);
+      layout->addWidget(box);
+      connect(box, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+      connect(box, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+
+      const auto rebuildOkEnabled = [ok, text, mode]() {
+        const QString v = text->text().trimmed();
+        if (v.isEmpty()) {
+          ok->setEnabled(false);
+          return;
+        }
+        if (mode->currentData().toInt() == 2) {
+          QRegularExpression re(v, QRegularExpression::CaseInsensitiveOption);
+          ok->setEnabled(re.isValid());
+          return;
+        }
+        ok->setEnabled(true);
+      };
+      connect(text, &QLineEdit::textChanged, &dlg, [rebuildOkEnabled]() { rebuildOkEnabled(); });
+      connect(mode, &QComboBox::currentIndexChanged, &dlg,
+              [rebuildOkEnabled](int) { rebuildOkEnabled(); });
+      rebuildOkEnabled();
+
+      if (dlg.exec() != QDialog::Accepted) return;
+
+      const QString raw = text->text().trimmed();
+      const int where = target->currentData().toInt();
+      const int how = mode->currentData().toInt();
+
+      QString line;
+      if (how == 2) {
+        line = raw;
+      } else {
+        const QString escaped = QRegularExpression::escape(raw);
+        if (how == 1) {
+          line = QStringLiteral("\\b%1\\b").arg(escaped);
+        } else {
+          line = escaped;
+        }
+      }
+
+      addLine(where == 1 ? ui_->plainTorrentFeedExcludeRegex : ui_->plainTorrentFeedIncludeRegex,
+              line);
+    });
+    connect(ui_->buttonTorrentRegexClearInclude, &QPushButton::clicked, this, [this]() {
+      ui_->plainTorrentFeedIncludeRegex->clear();
+    });
+    connect(ui_->buttonTorrentRegexClearExclude, &QPushButton::clicked, this, [this]() {
+      ui_->plainTorrentFeedExcludeRegex->clear();
+    });
+  }
   {
     const auto upd_feed_cap = [this] {
       const bool on = ui_->checkTorrentFeedFilterEnabled->isChecked();
@@ -590,14 +794,23 @@ void SettingsDialog::accept() {
   taiga::settings.setMediaDetectionEnabled(ui_->checkMediaDetection->isChecked());
   taiga::settings.setMediaDetectionPlayersEnabled(ui_->checkMediaPlayerPolling->isChecked());
   taiga::settings.setMediaDetectionStreamingEnabled(ui_->checkMediaStreaming->isChecked());
+  for (const auto& p : streaming_provider_checks_) {
+    taiga::settings.setStreamProviderEnabled(p.first, p.second->isChecked());
+  }
   taiga::settings.setRecognitionIgnoredSubstrings(ui_->plainRecognitionIgnored->toPlainText().toStdString());
-  taiga::settings.setAnnounceHttpEnabled(ui_->checkAnnounceHttp->isChecked());
-  taiga::settings.setAnnounceHttpUrl(ui_->lineAnnounceHttpUrl->text().trimmed().toStdString());
-  taiga::settings.setAnnounceHttpBodyFormat(ui_->plainAnnounceHttpBody->toPlainText().toStdString());
   taiga::settings.setMediaNotifyRecognizedBalloon(ui_->checkNotifyMediaRecognized->isChecked());
   taiga::settings.setMediaNotifyUnrecognizedBalloon(ui_->checkNotifyMediaUnrecognized->isChecked());
+  taiga::settings.setMediaNotifyBalloonFormatRecognized(
+      ui_->plainBalloonFormatRecognized->toPlainText().toStdString());
+  taiga::settings.setMediaNotifyBalloonFormatUnrecognized(
+      ui_->plainBalloonFormatUnrecognized->toPlainText().toStdString());
+  taiga::settings.setMediaNotifyBalloonUnrecognizedAppendHint(
+      ui_->checkBalloonUnrecognizedAppendHint->isChecked());
   taiga::settings.setMediaDetectionInterval(
       std::chrono::milliseconds(ui_->spinDetectionInterval->value() * 1000));
+  taiga::settings.setRecognitionAutoUpdateList(ui_->checkAutoUpdateList->isChecked());
+  taiga::settings.setRecognitionUpdateDelaySeconds(ui_->spinAutoUpdateDelay->value());
+  taiga::settings.setRecognitionUpdateOutOfRange(ui_->checkAutoUpdateOutOfRange->isChecked());
   taiga::settings.setLibraryScanLookupParentDirectories(ui_->checkLibraryLookupParent->isChecked());
   taiga::settings.setMediaPlayerExecutablePath(ui_->lineMediaPlayerExecutable->text().trimmed().toStdString());
   track::media::detection()->refreshPollingFromSettings();
@@ -659,6 +872,10 @@ void SettingsDialog::accept() {
       ui_->comboTorrentRssSortOrder->currentData().toString().toStdString());
   taiga::settings.setTorrentFeedFilterEnabled(ui_->checkTorrentFeedFilterEnabled->isChecked());
   taiga::settings.setTorrentFeedArchiveMaxItems(ui_->spinTorrentFeedArchiveMax->value());
+  taiga::settings.setTorrentFeedIncludeRegexList(
+      ui_->plainTorrentFeedIncludeRegex->toPlainText().trimmed().toStdString());
+  taiga::settings.setTorrentFeedExcludeRegexList(
+      ui_->plainTorrentFeedExcludeRegex->toPlainText().trimmed().toStdString());
   taiga::settings.setTorrentDownloadUseMagnet(ui_->checkTorrentDownloadUseMagnet->isChecked());
   taiga::settings.setTorrentClientDownloadPath(ui_->lineTorrentClientDownloadPath->text().trimmed().toStdString());
   taiga::settings.setTorrentFileSavePath(ui_->lineTorrentFileSavePath->text().trimmed().toStdString());

@@ -232,7 +232,7 @@ void parseProgramElement(QXmlStreamReader& xml, const taiga::Settings& settings)
       }
       const auto es = attrs.value(u"enablesharing");
       if (!es.isEmpty()) {
-        settings.setSharingEnabled(xmlAttrBool(es, true));
+        // "Sharing" (Discord/HTTP/mIRC announce) is intentionally not supported in this Qt build.
       }
       const auto ey = attrs.value(u"enablesync");
       if (!ey.isEmpty()) {
@@ -270,6 +270,11 @@ void parseProgramElement(QXmlStreamReader& xml, const taiga::Settings& settings)
           const auto nrec = battrs.value(u"notrecognized");
           if (!nrec.isEmpty()) {
             settings.setMediaNotifyUnrecognizedBalloon(xmlAttrBool(nrec, true));
+          }
+          const auto bfmt = battrs.value(u"format");
+          if (!bfmt.isEmpty()) {
+            settings.setMediaNotifyBalloonFormatRecognized(bfmt.toString().toStdString());
+            settings.setMediaNotifyBalloonFormatUnrecognized(bfmt.toString().toStdString());
           }
           xml.skipCurrentElement();
         } else {
@@ -352,12 +357,26 @@ void parseProgramElement(QXmlStreamReader& xml, const taiga::Settings& settings)
               taiga::session.setAnimeListSortColumn(*mapped);
             }
           }
+          const auto col2 = attrs.value(u"column2");
+          if (!col2.isEmpty()) {
+            if (const auto mapped = v1ListSortColumnToQt(col2.toString())) {
+              taiga::session.setAnimeListSortColumnSecondary(*mapped);
+            }
+          }
           const auto ord = attrs.value(u"order");
           if (!ord.isEmpty()) {
             bool ok = false;
             const int o = ord.toInt(&ok);
             if (ok) {
               taiga::session.setAnimeListSortOrder(o < 0 ? Qt::DescendingOrder : Qt::AscendingOrder);
+            }
+          }
+          const auto ord2 = attrs.value(u"order2");
+          if (!ord2.isEmpty()) {
+            bool ok = false;
+            const int o = ord2.toInt(&ok);
+            if (ok) {
+              taiga::session.setAnimeListSortOrderSecondary(o < 0 ? Qt::DescendingOrder : Qt::AscendingOrder);
             }
           }
           xml.skipCurrentElement();
@@ -440,11 +459,26 @@ void parseRecognitionElement(QXmlStreamReader& xml, const taiga::Settings& setti
       }
       xml.skipCurrentElement();
     } else if (xml.name() == u"streaming") {
-      const auto en = xml.attributes().value(u"enabled");
+      const auto attrs = xml.attributes();
+      const auto en = attrs.value(u"enabled");
       if (!en.isEmpty()) {
         settings.setMediaDetectionStreamingEnabled(xmlAttrBool(en, false));
       }
-      xml.skipCurrentElement();
+      while (xml.readNextStartElement()) {
+        if (xml.name() == u"provider") {
+          const auto pa = xml.attributes();
+          QString slug = pa.value(u"id").toString();
+          if (slug.isEmpty()) slug = pa.value(u"name").toString();
+          if (slug.isEmpty()) slug = pa.value(u"slug").toString();
+          const auto pen = pa.value(u"enabled");
+          if (!slug.isEmpty() && !pen.isEmpty()) {
+            settings.setStreamProviderEnabled(slug.toStdString(), xmlAttrBool(pen, true));
+          }
+          xml.skipCurrentElement();
+        } else {
+          xml.skipCurrentElement();
+        }
+      }
     } else if (xml.name() == u"anitomy") {
       const auto ig = xml.attributes().value(u"ignored_strings");
       if (!ig.isEmpty()) {
@@ -603,23 +637,6 @@ void parseAnnounceElement(QXmlStreamReader& xml, const taiga::Settings& settings
   if (!root.isEmpty()) {
     settings.setAnnounceV1MigrationJson(
         QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Compact)).toStdString());
-  }
-
-  const QJsonObject http = root.value(QStringLiteral("http")).toObject();
-  if (!http.isEmpty()) {
-    if (http.contains(QStringLiteral("enabled"))) {
-      settings.setAnnounceHttpEnabled(jsonToBool(http.value(QStringLiteral("enabled"))));
-    }
-    QString url = http.value(QStringLiteral("url")).toString();
-    if (url.isEmpty()) url = http.value(QStringLiteral("address")).toString();
-    if (!url.isEmpty()) {
-      settings.setAnnounceHttpUrl(url.toStdString());
-    }
-    QString fmt = http.value(QStringLiteral("format")).toString();
-    if (fmt.isEmpty()) fmt = http.value(QStringLiteral("body")).toString();
-    if (!fmt.isEmpty()) {
-      settings.setAnnounceHttpBodyFormat(fmt.toStdString());
-    }
   }
 }
 

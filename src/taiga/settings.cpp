@@ -22,6 +22,7 @@
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
+#include <QJsonObject>
 #include <QSettings>
 #include <QString>
 #include <algorithm>
@@ -192,8 +193,27 @@ bool Settings::mediaDetectionPollingActive() const {
          (mediaDetectionPlayersEnabled() || mediaDetectionStreamingEnabled());
 }
 
+bool Settings::recognitionAutoUpdateList() const {
+  return value("recognition.listUpdate.auto", true).toBool();
+}
+
+int Settings::recognitionUpdateDelaySeconds() const {
+  return std::clamp(value("recognition.listUpdate.delaySeconds", 120).toInt(), 1, 3600);
+}
+
+bool Settings::recognitionUpdateOutOfRange() const {
+  return value("recognition.listUpdate.outOfRange", true).toBool();
+}
+
 std::string Settings::recognitionIgnoredSubstrings() const {
   return value("recognition.anitomy.ignoredSubstrings").toString().toStdString();
+}
+
+bool Settings::streamProviderEnabled(const std::string& slug) const {
+  const QJsonObject o = value("recognition.streaming.providers").toJsonObject();
+  const QString k = QString::fromStdString(slug);
+  if (!o.contains(k)) return true;
+  return o.value(k).toBool(true);
 }
 
 bool Settings::mediaNotifyRecognizedBalloon() const {
@@ -204,25 +224,23 @@ bool Settings::mediaNotifyUnrecognizedBalloon() const {
   return value("track.notifications.balloonUnrecognized", true).toBool();
 }
 
-bool Settings::sharingEnabled() const {
-  return value("app.features.sharingEnabled", true).toBool();
-}
-
-bool Settings::announceHttpEnabled() const {
-  return value("announce.http.enabled", false).toBool();
-}
-
-std::string Settings::announceHttpUrl() const {
-  return value("announce.http.url").toString().toStdString();
-}
-
-std::string Settings::announceHttpBodyFormat() const {
+std::string Settings::mediaNotifyBalloonFormatRecognized() const {
   static const QString kDefault =
-      QStringLiteral("user=%user%&name=%title%&ep=%episode%&eptotal=%total%&score=%score%&picurl=%image%"
-                     "&playstatus=%playstatus%");
-  const QString v = value("announce.http.bodyFormat", kDefault).toString();
+      QStringLiteral("%title%\nEpisode %episode% / %total%");
+  const QString v = value("track.notifications.balloonFormatRecognized", kDefault).toString();
   const QString trimmed = v.trimmed();
   return (trimmed.isEmpty() ? kDefault : trimmed).toStdString();
+}
+
+std::string Settings::mediaNotifyBalloonFormatUnrecognized() const {
+  static const QString kDefault = QStringLiteral("Could not match: %name%");
+  const QString v = value("track.notifications.balloonFormatUnrecognized", kDefault).toString();
+  const QString trimmed = v.trimmed();
+  return (trimmed.isEmpty() ? kDefault : trimmed).toStdString();
+}
+
+bool Settings::mediaNotifyBalloonUnrecognizedAppendHint() const {
+  return value("track.notifications.balloonUnrecognizedAppendHint", true).toBool();
 }
 
 bool Settings::listSynchronizationEnabled() const {
@@ -328,6 +346,51 @@ int Settings::torrentFeedArchiveMaxItems() const {
   const int v = value("torrent.feed.archiveMaxItems", 1000).toInt();
   if (v <= 0) return 1000;
   return std::clamp(v, 100, 50000);
+}
+
+std::string Settings::torrentFeedIncludeRegexList() const {
+  return value("torrent.feed.includeRegex", QString{}).toString().toStdString();
+}
+
+std::string Settings::torrentFeedExcludeRegexList() const {
+  return value("torrent.feed.excludeRegex", QString{}).toString().toStdString();
+}
+
+bool Settings::torrentFeedHideDropped() const {
+  return value("torrent.feed.hideDropped", false).toBool();
+}
+
+bool Settings::torrentFeedHideNotInList() const {
+  return value("torrent.feed.hideNotInList", false).toBool();
+}
+
+bool Settings::torrentFeedHideWatchedEpisodes() const {
+  return value("torrent.feed.hideWatchedEpisodes", false).toBool();
+}
+
+bool Settings::torrentFeedHideAvailableEpisodes() const {
+  return value("torrent.feed.hideAvailableEpisodes", false).toBool();
+}
+
+bool Settings::torrentFeedHideOlderVersionsWhenNewerExists() const {
+  return value("torrent.feed.hideOlderVersionsWhenNewerExists", false).toBool();
+}
+
+QStringList Settings::torrentFeedDiscardedTitleArchive() const {
+  const QString raw = value("torrent.feed.discardedTitleArchive", QString{}).toString();
+  if (raw.isEmpty()) return {};
+  const QJsonDocument doc = QJsonDocument::fromJson(raw.toUtf8());
+  if (!doc.isArray()) return {};
+  QStringList out;
+  out.reserve(doc.array().size());
+  for (const QJsonValue& v : doc.array()) {
+    if (v.isString()) {
+      const QString s = v.toString().trimmed();
+      if (!s.isEmpty()) out.push_back(s);
+    }
+  }
+  out.removeDuplicates();
+  return out;
 }
 
 bool Settings::torrentDownloadUseMagnet() const {
@@ -476,8 +539,26 @@ void Settings::setMediaDetectionStreamingEnabled(const bool enabled) const {
   setValue("track.detection.streamingEnabled", enabled);
 }
 
+void Settings::setRecognitionAutoUpdateList(const bool enabled) const {
+  setValue("recognition.listUpdate.auto", enabled);
+}
+
+void Settings::setRecognitionUpdateDelaySeconds(const int seconds) const {
+  setValue("recognition.listUpdate.delaySeconds", std::clamp(seconds, 1, 3600));
+}
+
+void Settings::setRecognitionUpdateOutOfRange(const bool enabled) const {
+  setValue("recognition.listUpdate.outOfRange", enabled);
+}
+
 void Settings::setRecognitionIgnoredSubstrings(const std::string& text) const {
   setValue("recognition.anitomy.ignoredSubstrings", QString::fromStdString(text));
+}
+
+void Settings::setStreamProviderEnabled(const std::string& slug, const bool enabled) const {
+  QJsonObject o = value("recognition.streaming.providers").toJsonObject();
+  o[QString::fromStdString(slug)] = enabled;
+  setValue("recognition.streaming.providers", o);
 }
 
 void Settings::setMediaNotifyRecognizedBalloon(const bool enabled) const {
@@ -488,20 +569,16 @@ void Settings::setMediaNotifyUnrecognizedBalloon(const bool enabled) const {
   setValue("track.notifications.balloonUnrecognized", enabled);
 }
 
-void Settings::setSharingEnabled(const bool enabled) const {
-  setValue("app.features.sharingEnabled", enabled);
+void Settings::setMediaNotifyBalloonFormatRecognized(const std::string& format) const {
+  setValue("track.notifications.balloonFormatRecognized", QString::fromStdString(format));
 }
 
-void Settings::setAnnounceHttpEnabled(const bool enabled) const {
-  setValue("announce.http.enabled", enabled);
+void Settings::setMediaNotifyBalloonFormatUnrecognized(const std::string& format) const {
+  setValue("track.notifications.balloonFormatUnrecognized", QString::fromStdString(format));
 }
 
-void Settings::setAnnounceHttpUrl(const std::string& url) const {
-  setValue("announce.http.url", QString::fromStdString(url));
-}
-
-void Settings::setAnnounceHttpBodyFormat(const std::string& format) const {
-  setValue("announce.http.bodyFormat", QString::fromStdString(format));
+void Settings::setMediaNotifyBalloonUnrecognizedAppendHint(const bool enabled) const {
+  setValue("track.notifications.balloonUnrecognizedAppendHint", enabled);
 }
 
 void Settings::setListSynchronizationEnabled(const bool enabled) const {
@@ -615,6 +692,48 @@ void Settings::setTorrentFeedFilterEnabled(const bool enabled) const {
 
 void Settings::setTorrentFeedArchiveMaxItems(const int count) const {
   setValue("torrent.feed.archiveMaxItems", std::clamp(count, 100, 50000));
+}
+
+void Settings::setTorrentFeedIncludeRegexList(const std::string& text) const {
+  setValue("torrent.feed.includeRegex", QString::fromStdString(text));
+}
+
+void Settings::setTorrentFeedExcludeRegexList(const std::string& text) const {
+  setValue("torrent.feed.excludeRegex", QString::fromStdString(text));
+}
+
+void Settings::setTorrentFeedHideDropped(const bool enabled) const {
+  setValue("torrent.feed.hideDropped", enabled);
+}
+
+void Settings::setTorrentFeedHideNotInList(const bool enabled) const {
+  setValue("torrent.feed.hideNotInList", enabled);
+}
+
+void Settings::setTorrentFeedHideWatchedEpisodes(const bool enabled) const {
+  setValue("torrent.feed.hideWatchedEpisodes", enabled);
+}
+
+void Settings::setTorrentFeedHideAvailableEpisodes(const bool enabled) const {
+  setValue("torrent.feed.hideAvailableEpisodes", enabled);
+}
+
+void Settings::setTorrentFeedHideOlderVersionsWhenNewerExists(const bool enabled) const {
+  setValue("torrent.feed.hideOlderVersionsWhenNewerExists", enabled);
+}
+
+void Settings::setTorrentFeedDiscardedTitleArchive(const QStringList& titles) const {
+  QStringList t = titles;
+  for (QString& s : t) s = s.trimmed();
+  t.removeAll(QString{});
+  t.removeDuplicates();
+  constexpr int kMax = 5000;  // safety cap; v1 stored on disk, here we store in settings.json
+  if (t.size() > kMax) {
+    t = t.mid(t.size() - kMax);
+  }
+  QJsonArray arr;
+  for (const QString& s : t) arr.push_back(s);
+  setValue("torrent.feed.discardedTitleArchive", QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact)));
 }
 
 void Settings::setTorrentDownloadUseMagnet(const bool enabled) const {

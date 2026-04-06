@@ -83,7 +83,14 @@
          <property name="currentIndex">
           <number>0</number>
          </property>
-         <widget class="QWidget" name="accountsPage">
+         <widget class="QScrollArea" name="accountsPageScroll">
+          <property name="widgetResizable">
+           <bool>true</bool>
+          </property>
+          <property name="frameShape">
+           <enum>QFrame::NoFrame</enum>
+          </property>
+          <widget class="QWidget" name="accountsPage">
           <layout class="QVBoxLayout" name="verticalLayout_3">
            <property name="leftMargin">
             <number>0</number>
@@ -116,7 +123,15 @@
            </item>
           </layout>
          </widget>
-         <widget class="QWidget" name="applicationPage">
+         </widget>
+         <widget class="QScrollArea" name="applicationPageScroll">
+          <property name="widgetResizable">
+           <bool>true</bool>
+          </property>
+          <property name="frameShape">
+           <enum>QFrame::NoFrame</enum>
+          </property>
+          <widget class="QWidget" name="applicationPage">
           <layout class="QVBoxLayout" name="verticalLayout_app">
            <property name="leftMargin">
             <number>0</number>
@@ -235,11 +250,33 @@
               <item>
                <widget class="QCheckBox" name="checkMediaStreaming">
                 <property name="text">
-                 <string>Include web browsers / streaming (Windows)</string>
+                 <string>Detect media in web browsers (Windows)</string>
                 </property>
                 <property name="toolTip">
-                 <string>Taiga v1: recognition/streaming/enabled. Detects titles from browser windows (experimental).</string>
+                 <string>Taiga v1: recognition/streaming/enabled. Uses the browser tab title and URL to recognize what you are watching—only for updating your list, not for streaming or broadcasting to others. (Experimental.)</string>
                 </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QGroupBox" name="groupStreamingProviders">
+                <property name="title">
+                 <string>Video sites (browser recognition)</string>
+                </property>
+                <layout class="QVBoxLayout" name="verticalLayout_streamingProviders">
+                 <item>
+                  <widget class="QLabel" name="labelStreamingProvidersHint">
+                   <property name="text">
+                    <string>When browser detection is on, only checked sites are used to parse titles from the page. This is for recognizing what you watch locally—not for sharing or streaming video to others. Turn off sites you never use (Taiga v1: recognition/streaming/providers).</string>
+                   </property>
+                   <property name="wordWrap">
+                    <bool>true</bool>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <layout class="QGridLayout" name="gridStreamingProviders"/>
+                 </item>
+                </layout>
                </widget>
               </item>
               <item>
@@ -256,6 +293,66 @@
                <widget class="QCheckBox" name="checkNotifyMediaUnrecognized">
                 <property name="text">
                  <string>Tray notification when media cannot be matched to the database</string>
+                </property>
+                <property name="checked">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="labelBalloonFormatHint">
+                <property name="text">
+                 <string>Tray message body templates (Taiga v1: program/notifications/balloon/format). Use %title%, %romaji%, %english%, %native%, %name%, %episode%, %total%, %score%, %watched%, %user%, %playstatus%, %image%, %animeurl%, %group%, %season%. Type \n or a real newline for line breaks.</string>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="labelBalloonRecognized">
+                <property name="text">
+                 <string>Recognized:</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPlainTextEdit" name="plainBalloonFormatRecognized">
+                <property name="tabChangesFocus">
+                 <bool>true</bool>
+                </property>
+                <property name="maximumSize">
+                 <size>
+                  <width>16777215</width>
+                  <height>72</height>
+                 </size>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="labelBalloonUnrecognized">
+                <property name="text">
+                 <string>Unrecognized:</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPlainTextEdit" name="plainBalloonFormatUnrecognized">
+                <property name="tabChangesFocus">
+                 <bool>true</bool>
+                </property>
+                <property name="maximumSize">
+                 <size>
+                  <width>16777215</width>
+                  <height>64</height>
+                 </size>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QCheckBox" name="checkBalloonUnrecognizedAppendHint">
+                <property name="text">
+                 <string>Append “similar titles” hint for unrecognized media</string>
                 </property>
                 <property name="checked">
                  <bool>true</bool>
@@ -307,6 +404,78 @@
                 <property name="wordWrap">
                  <bool>true</bool>
                 </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QGroupBox" name="groupListAutoUpdate">
+                <property name="title">
+                 <string>List auto-update</string>
+                </property>
+                <layout class="QVBoxLayout" name="verticalLayout_listAutoUpdate">
+                 <item>
+                  <widget class="QCheckBox" name="checkAutoUpdateList">
+                   <property name="text">
+                    <string>Automatically update watched episode count when an episode is recognized (Taiga v1: account/update/auto)</string>
+                   </property>
+                   <property name="checked">
+                    <bool>true</bool>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <layout class="QHBoxLayout" name="horizontalLayout_autoUpdateDelay">
+                   <item>
+                    <widget class="QLabel" name="labelAutoUpdateDelay">
+                     <property name="text">
+                      <string>Delay before updating (seconds):</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QSpinBox" name="spinAutoUpdateDelay">
+                     <property name="toolTip">
+                      <string>Taiga v1: account/update/delay. The now-playing bar counts down this many seconds before committing the list update. Default is 120 s (v1 default).</string>
+                     </property>
+                     <property name="minimum">
+                      <number>1</number>
+                     </property>
+                     <property name="maximum">
+                      <number>3600</number>
+                     </property>
+                     <property name="value">
+                      <number>120</number>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <spacer name="horizontalSpacer_autoUpdateDelay">
+                     <property name="orientation">
+                      <enum>Qt::Horizontal</enum>
+                     </property>
+                     <property name="sizeHint" stdset="0">
+                      <size>
+                       <width>40</width>
+                       <height>20</height>
+                      </size>
+                     </property>
+                    </spacer>
+                   </item>
+                  </layout>
+                 </item>
+                 <item>
+                  <widget class="QCheckBox" name="checkAutoUpdateOutOfRange">
+                   <property name="text">
+                    <string>Skip update if episode number exceeds the anime's total episode count (Taiga v1: account/update/outofrange)</string>
+                   </property>
+                   <property name="toolTip">
+                    <string>When enabled, Taiga will not update your list if the detected episode number is beyond the known total (e.g., a bonus/OVA that doesn't fit the series count).</string>
+                   </property>
+                   <property name="checked">
+                    <bool>true</bool>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
                </widget>
               </item>
               <item>
@@ -373,71 +542,7 @@
              </layout>
             </widget>
            </item>
-           <item>
-            <widget class="QGroupBox" name="groupHttpAnnounce">
-             <property name="title">
-              <string>HTTP announce (now playing)</string>
-             </property>
-             <layout class="QVBoxLayout" name="verticalLayout_httpAnnounce">
-              <item>
-               <widget class="QLabel" name="labelHttpAnnounceHint">
-                <property name="text">
-                 <string>POST application/x-www-form-urlencoded when a title is recognized. Requires Sharing enabled (View menu). Tokens: %title%, %name%, %episode%, %total%, %score%, %user%, %playstatus%, %image%, %animeurl%.</string>
-                </property>
-                <property name="wordWrap">
-                 <bool>true</bool>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QCheckBox" name="checkAnnounceHttp">
-                <property name="text">
-                 <string>Enable HTTP announce</string>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <layout class="QHBoxLayout" name="horizontalLayout_httpUrl">
-                <item>
-                 <widget class="QLabel" name="labelAnnounceHttpUrl">
-                  <property name="text">
-                   <string>URL:</string>
-                  </property>
-                 </widget>
-                </item>
-                <item>
-                 <widget class="QLineEdit" name="lineAnnounceHttpUrl">
-                  <property name="placeholderText">
-                   <string>https://example.com/hook</string>
-                  </property>
-                 </widget>
-                </item>
-               </layout>
-              </item>
-              <item>
-               <widget class="QLabel" name="labelAnnounceHttpBody">
-                <property name="text">
-                 <string>Body template (values are percent-encoded):</string>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QPlainTextEdit" name="plainAnnounceHttpBody">
-                <property name="tabChangesFocus">
-                 <bool>true</bool>
-                </property>
-                <property name="maximumSize">
-                 <size>
-                  <width>16777215</width>
-                  <height>80</height>
-                 </size>
-                </property>
-               </widget>
-              </item>
-             </layout>
-            </widget>
-           </item>
-           <item>
+          <item>
             <widget class="QGroupBox" name="groupProxy">
              <property name="title">
               <string>HTTP proxy</string>
@@ -555,7 +660,15 @@
            </item>
           </layout>
          </widget>
-         <widget class="QWidget" name="libraryPage">
+         </widget>
+         <widget class="QScrollArea" name="libraryPageScroll">
+          <property name="widgetResizable">
+           <bool>true</bool>
+          </property>
+          <property name="frameShape">
+           <enum>QFrame::NoFrame</enum>
+          </property>
+          <widget class="QWidget" name="libraryPage">
           <layout class="QVBoxLayout" name="verticalLayout_library">
            <property name="leftMargin">
             <number>0</number>
@@ -905,9 +1018,159 @@
                  <bool>true</bool>
                 </property>
                 <property name="toolTip">
-                 <string>Taiga v1: rss/torrent/filter/enabled. When off, the full feed is shown. When on, only the first N items (below) load — faster UI on huge feeds. Feed filters / rules are not ported yet.</string>
+                 <string>Taiga v1: rss/torrent/filter/enabled. When off, the full feed is shown. When on, only the first N items (below) load — faster UI on huge feeds.</string>
                 </property>
                </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="labelTorrentFeedRegexHelp">
+                <property name="text">
+                 <string>Optional: filter the in-app RSS results using regular expressions (one per line). These are applied to the concatenated row text (title/date/page/torrent/magnet). Invalid regex lines are ignored.</string>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="labelTorrentFeedRegexWarning">
+                <property name="text">
+                 <string/>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="horizontalLayout_torrentRegex">
+                <item>
+                 <widget class="QLabel" name="labelTorrentFeedIncludeRegex">
+                  <property name="text">
+                   <string>Show only if matches:</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPlainTextEdit" name="plainTorrentFeedIncludeRegex">
+                  <property name="placeholderText">
+                   <string>Example: \\b1080p\\b</string>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="horizontalLayout_torrentRegex2">
+                <item>
+                 <widget class="QLabel" name="labelTorrentFeedExcludeRegex">
+                  <property name="text">
+                   <string>Hide if matches:</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPlainTextEdit" name="plainTorrentFeedExcludeRegex">
+                  <property name="placeholderText">
+                   <string>Example: \\b(AVI|RMVB|XVID)\\b</string>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="horizontalLayout_torrentRegexPresets">
+                <item>
+                 <widget class="QLabel" name="labelTorrentFeedRegexPresets">
+                  <property name="text">
+                   <string>Presets:</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="buttonTorrentPresetDiscardBadVideo">
+                  <property name="text">
+                   <string>Discard bad video keywords (v1)</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="buttonTorrentPresetPrefer1080p">
+                  <property name="text">
+                   <string>Prefer 1080p (v1)</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="buttonTorrentPresetPreferV2">
+                  <property name="text">
+                   <string>Prefer v2+ (v1)</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="buttonTorrentPresetDiscardCams">
+                  <property name="text">
+                   <string>Discard CAM/TS/TC</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="buttonTorrentPresetPreferX265">
+                  <property name="text">
+                   <string>Prefer x265/HEVC</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="buttonTorrentPresetPreferMKV">
+                  <property name="text">
+                   <string>Prefer MKV</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="buttonTorrentPresetPreferAAC">
+                  <property name="text">
+                   <string>Prefer AAC/FLAC</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="buttonTorrentRegexAddRule">
+                  <property name="text">
+                   <string>Add rule…</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="buttonTorrentRegexClearInclude">
+                  <property name="text">
+                   <string>Clear “show only”</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="buttonTorrentRegexClearExclude">
+                  <property name="text">
+                   <string>Clear “hide”</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <spacer name="horizontalSpacer_torrentRegexPresets">
+                  <property name="orientation">
+                   <enum>Qt::Horizontal</enum>
+                  </property>
+                  <property name="sizeHint" stdset="0">
+                   <size>
+                    <width>40</width>
+                    <height>20</height>
+                   </size>
+                  </property>
+                 </spacer>
+                </item>
+               </layout>
               </item>
               <item>
                <layout class="QHBoxLayout" name="horizontalLayout_torrentArchiveMax">
@@ -1104,7 +1367,15 @@
            </item>
           </layout>
          </widget>
-         <widget class="QWidget" name="animeListPage">
+         </widget>
+         <widget class="QScrollArea" name="animeListPageScroll">
+          <property name="widgetResizable">
+           <bool>true</bool>
+          </property>
+          <property name="frameShape">
+           <enum>QFrame::NoFrame</enum>
+          </property>
+          <widget class="QWidget" name="animeListPage">
           <layout class="QVBoxLayout" name="verticalLayout_animeList">
            <property name="leftMargin">
             <number>0</number>
@@ -1307,7 +1578,15 @@
            </item>
           </layout>
          </widget>
-         <widget class="QWidget" name="placeholderPage">
+         </widget>
+         <widget class="QScrollArea" name="placeholderPageScroll">
+          <property name="widgetResizable">
+           <bool>true</bool>
+          </property>
+          <property name="frameShape">
+           <enum>QFrame::NoFrame</enum>
+          </property>
+          <widget class="QWidget" name="placeholderPage">
           <layout class="QVBoxLayout" name="verticalLayout_ph">
            <item>
             <widget class="QLabel" name="placeholderLabel">
@@ -1323,6 +1602,7 @@
             </widget>
            </item>
           </layout>
+         </widget>
          </widget>
         </widget>
        </item>

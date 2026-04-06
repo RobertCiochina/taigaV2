@@ -82,6 +82,8 @@ ListWidget::ListWidget(QWidget* parent)
       m_viewMenu(new QMenu(this)),
       m_moreMenu(new QMenu(this)) {
   m_proxyModel->sort(taiga::session.animeListSortColumn(), taiga::session.animeListSortOrder());
+  m_proxyModel->setSecondarySort(taiga::session.animeListSortColumnSecondary(),
+                                taiga::session.animeListSortOrderSecondary());
 
   initToolbar();
   setViewMode(taiga::session.animeListViewMode());
@@ -141,6 +143,8 @@ void ListWidget::setViewMode(ListViewMode mode) {
 void ListWidget::saveState() {
   taiga::session.setAnimeListSortColumn(m_proxyModel->sortColumn());
   taiga::session.setAnimeListSortOrder(m_proxyModel->sortOrder());
+  taiga::session.setAnimeListSortColumnSecondary(m_proxyModel->secondarySortColumn());
+  taiga::session.setAnimeListSortOrderSecondary(m_proxyModel->secondarySortOrder());
   taiga::session.setAnimeListViewMode(m_viewMode);
   if (m_listView) {
     taiga::session.setAnimeListHeaderState(m_listView->header()->saveState());
@@ -189,6 +193,7 @@ void ListWidget::initSortMenu() {
   };
 
   const auto actionGroup = new QActionGroup(this);
+  const auto secondaryGroup = new QActionGroup(this);
 
   m_sortMenu->clear();
 
@@ -208,6 +213,32 @@ void ListWidget::initSortMenu() {
     action->setCheckable(true);
     action->setChecked(column == m_proxyModel->sortColumn() && order == m_proxyModel->sortOrder());
     actionGroup->addAction(action);
+  }
+
+  m_sortMenu->addSeparator();
+  auto* secondaryMenu = m_sortMenu->addMenu(tr("Secondary sort"));
+
+  const auto secondaryNone = secondaryMenu->addAction(tr("None"), this, [this]() {
+    m_proxyModel->setSecondarySort(std::nullopt, Qt::AscendingOrder);
+  });
+  secondaryNone->setCheckable(true);
+  secondaryNone->setChecked(!m_proxyModel->secondarySortColumn().has_value());
+  secondaryGroup->addAction(secondaryNone);
+
+  secondaryMenu->addSeparator();
+
+  for (const auto& [column, order] : items) {
+    const auto headerData =
+        m_model->headerData(column, Qt::Orientation::Horizontal, Qt::DisplayRole);
+
+    const auto action =
+        secondaryMenu->addAction(headerData.toString(), this, [this, column, order]() {
+          m_proxyModel->setSecondarySort(column, order);
+        });
+    action->setCheckable(true);
+    action->setChecked(m_proxyModel->secondarySortColumn().value_or(-1) == column &&
+                       m_proxyModel->secondarySortOrder() == order);
+    secondaryGroup->addAction(action);
   }
 }
 

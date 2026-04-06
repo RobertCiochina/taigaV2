@@ -72,6 +72,8 @@ target_sources(taiga-gui PRIVATE
 	settings/anilist_auth_dialog.hpp
 	settings/settings_dialog.cpp
 	settings/settings_dialog.hpp
+	settings/torrent_filters_dialog.cpp
+	settings/torrent_filters_dialog.hpp
 
 	utils/format.cpp
 	utils/format.hpp

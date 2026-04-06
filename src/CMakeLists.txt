@@ -77,8 +77,6 @@ target_sources(taiga PRIVATE
 	taiga/application.cpp
 	taiga/application.hpp
 	taiga/config.h
-	taiga/http_announce.cpp
-	taiga/http_announce.hpp
 	taiga/network.cpp
 	taiga/network.hpp
 	taiga/orange.cpp
@@ -87,6 +85,8 @@ target_sources(taiga PRIVATE
 	taiga/path.hpp
 	taiga/session.cpp
 	taiga/session.hpp
+	taiga/tray_balloon_format.cpp
+	taiga/tray_balloon_format.hpp
 	taiga/stats.cpp
 	taiga/stats.hpp
 	taiga/settings.cpp
@@ -116,6 +116,8 @@ target_sources(taiga PRIVATE
 	track/recognition_normalize.hpp
 	track/scanner.cpp
 	track/scanner.hpp
+	track/streaming_sites.cpp
+	track/streaming_sites.hpp
 
 	main.cpp
 )

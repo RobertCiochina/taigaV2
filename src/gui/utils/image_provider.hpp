@@ -40,7 +40,9 @@ signals:
   void posterChanged(const int id);
 
 private:
-  QString fileName(const int id) const;
+  QString cacheDir() const;
+  QString fileNameWithExtension(const int id, const QString& ext) const;
+  QString findCachedFileName(const int id) const;
 
   QMap<int, QPixmap> m_pixmaps;
 };

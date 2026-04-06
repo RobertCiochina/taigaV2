@@ -20,13 +20,21 @@
 
 #include <optional>
 
+#include "base/string.hpp"
+
+#include <QActionGroup>
 #include <QDate>
+#include <QDateTime>
+#include <QFileDialog>
+#include <QMenu>
 #include <QPointer>
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QStatusBar>
 #include <QToolBar>
+#include <QToolButton>
 
+#include "gui/common/anime_list_view.hpp"
 #include "gui/common/anime_list_view_cards.hpp"
 #include "gui/main/main_window.hpp"
 #include "gui/main/navigation_widget.hpp"
@@ -35,6 +43,7 @@
 #include "gui/utils/format.hpp"
 #include "gui/utils/theme.hpp"
 #include "media/anime.hpp"
+#include "media/anime_list_export.hpp"
 #include "media/anime_season.hpp"
 #include "sync/service.hpp"
 #include "taiga/session.hpp"
@@ -46,12 +55,16 @@ SearchWidget::SearchWidget(QWidget* parent)
     : PageWidget(parent),
       m_model(new AnimeListModel(this)),
       m_proxyModel(new AnimeListProxyModel(this)),
-      m_listViewCards(new ListViewCards(this, m_model, m_proxyModel)),
       m_comboYear(new ComboBox(this)),
       m_comboSeason(new ComboBox(this)),
       m_comboType(new ComboBox(this)),
-      m_comboStatus(new ComboBox(this)) {
+      m_comboStatus(new ComboBox(this)),
+      m_sortMenu(new QMenu(this)),
+      m_viewMenu(new QMenu(this)),
+      m_moreMenu(new QMenu(this)) {
   m_proxyModel->sort(taiga::session.searchListSortColumn(), taiga::session.searchListSortOrder());
+  m_proxyModel->setSecondarySort(taiga::session.searchListSortColumnSecondary(),
+                                 taiga::session.searchListSortOrderSecondary());
   m_proxyModel->setFilters(taiga::session.searchListFilters());
 
   static const auto filterValue = [](QComboBox* combo, int index) {
@@ -191,24 +204,191 @@ SearchWidget::SearchWidget(QWidget* parent)
     filtersLayout->addWidget(reset_filters);
   }
 
-  // Toolbar
-  {
-    const auto actionSort = new QAction(theme.getIcon("sort"), tr("Sort"), this);
-    const auto actionView = new QAction(theme.getIcon("grid_view"), tr("View"), this);
-    const auto actionMore = new QAction(theme.getIcon("more_horiz"), tr("More"), this);
-    m_toolbar->addAction(actionSort);
-    m_toolbar->addAction(actionView);
-    m_toolbar->addAction(actionMore);
+  initToolbar();
+  connect(m_sortMenu, &QMenu::aboutToShow, this, &SearchWidget::initSortMenu);
+  connect(m_viewMenu, &QMenu::aboutToShow, this, &SearchWidget::initViewMenu);
+  connect(m_moreMenu, &QMenu::aboutToShow, this, &SearchWidget::initMoreMenu);
+  setViewMode(taiga::session.searchListViewMode());
+}
+
+void SearchWidget::setViewMode(ListViewMode mode) {
+  if (m_listView) {
+    layout()->removeWidget(m_listView);
+    m_listView->deleteLater();
+    m_listView = nullptr;
+  }
+  if (m_listViewCards) {
+    layout()->removeWidget(m_listViewCards);
+    m_listViewCards->deleteLater();
+    m_listViewCards = nullptr;
   }
 
-  // List
-  layout()->addWidget(m_listViewCards);
+  m_viewMode = mode;
+
+  switch (mode) {
+    case ListViewMode::List:
+      m_listView = new ListView(this, m_model, m_proxyModel);
+      layout()->addWidget(m_listView);
+      m_listView->show();
+      break;
+
+    case ListViewMode::Cards:
+      m_listViewCards = new ListViewCards(this, m_model, m_proxyModel);
+      layout()->addWidget(m_listViewCards);
+      m_listViewCards->show();
+      break;
+  }
+}
+
+void SearchWidget::initToolbar() {
+  const auto actionSort = new QAction(theme.getIcon("sort"), tr("Sort"), this);
+  const auto actionView = new QAction(theme.getIcon("grid_view"), tr("View"), this);
+  const auto actionMore = new QAction(theme.getIcon("more_horiz"), tr("More"), this);
+
+  m_toolbar->addAction(actionSort);
+  m_toolbar->addAction(actionView);
+  m_toolbar->addAction(actionMore);
+
+  const auto sortButton = static_cast<QToolButton*>(m_toolbar->widgetForAction(actionSort));
+  sortButton->setPopupMode(QToolButton::InstantPopup);
+  sortButton->setMenu(m_sortMenu);
+
+  const auto viewButton = static_cast<QToolButton*>(m_toolbar->widgetForAction(actionView));
+  viewButton->setPopupMode(QToolButton::InstantPopup);
+  viewButton->setMenu(m_viewMenu);
+
+  const auto moreButton = static_cast<QToolButton*>(m_toolbar->widgetForAction(actionMore));
+  moreButton->setPopupMode(QToolButton::InstantPopup);
+  moreButton->setMenu(m_moreMenu);
+}
+
+void SearchWidget::initSortMenu() {
+  using Qt::SortOrder::AscendingOrder;
+  using Qt::SortOrder::DescendingOrder;
+
+  static const QList<QPair<AnimeListModel::Column, Qt::SortOrder>> items{
+      {AnimeListModel::COLUMN_TITLE, AscendingOrder},
+      {AnimeListModel::COLUMN_PROGRESS, DescendingOrder},
+      {AnimeListModel::COLUMN_DURATION, DescendingOrder},
+      {AnimeListModel::COLUMN_REWATCHES, DescendingOrder},
+      {AnimeListModel::COLUMN_SCORE, DescendingOrder},
+      {AnimeListModel::COLUMN_AVERAGE, DescendingOrder},
+      {AnimeListModel::COLUMN_TYPE, AscendingOrder},
+      {AnimeListModel::COLUMN_SEASON, DescendingOrder},
+      {AnimeListModel::COLUMN_STARTED, DescendingOrder},
+      {AnimeListModel::COLUMN_COMPLETED, DescendingOrder},
+      {AnimeListModel::COLUMN_LAST_UPDATED, DescendingOrder},
+      {AnimeListModel::COLUMN_NOTES, AscendingOrder},
+  };
+
+  const auto actionGroup = new QActionGroup(this);
+  const auto secondaryGroup = new QActionGroup(this);
+
+  m_sortMenu->clear();
+
+  for (const auto& [column, order] : items) {
+    const auto headerData =
+        m_model->headerData(column, Qt::Orientation::Horizontal, Qt::DisplayRole);
+
+    const auto action = m_sortMenu->addAction(headerData.toString(), this, [this, column, order]() {
+      if (m_listView) {
+        m_listView->sortByColumn(column, order);
+      } else {
+        m_proxyModel->sort(column, order);
+      }
+    });
+
+    action->setCheckable(true);
+    action->setChecked(column == m_proxyModel->sortColumn() && order == m_proxyModel->sortOrder());
+    actionGroup->addAction(action);
+  }
+
+  m_sortMenu->addSeparator();
+  auto* secondaryMenu = m_sortMenu->addMenu(tr("Secondary sort"));
+
+  const auto secondaryNone = secondaryMenu->addAction(tr("None"), this, [this]() {
+    m_proxyModel->setSecondarySort(std::nullopt, Qt::AscendingOrder);
+  });
+  secondaryNone->setCheckable(true);
+  secondaryNone->setChecked(!m_proxyModel->secondarySortColumn().has_value());
+  secondaryGroup->addAction(secondaryNone);
+
+  secondaryMenu->addSeparator();
+
+  for (const auto& [column, order] : items) {
+    const auto headerData =
+        m_model->headerData(column, Qt::Orientation::Horizontal, Qt::DisplayRole);
+
+    const auto action =
+        secondaryMenu->addAction(headerData.toString(), this, [this, column, order]() {
+          m_proxyModel->setSecondarySort(column, order);
+        });
+    action->setCheckable(true);
+    action->setChecked(m_proxyModel->secondarySortColumn().value_or(-1) == column &&
+                       m_proxyModel->secondarySortOrder() == order);
+    secondaryGroup->addAction(action);
+  }
+}
+
+void SearchWidget::initViewMenu() {
+  static const QList<QPair<QString, ListViewMode>> items{
+      {"List", ListViewMode::List},
+      {"Cards", ListViewMode::Cards},
+  };
+
+  const auto actionGroup = new QActionGroup(this);
+
+  m_viewMenu->clear();
+
+  for (const auto& [text, mode] : items) {
+    const auto action = m_viewMenu->addAction(text, this, [this, mode]() { setViewMode(mode); });
+    action->setCheckable(true);
+    action->setChecked(mode == m_viewMode);
+    actionGroup->addAction(action);
+  }
+}
+
+void SearchWidget::initMoreMenu() {
+  m_moreMenu->clear();
+
+  m_moreMenu->addAction(tr("Synchronize list from service…"), mainWindow(),
+                        &MainWindow::startListSynchronization);
+  m_moreMenu->addSeparator();
+
+  constexpr auto export_as = [](QWidget* parent, const QString& extension, auto export_function) {
+    const auto directory = QFileDialog::getExistingDirectory(
+        parent, tr("Select Export Location"), {},
+        QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks | QFileDialog::ReadOnly);
+
+    if (directory.isEmpty()) return;
+
+    const auto timestamp = QDateTime::currentDateTime().toSecsSinceEpoch();
+    const auto path = u"{}/animelist_{}.{}"_s.arg(directory).arg(timestamp).arg(extension);
+    if (export_function(path.toStdString())) {
+      taiga::userFeedback(tr("Exported list to %1").arg(path), false);
+    } else {
+      taiga::userFeedback(tr("Could not write the export file."), true);
+    }
+  };
+
+  m_moreMenu->addAction(tr("Export as Markdown..."), this,
+                        [this]() { export_as(this, "md", &anime::list::exportAsMarkdown); });
+
+  m_moreMenu->addAction(tr("Export as XML..."), this,
+                        [this]() { export_as(this, "xml", &anime::list::exportAsXml); });
+  m_moreMenu->addAction(tr("Export as CSV..."), this,
+                        [this]() { export_as(this, "csv", &anime::list::exportAsCsv); });
+  m_moreMenu->addSeparator();
+  m_moreMenu->addAction(tr("Import from MyAnimeList XML..."), mainWindow(),
+                        &MainWindow::importAnimeListMalXml);
 }
 
 void SearchWidget::saveState() {
   taiga::session.setSearchListFilters(m_proxyModel->filters());
   taiga::session.setSearchListSortColumn(m_proxyModel->sortColumn());
   taiga::session.setSearchListSortOrder(m_proxyModel->sortOrder());
+  taiga::session.setSearchListSortColumnSecondary(m_proxyModel->secondarySortColumn());
+  taiga::session.setSearchListSortOrderSecondary(m_proxyModel->secondarySortOrder());
   taiga::session.setSearchListViewMode(m_viewMode);
 }
 

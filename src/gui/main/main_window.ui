@@ -155,7 +155,6 @@
      <string>&amp;Tools</string>
     </property>
     <addaction name="actionToggleDetection"/>
-    <addaction name="actionToggleSharing"/>
     <addaction name="actionToggleSynchronization"/>
     <addaction name="separator"/>
     <addaction name="actionStatistics"/>
@@ -379,17 +378,6 @@
    </property>
    <property name="toolTip">
     <string>Enable detection</string>
-   </property>
-  </action>
-  <action name="actionToggleSharing">
-   <property name="checkable">
-    <bool>true</bool>
-   </property>
-   <property name="checked">
-    <bool>true</bool>
-   </property>
-   <property name="text">
-    <string>Enable sharing</string>
    </property>
   </action>
   <action name="actionToggleSynchronization">

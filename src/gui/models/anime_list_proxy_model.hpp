@@ -55,12 +55,18 @@ public:
   void setListStatusFilter(AnimeListStatusFilter filter);
   void setTextFilter(const QString& text);
 
+  std::optional<int> secondarySortColumn() const;
+  Qt::SortOrder secondarySortOrder() const;
+  void setSecondarySort(std::optional<int> column, Qt::SortOrder order);
+
 protected:
   bool filterAcceptsRow(int row, const QModelIndex& parent) const override;
   bool lessThan(const QModelIndex& lhs, const QModelIndex& rhs) const override;
 
 private:
   AnimeListProxyModelFilter m_filter;
+  std::optional<int> m_secondarySortColumn;
+  Qt::SortOrder m_secondarySortOrder = Qt::AscendingOrder;
 };
 
 }  // namespace gui

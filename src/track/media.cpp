@@ -23,6 +23,7 @@
 #include "taiga/settings.hpp"
 #include "track/episode.hpp"
 #include "track/recognition.hpp"
+#include "track/streaming_sites.hpp"
 
 namespace track::media {
 
@@ -139,19 +140,71 @@ void Detection::poll() {
     return;
   }
 
-  currentPlayer_ = results.front().player;
-  currentMedia_ = results.front().media.front();
+  const auto& res = results.front();
+  currentPlayer_ = res.player;
+  currentMedia_ = res.media.empty() ? std::nullopt : std::optional<media_t>{res.media.front()};
 
-  const auto mediaInfo = currentMedia_->information.front();
-  auto episode = [&mediaInfo]() {
-    if (mediaInfo.type == anisthesia::MediaInfoType::File) {
-      const QFileInfo fileInfo{QString::fromStdString(mediaInfo.value)};
-      return track::recognition::parseFileInfo(
-          fileInfo, {}, taiga::settings.libraryScanLookupParentDirectories());
-    } else {
-      return track::recognition::parse(mediaInfo.value);
+  std::string file;
+  std::string url;
+  std::string title;
+  std::string tab;
+  for (const auto& med : res.media) {
+    for (const auto& info : med.information) {
+      switch (info.type) {
+        case anisthesia::MediaInfoType::File:
+          file = info.value;
+          break;
+        case anisthesia::MediaInfoType::Url:
+          url = info.value;
+          break;
+        case anisthesia::MediaInfoType::Title:
+          title = info.value;
+          break;
+        case anisthesia::MediaInfoType::Tab:
+          tab = info.value;
+          break;
+        default:
+          break;
+      }
     }
-  }();
+  }
+  if (title.empty() && !tab.empty()) {
+    title = tab;
+  }
+
+  track::Episode episode;
+  if (!file.empty()) {
+    const QFileInfo fileInfo{QString::fromStdString(file)};
+    episode = track::recognition::parseFileInfo(
+        fileInfo, {}, taiga::settings.libraryScanLookupParentDirectories());
+  } else {
+    std::string parse_str = title;
+    if (res.player.type == anisthesia::PlayerType::WebBrowser) {
+      track::streaming::normalizeBrowserTitle(url, parse_str);
+      if (const auto slug = track::streaming::matchProviderSlugByUrl(url)) {
+        if (!taiga::settings.streamProviderEnabled(std::string(*slug))) {
+          currentPlayer_.reset();
+          currentMedia_.reset();
+          if (currentEpisode_) {
+            currentEpisode_.reset();
+            emit currentEpisodeChanged(std::nullopt);
+          }
+          return;
+        }
+        (void)track::streaming::refineTitleForProvider(*slug, parse_str);
+      }
+    }
+    if (parse_str.empty()) {
+      currentPlayer_.reset();
+      currentMedia_.reset();
+      if (currentEpisode_) {
+        currentEpisode_.reset();
+        emit currentEpisodeChanged(std::nullopt);
+      }
+      return;
+    }
+    episode = track::recognition::parse(parse_str);
+  }
 
   const auto animeId = track::recognition::identify(episode);
   episode.setAnimeId(animeId);
