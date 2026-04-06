@@ -24,6 +24,7 @@
 
 #include "base/string.hpp"
 #include "gui/utils/format.hpp"
+#include "gui/utils/list_commit.hpp"
 #include "gui/utils/image_provider.hpp"
 #include "gui/utils/widgets.hpp"
 #include "media/anime_db.hpp"
@@ -352,8 +353,7 @@ void MediaDialog::accept() {
   m_entry->notes = ui_->plainTextEditNotes->toPlainText().toStdString();
   m_entry->last_updated = QDateTime::currentSecsSinceEpoch();
 
-  anime::db.updateEntry(*m_entry);
-  sync::saveListEntry(*m_entry);
+  gui::commitListEntryLocalAndMaybeRemote(*m_entry, this);
 
   QDialog::accept();
 }

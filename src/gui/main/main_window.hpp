@@ -34,6 +34,10 @@ namespace Ui {
 class MainWindow;
 }
 
+namespace track {
+class Episode;
+}
+
 namespace gui {
 
 class HistoryWidget;
@@ -142,6 +146,7 @@ private:
   void restoreViewChromeFromSession();
   void refreshHomeDashboard();
   void updateTrayTooltip();
+  void maybeNotifyMediaDetectionBalloon(const std::optional<track::Episode>& episode);
 
   Ui::MainWindow* ui_ = nullptr;
 
@@ -164,6 +169,7 @@ private:
   std::vector<MainWindowPage> m_navStack;
   int m_navHistoryPos = -1;
   bool m_navHistorySuppress = false;
+  QString m_last_media_balloon_sig_;
 };
 
 MainWindow* mainWindow();

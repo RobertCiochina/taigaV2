@@ -38,6 +38,7 @@
 #include "gui/main/main_window.hpp"
 #include "gui/media/media_dialog.hpp"
 #include "gui/utils/format.hpp"
+#include "gui/utils/list_commit.hpp"
 #include "gui/utils/theme.hpp"
 #include "media/anime.hpp"
 #include "media/anime_db.hpp"
@@ -58,9 +59,8 @@ int64_t localListEntryId(const int anime_id) {
   return -static_cast<int64_t>(anime_id);
 }
 
-void commitListEntry(const ListEntry& entry) {
-  anime::db.updateEntry(entry);
-  sync::saveListEntry(entry);
+void commitListEntry(const gui::MediaMenu* menu, const ListEntry& entry) {
+  gui::commitListEntryLocalAndMaybeRemote(entry, const_cast<gui::MediaMenu*>(menu));
 }
 
 }  // namespace
@@ -113,7 +113,7 @@ void MediaMenu::addToList(const anime::list::Status status) const {
     entry.status = status;
     entry.watched_episodes = 0;
     entry.last_updated = static_cast<std::time_t>(now);
-    commitListEntry(entry);
+    commitListEntry(this, entry);
   }
 }
 
@@ -140,7 +140,7 @@ void MediaMenu::editEpisode() const {
     ListEntry e = *it;
     e.watched_episodes = value;
     e.last_updated = now;
-    commitListEntry(e);
+    commitListEntry(this, e);
   }
 }
 
@@ -166,7 +166,7 @@ void MediaMenu::editNotes() const {
     ListEntry e = *it;
     e.notes = notes_std;
     e.last_updated = now;
-    commitListEntry(e);
+    commitListEntry(this, e);
   }
 }
 
@@ -178,7 +178,7 @@ void MediaMenu::editStatus(const anime::list::Status status) const {
     ListEntry e = *it;
     e.status = status;
     e.last_updated = now;
-    commitListEntry(e);
+    commitListEntry(this, e);
   }
 }
 
@@ -357,7 +357,7 @@ void MediaMenu::batchSetScore(const int score) const {
     ListEntry e = *it;
     e.score = score;
     e.last_updated = now;
-    commitListEntry(e);
+    commitListEntry(this, e);
   }
 }
 
@@ -369,7 +369,7 @@ void MediaMenu::clearDateStarted() const {
     ListEntry e = *it;
     e.date_started = FuzzyDate{};
     e.last_updated = now;
-    commitListEntry(e);
+    commitListEntry(this, e);
   }
 }
 
@@ -381,7 +381,7 @@ void MediaMenu::setDateStartedToAiring() const {
     ListEntry e = *it;
     e.date_started = item.date_started;
     e.last_updated = now;
-    commitListEntry(e);
+    commitListEntry(this, e);
   }
 }
 
@@ -393,7 +393,7 @@ void MediaMenu::clearDateCompleted() const {
     ListEntry e = *it;
     e.date_completed = FuzzyDate{};
     e.last_updated = now;
-    commitListEntry(e);
+    commitListEntry(this, e);
   }
 }
 
@@ -405,7 +405,7 @@ void MediaMenu::setDateCompletedToAiring() const {
     ListEntry e = *it;
     e.date_completed = item.date_finished;
     e.last_updated = now;
-    commitListEntry(e);
+    commitListEntry(this, e);
   }
 }
 
@@ -421,7 +421,7 @@ void MediaMenu::setDateCompletedToLastUpdated() const {
                    std::chrono::day{static_cast<unsigned>(d.day())}};
     e.date_completed = FuzzyDate{ymd};
     e.last_updated = now;
-    commitListEntry(e);
+    commitListEntry(this, e);
   }
 }
 

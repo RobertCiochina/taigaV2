@@ -36,6 +36,7 @@
 #include "taiga/path.hpp"
 #include "taiga/settings.hpp"
 #include "taiga/version.hpp"
+#include "track/library_watcher.hpp"
 #include "track/media.hpp"
 
 namespace taiga {
@@ -76,10 +77,12 @@ int Application::run() {
   }
 
   taiga::settings.init();
+  taiga::settings.ensureWindowsAutoStartFromSettings();
   taiga::network()->applyProxyFromSettings();
   anime::db.init();
   anime::history.init();
   track::media::detection()->init();
+  track::libraryFolderWatcher()->refreshFromSettings();
 
   gui::theme.initStyle();
   setWindowIcon(gui::theme.getIcon("taiga", "png"));

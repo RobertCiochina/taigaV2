@@ -24,6 +24,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonValue>
 #include <QString>
 #include <QStringView>
 #include <QXmlStreamReader>
@@ -40,6 +41,25 @@
 #define XML_ATTR(name) xml.attributes().value(name)
 #define XML_ATTR_INT(name) XML_ATTR(name).toInt()
 #define XML_ATTR_STR(name) XML_ATTR(name).toString().toStdString()
+
+namespace {
+
+bool xmlAttrBool(const QStringView value, const bool fallback) {
+  if (value.isEmpty()) return fallback;
+  return value.compare(QLatin1String("true"), Qt::CaseInsensitive) == 0 || value == u"1";
+}
+
+bool jsonToBool(const QJsonValue& v) {
+  if (v.isBool()) return v.toBool();
+  if (v.isDouble()) return v.toInt() != 0;
+  if (v.isString()) {
+    const QString s = v.toString();
+    return s.compare(u"true", Qt::CaseInsensitive) == 0 || s == u"1";
+  }
+  return false;
+}
+
+}  // namespace
 
 namespace compat::v1 {
 
@@ -99,6 +119,10 @@ void parseAccountElement(QXmlStreamReader& xml, const taiga::Settings& settings,
           settings.setSyncListUpdateDelaySeconds(d);
         }
       }
+      const auto ask = XML_ATTR(u"asktoconfirm");
+      if (!ask.isEmpty()) {
+        settings.setSyncListPushAskConfirm(xmlAttrBool(ask, true));
+      }
       xml.skipCurrentElement();
 
     } else if (xml.name() == u"anilist") {
@@ -139,6 +163,12 @@ void parseAnimeElement(QXmlStreamReader& xml, const taiga::Settings& settings) {
             settings.setLibraryScanMinFileSizeBytes(min_sz);
           }
           xml.skipCurrentElement();
+        } else if (xml.name() == u"watch") {
+          const auto we = xml.attributes().value(u"enabled");
+          if (!we.isEmpty()) {
+            settings.setLibraryWatchFoldersEnabled(xmlAttrBool(we, true));
+          }
+          xml.skipCurrentElement();
         } else {
           xml.skipCurrentElement();
         }
@@ -153,11 +183,6 @@ void parseAnimeElement(QXmlStreamReader& xml, const taiga::Settings& settings) {
 }
 
 namespace {
-
-bool xmlAttrBool(const QStringView value, const bool fallback) {
-  if (value.isEmpty()) return fallback;
-  return value.compare(QLatin1String("true"), Qt::CaseInsensitive) == 0 || value == u"1";
-}
 
 /// Maps v1 `program/list/sort/column` string (attribute `column` on `<sort>`) to Qt list column index.
 std::optional<int> v1ListSortColumnToQt(const QString& col) {
@@ -229,7 +254,28 @@ void parseProgramElement(QXmlStreamReader& xml, const taiga::Settings& settings)
       if (!ssl_nr.isEmpty()) {
         settings.setNetworkRelaxedTls(xmlAttrBool(ssl_nr, false));
       }
+      const auto autostart = attrs.value(u"autostart");
+      if (!autostart.isEmpty()) {
+        settings.setStartWithWindows(xmlAttrBool(autostart, false));
+      }
       xml.skipCurrentElement();
+    } else if (xml.name() == u"notifications") {
+      while (xml.readNextStartElement()) {
+        if (xml.name() == u"balloon") {
+          const auto battrs = xml.attributes();
+          const auto rec = battrs.value(u"recognized");
+          if (!rec.isEmpty()) {
+            settings.setMediaNotifyRecognizedBalloon(xmlAttrBool(rec, true));
+          }
+          const auto nrec = battrs.value(u"notrecognized");
+          if (!nrec.isEmpty()) {
+            settings.setMediaNotifyUnrecognizedBalloon(xmlAttrBool(nrec, true));
+          }
+          xml.skipCurrentElement();
+        } else {
+          xml.skipCurrentElement();
+        }
+      }
     } else if (xml.name() == u"startup") {
       const auto attrs = xml.attributes();
       const auto cv = attrs.value(u"checkversion");
@@ -368,8 +414,14 @@ void parseRecognitionElement(QXmlStreamReader& xml, const taiga::Settings& setti
   while (xml.readNextStartElement()) {
     if (xml.name() == u"general") {
       const auto attrs = xml.attributes();
-      const auto seconds = std::chrono::seconds{XML_ATTR_INT(u"detectioninterval")};
-      settings.setMediaDetectionInterval(seconds);
+      const auto di = attrs.value(u"detectioninterval");
+      if (!di.isEmpty()) {
+        bool ok = false;
+        const int sec = di.toInt(&ok);
+        if (ok && sec > 0) {
+          settings.setMediaDetectionInterval(std::chrono::milliseconds(sec * 1000LL));
+        }
+      }
       const auto lp = attrs.value(u"lookup_parent_directories");
       if (!lp.isEmpty()) {
         settings.setLibraryScanLookupParentDirectories(xmlAttrBool(lp, true));
@@ -377,9 +429,26 @@ void parseRecognitionElement(QXmlStreamReader& xml, const taiga::Settings& setti
       xml.skipCurrentElement();
 
     } else if (xml.name() == u"mediaplayers") {
-      const QString launch = xml.attributes().value(u"launchpath").toString();
+      const auto mp_attrs = xml.attributes();
+      const auto mpen = mp_attrs.value(u"enabled");
+      if (!mpen.isEmpty()) {
+        settings.setMediaDetectionPlayersEnabled(xmlAttrBool(mpen, true));
+      }
+      const QString launch = mp_attrs.value(u"launchpath").toString();
       if (!launch.isEmpty()) {
         settings.setMediaPlayerExecutablePath(launch.toStdString());
+      }
+      xml.skipCurrentElement();
+    } else if (xml.name() == u"streaming") {
+      const auto en = xml.attributes().value(u"enabled");
+      if (!en.isEmpty()) {
+        settings.setMediaDetectionStreamingEnabled(xmlAttrBool(en, false));
+      }
+      xml.skipCurrentElement();
+    } else if (xml.name() == u"anitomy") {
+      const auto ig = xml.attributes().value(u"ignored_strings");
+      if (!ig.isEmpty()) {
+        settings.setRecognitionIgnoredSubstrings(ig.toString().toStdString());
       }
       xml.skipCurrentElement();
     } else {
@@ -534,6 +603,23 @@ void parseAnnounceElement(QXmlStreamReader& xml, const taiga::Settings& settings
   if (!root.isEmpty()) {
     settings.setAnnounceV1MigrationJson(
         QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Compact)).toStdString());
+  }
+
+  const QJsonObject http = root.value(QStringLiteral("http")).toObject();
+  if (!http.isEmpty()) {
+    if (http.contains(QStringLiteral("enabled"))) {
+      settings.setAnnounceHttpEnabled(jsonToBool(http.value(QStringLiteral("enabled"))));
+    }
+    QString url = http.value(QStringLiteral("url")).toString();
+    if (url.isEmpty()) url = http.value(QStringLiteral("address")).toString();
+    if (!url.isEmpty()) {
+      settings.setAnnounceHttpUrl(url.toStdString());
+    }
+    QString fmt = http.value(QStringLiteral("format")).toString();
+    if (fmt.isEmpty()) fmt = http.value(QStringLiteral("body")).toString();
+    if (!fmt.isEmpty()) {
+      settings.setAnnounceHttpBodyFormat(fmt.toStdString());
+    }
   }
 }
 

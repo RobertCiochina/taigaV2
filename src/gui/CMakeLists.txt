@@ -75,6 +75,8 @@ target_sources(taiga-gui PRIVATE
 
 	utils/format.cpp
 	utils/format.hpp
+	utils/list_commit.cpp
+	utils/list_commit.hpp
 	utils/image_provider.cpp
 	utils/image_provider.hpp
 	utils/painter_state_saver.hpp

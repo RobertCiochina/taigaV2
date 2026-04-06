@@ -154,6 +154,13 @@
                 </property>
                </widget>
               </item>
+              <item>
+               <widget class="QCheckBox" name="checkStartWithWindows">
+                <property name="text">
+                 <string>Start Taiga when Windows starts (Run registry entry)</string>
+                </property>
+               </widget>
+              </item>
              </layout>
             </widget>
            </item>
@@ -208,7 +215,47 @@
               <item>
                <widget class="QCheckBox" name="checkMediaDetection">
                 <property name="text">
-                 <string>Detect media players</string>
+                 <string>Enable media recognition</string>
+                </property>
+                <property name="checked">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QCheckBox" name="checkMediaPlayerPolling">
+                <property name="text">
+                 <string>Poll desktop media players (Windows)</string>
+                </property>
+                <property name="checked">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QCheckBox" name="checkMediaStreaming">
+                <property name="text">
+                 <string>Include web browsers / streaming (Windows)</string>
+                </property>
+                <property name="toolTip">
+                 <string>Taiga v1: recognition/streaming/enabled. Detects titles from browser windows (experimental).</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QCheckBox" name="checkNotifyMediaRecognized">
+                <property name="text">
+                 <string>Tray notification when a playing title is recognized</string>
+                </property>
+                <property name="checked">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QCheckBox" name="checkNotifyMediaUnrecognized">
+                <property name="text">
+                 <string>Tray notification when media cannot be matched to the database</string>
                 </property>
                 <property name="checked">
                  <bool>true</bool>
@@ -273,6 +320,29 @@
                </widget>
               </item>
               <item>
+               <widget class="QLabel" name="labelRecognitionIgnored">
+                <property name="text">
+                 <string>Strip substrings before parsing filenames (Taiga v1: anitomy ignored_strings; separate with newlines, commas, or semicolons):</string>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPlainTextEdit" name="plainRecognitionIgnored">
+                <property name="tabChangesFocus">
+                 <bool>true</bool>
+                </property>
+                <property name="maximumSize">
+                 <size>
+                  <width>16777215</width>
+                  <height>88</height>
+                 </size>
+                </property>
+               </widget>
+              </item>
+              <item>
                <layout class="QHBoxLayout" name="horizontalLayout_mediaPlayerExe">
                 <item>
                  <widget class="QLabel" name="labelMediaPlayerExecutable">
@@ -299,6 +369,70 @@
                  </widget>
                 </item>
                </layout>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
+            <widget class="QGroupBox" name="groupHttpAnnounce">
+             <property name="title">
+              <string>HTTP announce (now playing)</string>
+             </property>
+             <layout class="QVBoxLayout" name="verticalLayout_httpAnnounce">
+              <item>
+               <widget class="QLabel" name="labelHttpAnnounceHint">
+                <property name="text">
+                 <string>POST application/x-www-form-urlencoded when a title is recognized. Requires Sharing enabled (View menu). Tokens: %title%, %name%, %episode%, %total%, %score%, %user%, %playstatus%, %image%, %animeurl%.</string>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QCheckBox" name="checkAnnounceHttp">
+                <property name="text">
+                 <string>Enable HTTP announce</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="horizontalLayout_httpUrl">
+                <item>
+                 <widget class="QLabel" name="labelAnnounceHttpUrl">
+                  <property name="text">
+                   <string>URL:</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLineEdit" name="lineAnnounceHttpUrl">
+                  <property name="placeholderText">
+                   <string>https://example.com/hook</string>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <widget class="QLabel" name="labelAnnounceHttpBody">
+                <property name="text">
+                 <string>Body template (values are percent-encoded):</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPlainTextEdit" name="plainAnnounceHttpBody">
+                <property name="tabChangesFocus">
+                 <bool>true</bool>
+                </property>
+                <property name="maximumSize">
+                 <size>
+                  <width>16777215</width>
+                  <height>80</height>
+                 </size>
+                </property>
+               </widget>
               </item>
              </layout>
             </widget>
@@ -438,6 +572,16 @@
               <set>Qt::AlignTop|Qt::AlignLeft</set>
              </property>
              <property name="wordWrap">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="checkLibraryWatchFolders">
+             <property name="text">
+              <string>Watch library folders and rescan automatically when files change (Taiga v1: anime/folders/watch; debounced)</string>
+             </property>
+             <property name="checked">
               <bool>true</bool>
              </property>
             </widget>
@@ -1010,6 +1154,16 @@
                <widget class="QCheckBox" name="checkListUpdatesEnabled">
                 <property name="text">
                  <string>Allow downloading and uploading list changes (same as View → Enable synchronization)</string>
+                </property>
+                <property name="checked">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QCheckBox" name="checkSyncPushAskConfirm">
+                <property name="text">
+                 <string>Ask before uploading each list change to the remote service</string>
                 </property>
                 <property name="checked">
                  <bool>true</bool>

@@ -27,11 +27,12 @@
 #include <QSize>
 #include <ctime>
 
+#include "gui/main/main_window.hpp"
 #include "gui/utils/format.hpp"
 #include "gui/utils/image_provider.hpp"
+#include "gui/utils/list_commit.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_season.hpp"
-#include "sync/service.hpp"
 #include "taiga/settings.hpp"
 #include "track/scanner.hpp"
 
@@ -40,8 +41,7 @@ namespace gui {
 namespace {
 
 void commitListEntry(const ListEntry& entry) {
-  anime::db.updateEntry(entry);
-  sync::saveListEntry(entry);
+  gui::commitListEntryLocalAndMaybeRemote(entry, gui::mainWindow());
 }
 
 }  // namespace

@@ -18,8 +18,11 @@
 
 #include "settings.hpp"
 
+#include <QCoreApplication>
+#include <QDir>
 #include <QFile>
 #include <QJsonArray>
+#include <QSettings>
 #include <QString>
 #include <algorithm>
 #include <cmath>
@@ -29,10 +32,34 @@
 #include "compat/settings.hpp"
 #include "sync/service.hpp"
 #include "taiga/accounts.hpp"
+#include "taiga/config.h"
 #include "taiga/path.hpp"
 #include "taiga/version.hpp"
 
+namespace {
+
+#ifdef Q_OS_WIN
+void applyWindowsAutoStartRunKey(const bool enable) {
+  QSettings reg(R"(HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run)",
+                QSettings::NativeFormat);
+  const QString key = QString::fromUtf8(TAIGA_APP_NAME);
+  if (enable) {
+    reg.setValue(key, QDir::toNativeSeparators(QCoreApplication::applicationFilePath()));
+  } else {
+    reg.remove(key);
+  }
+}
+#endif
+
+}  // namespace
+
 namespace taiga {
+
+void Settings::ensureWindowsAutoStartFromSettings() const {
+#ifdef Q_OS_WIN
+  if (startWithWindows()) applyWindowsAutoStartRunKey(true);
+#endif
+}
 
 void Settings::init() const {
   const auto appVersion = taiga::version().to_string();
@@ -70,6 +97,10 @@ std::vector<std::string> Settings::libraryFolders() const {
   return value("library.folders").toJsonArray().toVariantList() |
          std::views::transform([](const QVariant& v) { return v.toString().toStdString(); }) |
          std::ranges::to<std::vector>();
+}
+
+bool Settings::libraryWatchFoldersEnabled() const {
+  return value("library.watch.enabled", true).toBool();
 }
 
 qint64 Settings::libraryScanMinFileSizeBytes() const {
@@ -140,12 +171,58 @@ bool Settings::startMinimized() const {
   return value("app.startup.startMinimized", false).toBool();
 }
 
+bool Settings::startWithWindows() const {
+  return value("app.startup.withWindows", false).toBool();
+}
+
 bool Settings::mediaDetectionEnabled() const {
   return value("track.detection.enabled", true).toBool();
 }
 
+bool Settings::mediaDetectionPlayersEnabled() const {
+  return value("track.detection.playersEnabled", true).toBool();
+}
+
+bool Settings::mediaDetectionStreamingEnabled() const {
+  return value("track.detection.streamingEnabled", false).toBool();
+}
+
+bool Settings::mediaDetectionPollingActive() const {
+  return mediaDetectionEnabled() &&
+         (mediaDetectionPlayersEnabled() || mediaDetectionStreamingEnabled());
+}
+
+std::string Settings::recognitionIgnoredSubstrings() const {
+  return value("recognition.anitomy.ignoredSubstrings").toString().toStdString();
+}
+
+bool Settings::mediaNotifyRecognizedBalloon() const {
+  return value("track.notifications.balloonRecognized", true).toBool();
+}
+
+bool Settings::mediaNotifyUnrecognizedBalloon() const {
+  return value("track.notifications.balloonUnrecognized", true).toBool();
+}
+
 bool Settings::sharingEnabled() const {
   return value("app.features.sharingEnabled", true).toBool();
+}
+
+bool Settings::announceHttpEnabled() const {
+  return value("announce.http.enabled", false).toBool();
+}
+
+std::string Settings::announceHttpUrl() const {
+  return value("announce.http.url").toString().toStdString();
+}
+
+std::string Settings::announceHttpBodyFormat() const {
+  static const QString kDefault =
+      QStringLiteral("user=%user%&name=%title%&ep=%episode%&eptotal=%total%&score=%score%&picurl=%image%"
+                     "&playstatus=%playstatus%");
+  const QString v = value("announce.http.bodyFormat", kDefault).toString();
+  const QString trimmed = v.trimmed();
+  return (trimmed.isEmpty() ? kDefault : trimmed).toStdString();
 }
 
 bool Settings::listSynchronizationEnabled() const {
@@ -155,6 +232,10 @@ bool Settings::listSynchronizationEnabled() const {
 int Settings::syncListUpdateDelaySeconds() const {
   const int d = value("sync.listUpdates.apiDelaySeconds", 0).toInt();
   return std::clamp(d, 0, 86400);
+}
+
+bool Settings::syncListPushAskConfirm() const {
+  return value("sync.listPush.askConfirm", true).toBool();
 }
 
 bool Settings::closeToTray() const {
@@ -308,6 +389,10 @@ void Settings::setLibraryFolders(std::vector<std::string> folders) const {
   setValue("library.folders", QJsonArray::fromStringList(list));
 }
 
+void Settings::setLibraryWatchFoldersEnabled(const bool enabled) const {
+  setValue("library.watch.enabled", enabled);
+}
+
 void Settings::setLibraryScanMinFileSizeBytes(const qint64 bytes) const {
   const qlonglong n = bytes < 0 ? 0 : static_cast<qlonglong>(bytes);
   setValue("library.scan.minFileSizeBytes", QVariant{n});
@@ -372,12 +457,51 @@ void Settings::setStartMinimized(const bool enabled) const {
   setValue("app.startup.startMinimized", enabled);
 }
 
+void Settings::setStartWithWindows(const bool enabled) const {
+  setValue("app.startup.withWindows", enabled);
+#ifdef Q_OS_WIN
+  applyWindowsAutoStartRunKey(enabled);
+#endif
+}
+
 void Settings::setMediaDetectionEnabled(const bool enabled) const {
   setValue("track.detection.enabled", enabled);
 }
 
+void Settings::setMediaDetectionPlayersEnabled(const bool enabled) const {
+  setValue("track.detection.playersEnabled", enabled);
+}
+
+void Settings::setMediaDetectionStreamingEnabled(const bool enabled) const {
+  setValue("track.detection.streamingEnabled", enabled);
+}
+
+void Settings::setRecognitionIgnoredSubstrings(const std::string& text) const {
+  setValue("recognition.anitomy.ignoredSubstrings", QString::fromStdString(text));
+}
+
+void Settings::setMediaNotifyRecognizedBalloon(const bool enabled) const {
+  setValue("track.notifications.balloonRecognized", enabled);
+}
+
+void Settings::setMediaNotifyUnrecognizedBalloon(const bool enabled) const {
+  setValue("track.notifications.balloonUnrecognized", enabled);
+}
+
 void Settings::setSharingEnabled(const bool enabled) const {
   setValue("app.features.sharingEnabled", enabled);
+}
+
+void Settings::setAnnounceHttpEnabled(const bool enabled) const {
+  setValue("announce.http.enabled", enabled);
+}
+
+void Settings::setAnnounceHttpUrl(const std::string& url) const {
+  setValue("announce.http.url", QString::fromStdString(url));
+}
+
+void Settings::setAnnounceHttpBodyFormat(const std::string& format) const {
+  setValue("announce.http.bodyFormat", QString::fromStdString(format));
 }
 
 void Settings::setListSynchronizationEnabled(const bool enabled) const {
@@ -386,6 +510,10 @@ void Settings::setListSynchronizationEnabled(const bool enabled) const {
 
 void Settings::setSyncListUpdateDelaySeconds(const int seconds) const {
   setValue("sync.listUpdates.apiDelaySeconds", std::clamp(seconds, 0, 86400));
+}
+
+void Settings::setSyncListPushAskConfirm(const bool enabled) const {
+  setValue("sync.listPush.askConfirm", enabled);
 }
 
 void Settings::setCloseToTray(const bool enabled) const {

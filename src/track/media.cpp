@@ -56,7 +56,7 @@ bool Detection::init() {
 
 #ifdef Q_OS_WINDOWS
   pollTimer_->setInterval(taiga::settings.mediaDetectionInterval());
-  if (taiga::settings.mediaDetectionEnabled()) {
+  if (taiga::settings.mediaDetectionPollingActive()) {
     pollTimer_->start();
   }
 #endif
@@ -86,7 +86,7 @@ void Detection::setPollingEnabled(const bool on) {
 void Detection::refreshPollingFromSettings() {
 #ifdef Q_OS_WINDOWS
   pollTimer_->setInterval(taiga::settings.mediaDetectionInterval());
-  if (taiga::settings.mediaDetectionEnabled()) {
+  if (taiga::settings.mediaDetectionPollingActive()) {
     pollTimer_->start();
   } else {
     pollTimer_->stop();
@@ -104,12 +104,24 @@ void Detection::poll() {
 #ifdef Q_OS_WINDOWS
   if (players_.empty()) return;
 
-  // @TODO: Enable web browser detection
+  const bool want_players = taiga::settings.mediaDetectionPlayersEnabled();
+  const bool want_streaming = taiga::settings.mediaDetectionStreamingEnabled();
   std::vector<player_t> players;
-  for (const auto player : players_) {
-    if (player.type != anisthesia::PlayerType::WebBrowser) {
+  for (const auto& player : players_) {
+    if (player.type == anisthesia::PlayerType::WebBrowser) {
+      if (want_streaming) players.emplace_back(player);
+    } else if (want_players) {
       players.emplace_back(player);
     }
+  }
+  if (players.empty()) {
+    currentPlayer_.reset();
+    currentMedia_.reset();
+    if (currentEpisode_) {
+      currentEpisode_.reset();
+      emit currentEpisodeChanged(std::nullopt);
+    }
+    return;
   }
 
   static const auto media_proc = [](const anisthesia::MediaInfo&) {

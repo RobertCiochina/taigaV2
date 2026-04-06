@@ -47,6 +47,8 @@
 #include <algorithm>
 #include <ranges>
 
+#include <anitomy.hpp>
+
 #include "base/string.hpp"
 #include "gui/history/history_widget.hpp"
 #include "gui/library/library_widget.hpp"
@@ -72,9 +74,11 @@
 #include "taiga/session.hpp"
 #include "taiga/settings.hpp"
 #include "taiga/stats.hpp"
+#include "taiga/http_announce.hpp"
 #include "taiga/update_check.hpp"
 #include "taiga/user_feedback.hpp"
 #include "track/episode.hpp"
+#include "track/library_watcher.hpp"
 #include "track/media.hpp"
 #include "track/play.hpp"
 #include "track/scanner.hpp"
@@ -160,7 +164,17 @@ void MainWindow::init() {
   }
 
   connect(track::media::detection(), &track::media::Detection::currentEpisodeChanged, this,
-          &MainWindow::updateTrayTooltip);
+          [this](const std::optional<track::Episode>& ep) {
+            updateTrayTooltip();
+            maybeNotifyMediaDetectionBalloon(ep);
+          });
+
+  connect(track::libraryFolderWatcher(), &track::LibraryFolderWatcher::debouncedRescanTriggered, this,
+          [this]() {
+            statusBar()->showMessage(tr("Library folders changed — rescanning…"), 4000);
+            runLibraryScan(true);
+          },
+          Qt::QueuedConnection);
 
   initFeatureToggleActions();
 
@@ -581,6 +595,7 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 
 void MainWindow::refreshLibraryRootsFromSettings() {
   if (m_libraryWidget) m_libraryWidget->refreshRootsFromSettings();
+  track::libraryFolderWatcher()->refreshFromSettings();
 }
 
 void MainWindow::runInteractiveLibraryScan() {
@@ -697,7 +712,7 @@ void MainWindow::initFeatureToggleActions() {
 
   connect(ui_->actionToggleDetection, &QAction::toggled, this, [](const bool on) {
     taiga::settings.setMediaDetectionEnabled(on);
-    track::media::detection()->setPollingEnabled(on);
+    track::media::detection()->setPollingEnabled(taiga::settings.mediaDetectionPollingActive());
   });
   connect(ui_->actionToggleSharing, &QAction::toggled, this, [this](const bool on) {
     taiga::settings.setSharingEnabled(on);
@@ -1034,6 +1049,45 @@ void MainWindow::runLibraryScan(const bool startup_silent) {
   }
   refreshAnimeListProgressDecorations();
   refreshAnimeListNewEpisodeHighlight();
+}
+
+void MainWindow::maybeNotifyMediaDetectionBalloon(const std::optional<track::Episode>& episode) {
+  if (episode && episode->animeId() > 0) {
+    taiga::http_announce::postRecognizedEpisodeIfConfigured(*episode);
+  }
+
+  if (!m_trayIcon || !QSystemTrayIcon::supportsMessages()) return;
+  if (!taiga::settings.mediaDetectionPollingActive()) return;
+
+  QString sig;
+  QString title;
+  QString body;
+  if (episode && episode->animeId() > 0) {
+    if (!taiga::settings.mediaNotifyRecognizedBalloon()) return;
+    if (const auto item = anime::db.item(episode->animeId())) {
+      const QString romaji = QString::fromStdString(item->titles.romaji);
+      const QString epn =
+          QString::fromStdString(episode->element(anitomy::ElementKind::Episode, std::string{"?"}));
+      sig = QStringLiteral("ok:%1:%2").arg(episode->animeId()).arg(epn);
+      title = tr("Now playing");
+      body = item->episode_count > 1 ? tr("%1 — episode %2").arg(romaji, epn) : romaji;
+    } else {
+      return;
+    }
+  } else if (episode) {
+    if (!taiga::settings.mediaNotifyUnrecognizedBalloon()) return;
+    const QString raw = QString::fromStdString(episode->element(anitomy::ElementKind::Title));
+    if (raw.isEmpty()) return;
+    sig = QStringLiteral("bad:%1").arg(raw);
+    title = tr("Unrecognized media");
+    body = tr("Could not match: %1").arg(raw);
+  } else {
+    m_last_media_balloon_sig_.clear();
+    return;
+  }
+  if (sig == m_last_media_balloon_sig_) return;
+  m_last_media_balloon_sig_ = sig;
+  postTrayMessage(title, body);
 }
 
 void MainWindow::updateTrayTooltip() {

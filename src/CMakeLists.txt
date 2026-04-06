@@ -77,6 +77,8 @@ target_sources(taiga PRIVATE
 	taiga/application.cpp
 	taiga/application.hpp
 	taiga/config.h
+	taiga/http_announce.cpp
+	taiga/http_announce.hpp
 	taiga/network.cpp
 	taiga/network.hpp
 	taiga/orange.cpp
@@ -100,6 +102,8 @@ target_sources(taiga PRIVATE
 
 	track/episode.cpp
 	track/episode.hpp
+	track/library_watcher.cpp
+	track/library_watcher.hpp
 	track/media.cpp
 	track/media.hpp
 	track/play.cpp

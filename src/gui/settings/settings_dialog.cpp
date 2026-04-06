@@ -26,6 +26,7 @@
 #include "gui/main/main_window.hpp"
 #include "gui/settings/anilist_auth_dialog.hpp"
 #include "gui/utils/theme.hpp"
+#include "track/library_watcher.hpp"
 #include "track/media.hpp"
 #include "sync/anilist_utils.hpp"
 #include "sync/service.hpp"
@@ -197,6 +198,11 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   ui_->checkUpdatesOnStartup->setChecked(taiga::settings.checkForUpdatesOnStartup());
   ui_->checkScanLibraryOnStartup->setChecked(taiga::settings.scanLibraryOnStartup());
   ui_->checkStartMinimized->setChecked(taiga::settings.startMinimized());
+  ui_->checkStartWithWindows->setChecked(taiga::settings.startWithWindows());
+#ifndef Q_OS_WIN
+  ui_->checkStartWithWindows->setEnabled(false);
+  ui_->checkStartWithWindows->setToolTip(tr("Windows only."));
+#endif
   ui_->checkStartMinimized->setToolTip(
       tr("If \"Minimize to tray\" is also enabled, Taiga starts in the tray only (v1 behavior)."));
 
@@ -224,27 +230,50 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   }
 
   ui_->checkMediaDetection->setChecked(taiga::settings.mediaDetectionEnabled());
+  ui_->checkMediaPlayerPolling->setChecked(taiga::settings.mediaDetectionPlayersEnabled());
+  ui_->checkMediaStreaming->setChecked(taiga::settings.mediaDetectionStreamingEnabled());
+  ui_->checkNotifyMediaRecognized->setChecked(taiga::settings.mediaNotifyRecognizedBalloon());
+  ui_->checkNotifyMediaUnrecognized->setChecked(taiga::settings.mediaNotifyUnrecognizedBalloon());
   ui_->spinDetectionInterval->setValue(static_cast<int>(taiga::settings.mediaDetectionInterval().count() / 1000));
 #ifndef Q_OS_WINDOWS
   ui_->checkMediaDetection->setEnabled(false);
+  ui_->checkMediaPlayerPolling->setEnabled(false);
+  ui_->checkMediaStreaming->setEnabled(false);
+  ui_->checkNotifyMediaRecognized->setEnabled(false);
+  ui_->checkNotifyMediaUnrecognized->setEnabled(false);
   ui_->spinDetectionInterval->setEnabled(false);
 #endif
   {
     const auto rec_ui = [this] {
-      ui_->spinDetectionInterval->setEnabled(
 #ifdef Q_OS_WINDOWS
-          ui_->checkMediaDetection->isChecked()
+      const bool master = ui_->checkMediaDetection->isChecked();
+      const bool any_source =
+          ui_->checkMediaPlayerPolling->isChecked() || ui_->checkMediaStreaming->isChecked();
+      ui_->checkMediaPlayerPolling->setEnabled(master);
+      ui_->checkMediaStreaming->setEnabled(master);
+      ui_->checkNotifyMediaRecognized->setEnabled(master);
+      ui_->checkNotifyMediaUnrecognized->setEnabled(master);
+      ui_->spinDetectionInterval->setEnabled(master && any_source);
 #else
-          false
+      (void)0;
 #endif
-      );
     };
     connect(ui_->checkMediaDetection, &QCheckBox::checkStateChanged, this,
+            [rec_ui](Qt::CheckState) { rec_ui(); });
+    connect(ui_->checkMediaPlayerPolling, &QCheckBox::checkStateChanged, this,
+            [rec_ui](Qt::CheckState) { rec_ui(); });
+    connect(ui_->checkMediaStreaming, &QCheckBox::checkStateChanged, this,
             [rec_ui](Qt::CheckState) { rec_ui(); });
     rec_ui();
   }
 
   ui_->checkLibraryLookupParent->setChecked(taiga::settings.libraryScanLookupParentDirectories());
+  ui_->plainRecognitionIgnored->setPlainText(
+      QString::fromStdString(taiga::settings.recognitionIgnoredSubstrings()));
+  ui_->checkAnnounceHttp->setChecked(taiga::settings.announceHttpEnabled());
+  ui_->lineAnnounceHttpUrl->setText(QString::fromStdString(taiga::settings.announceHttpUrl()));
+  ui_->plainAnnounceHttpBody->setPlainText(
+      QString::fromStdString(taiga::settings.announceHttpBodyFormat()));
   ui_->lineMediaPlayerExecutable->setText(
       QString::fromStdString(taiga::settings.mediaPlayerExecutablePath()));
   connect(ui_->buttonBrowseMediaPlayerExecutable, &QPushButton::clicked, this, [this] {
@@ -277,6 +306,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
          "only with broken proxies or certificates."));
   ui_->checkSyncOnFocus->setChecked(taiga::settings.syncOnWindowFocus());
   ui_->spinFocusMinutes->setValue(taiga::settings.syncOnWindowFocusMinutes());
+
+  ui_->checkLibraryWatchFolders->setChecked(taiga::settings.libraryWatchFoldersEnabled());
 
   for (const auto& folder : taiga::settings.libraryFolders()) {
     ui_->libraryFolderList->addItem(QString::fromStdString(folder));
@@ -487,6 +518,10 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
     ui_->comboListService->setCurrentIndex(sidx);
   }
   ui_->checkListUpdatesEnabled->setChecked(taiga::settings.listSynchronizationEnabled());
+  ui_->checkSyncPushAskConfirm->setChecked(taiga::settings.syncListPushAskConfirm());
+  ui_->checkSyncPushAskConfirm->setToolTip(
+      tr("Taiga v1: account/update/asktoconfirm. When off, list edits upload without a prompt (subject to "
+         "the debounce delay above)."));
   ui_->spinListUpdateApiDelay->setValue(taiga::settings.syncListUpdateDelaySeconds());
   ui_->spinListUpdateApiDelay->setToolTip(
       tr("Seconds to wait after a local list change before pushing the same title to the remote service "
@@ -553,6 +588,14 @@ void SettingsDialog::accept() {
   gui::theme.refreshFromSettings();
 
   taiga::settings.setMediaDetectionEnabled(ui_->checkMediaDetection->isChecked());
+  taiga::settings.setMediaDetectionPlayersEnabled(ui_->checkMediaPlayerPolling->isChecked());
+  taiga::settings.setMediaDetectionStreamingEnabled(ui_->checkMediaStreaming->isChecked());
+  taiga::settings.setRecognitionIgnoredSubstrings(ui_->plainRecognitionIgnored->toPlainText().toStdString());
+  taiga::settings.setAnnounceHttpEnabled(ui_->checkAnnounceHttp->isChecked());
+  taiga::settings.setAnnounceHttpUrl(ui_->lineAnnounceHttpUrl->text().trimmed().toStdString());
+  taiga::settings.setAnnounceHttpBodyFormat(ui_->plainAnnounceHttpBody->toPlainText().toStdString());
+  taiga::settings.setMediaNotifyRecognizedBalloon(ui_->checkNotifyMediaRecognized->isChecked());
+  taiga::settings.setMediaNotifyUnrecognizedBalloon(ui_->checkNotifyMediaUnrecognized->isChecked());
   taiga::settings.setMediaDetectionInterval(
       std::chrono::milliseconds(ui_->spinDetectionInterval->value() * 1000));
   taiga::settings.setLibraryScanLookupParentDirectories(ui_->checkLibraryLookupParent->isChecked());
@@ -562,6 +605,7 @@ void SettingsDialog::accept() {
   taiga::settings.setCheckForUpdatesOnStartup(ui_->checkUpdatesOnStartup->isChecked());
   taiga::settings.setScanLibraryOnStartup(ui_->checkScanLibraryOnStartup->isChecked());
   taiga::settings.setStartMinimized(ui_->checkStartMinimized->isChecked());
+  taiga::settings.setStartWithWindows(ui_->checkStartWithWindows->isChecked());
   if (QSystemTrayIcon::isSystemTrayAvailable()) {
     taiga::settings.setCloseToTray(ui_->checkCloseToTray->isChecked());
     taiga::settings.setMinimizeToTray(ui_->checkMinimizeToTray->isChecked());
@@ -595,6 +639,9 @@ void SettingsDialog::accept() {
     if (gui::mainWindow()) gui::mainWindow()->refreshLibraryRootsFromSettings();
   }
 
+  taiga::settings.setLibraryWatchFoldersEnabled(ui_->checkLibraryWatchFolders->isChecked());
+  track::libraryFolderWatcher()->refreshFromSettings();
+
   {
     constexpr qint64 kMiB = 1024LL * 1024;
     const int v = ui_->spinLibraryMinFileSizeMiB->value();
@@ -625,6 +672,7 @@ void SettingsDialog::accept() {
 
   taiga::settings.setService(ui_->comboListService->currentData().toString().toStdString());
   taiga::settings.setListSynchronizationEnabled(ui_->checkListUpdatesEnabled->isChecked());
+  taiga::settings.setSyncListPushAskConfirm(ui_->checkSyncPushAskConfirm->isChecked());
   taiga::settings.setSyncListUpdateDelaySeconds(ui_->spinListUpdateApiDelay->value());
   taiga::settings.setListTitleLanguage(static_cast<anime::TitleLanguage>(
       ui_->comboListTitleLanguage->currentData().toInt()));
@@ -639,6 +687,7 @@ void SettingsDialog::accept() {
   if (auto* mw = gui::mainWindow()) {
     mw->applyListSynchronizationToggleFromSettings();
     mw->applyMediaDetectionToggleFromSettings();
+    track::media::detection()->setPollingEnabled(taiga::settings.mediaDetectionPollingActive());
     mw->refreshServiceDependentUi();
     mw->refreshAnimeListProgressDecorations();
     mw->refreshAnimeListNewEpisodeHighlight();

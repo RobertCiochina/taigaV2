@@ -39,10 +39,14 @@ enum class TorrentDiscoveryNewCatalogAction {
 class Settings final : public base::Settings {
 public:
   void init() const;
+  /// When autostart is enabled, refresh the Windows **Run** value to the current executable path.
+  void ensureWindowsAutoStartFromSettings() const;
 
   Qt::ColorScheme appColorScheme() const;
   std::string service() const;
   std::vector<std::string> libraryFolders() const;
+  /// Taiga v1: `anime/folders/watch/enabled` — watch library roots and trigger a debounced rescan.
+  bool libraryWatchFoldersEnabled() const;
   /// Taiga v1: anime/folders/scan @minfilesize (bytes). If positive, library scan skips smaller videos.
   qint64 libraryScanMinFileSizeBytes() const;
   /// Taiga v1: `recognition/general/lookup_parent_directories` — use parent folder name as title hint when
@@ -76,16 +80,38 @@ public:
   /// Taiga v1: program/startup/minimize — start with the window minimized (or hidden to tray if
   /// minimizeToTray() is also on).
   bool startMinimized() const;
+  /// Taiga v1: `program/general/autostart` — register in Windows **Run** (Windows only).
+  bool startWithWindows() const;
 
   /// Taiga v1: program/general/enablerecognition
   bool mediaDetectionEnabled() const;
+  /// Taiga v1: `recognition/mediaplayers/enabled` — when false, desktop player polling is off.
+  bool mediaDetectionPlayersEnabled() const;
+  /// Taiga v1: `recognition/streaming/enabled` — include web browsers in media detection (Windows).
+  bool mediaDetectionStreamingEnabled() const;
+  /// True when master recognition is on and at least one of desktop players or streaming detection is on.
+  bool mediaDetectionPollingActive() const;
+  /// Taiga v1 `recognition/anitomy/ignored_strings` (removed from modern Anitomy): substrings stripped from
+  /// filenames/titles before parsing (newline, comma, or semicolon separated).
+  std::string recognitionIgnoredSubstrings() const;
+  /// Taiga v1: `program/notifications/balloon/recognized` — tray message when a playing title is matched.
+  bool mediaNotifyRecognizedBalloon() const;
+  /// Taiga v1: `program/notifications/balloon/notrecognized` — tray message for unmatched media.
+  bool mediaNotifyUnrecognizedBalloon() const;
   /// Taiga v1: program/general/enablesharing
   bool sharingEnabled() const;
+  /// Taiga v1: `announce/http/enabled` — POST now-playing updates (requires **sharing** on).
+  bool announceHttpEnabled() const;
+  std::string announceHttpUrl() const;
+  /// Default matches v1 `ShareHttpFormat` (form-urlencoded tokens are percent-encoded in values).
+  std::string announceHttpBodyFormat() const;
   /// Taiga v1: program/general/enablesync — when false, manual/auto list sync is skipped.
   bool listSynchronizationEnabled() const;
   /// Taiga v1: `account/update/delay` — seconds before pushing the same title after a local change
   /// (debounced `sync::saveListEntry`). **0** = immediate.
   int syncListUpdateDelaySeconds() const;
+  /// Taiga v1: `account/update/asktoconfirm` — confirm before each upload from the list editor / dialogs.
+  bool syncListPushAskConfirm() const;
 
   /// Taiga v1: program/general/close — window close keeps the app running in the tray.
   bool closeToTray() const;
@@ -150,6 +176,7 @@ public:
   void setAppColorScheme(const Qt::ColorScheme scheme) const;
   void setService(const std::string& service) const;
   void setLibraryFolders(std::vector<std::string> folders) const;
+  void setLibraryWatchFoldersEnabled(bool enabled) const;
   void setLibraryScanMinFileSizeBytes(qint64 bytes) const;
   void setLibraryScanLookupParentDirectories(bool enabled) const;
   void setMediaPlayerExecutablePath(const std::string& path) const;
@@ -165,10 +192,20 @@ public:
   void setCheckForUpdatesOnStartup(bool enabled) const;
   void setScanLibraryOnStartup(bool enabled) const;
   void setStartMinimized(bool enabled) const;
+  void setStartWithWindows(bool enabled) const;
   void setMediaDetectionEnabled(bool enabled) const;
+  void setMediaDetectionPlayersEnabled(bool enabled) const;
+  void setMediaDetectionStreamingEnabled(bool enabled) const;
+  void setRecognitionIgnoredSubstrings(const std::string& text) const;
+  void setMediaNotifyRecognizedBalloon(bool enabled) const;
+  void setMediaNotifyUnrecognizedBalloon(bool enabled) const;
   void setSharingEnabled(bool enabled) const;
+  void setAnnounceHttpEnabled(bool enabled) const;
+  void setAnnounceHttpUrl(const std::string& url) const;
+  void setAnnounceHttpBodyFormat(const std::string& format) const;
   void setListSynchronizationEnabled(bool enabled) const;
   void setSyncListUpdateDelaySeconds(int seconds) const;
+  void setSyncListPushAskConfirm(bool enabled) const;
   void setCloseToTray(bool enabled) const;
   void setMinimizeToTray(bool enabled) const;
   void setNavigationSidebarVisible(bool visible) const;

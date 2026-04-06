@@ -20,6 +20,8 @@
 
 #include <QDir>
 #include <QFileInfo>
+#include <QRegularExpression>
+#include <QString>
 #include <algorithm>
 #include <anitomy.hpp>
 #include <ranges>
@@ -27,16 +29,38 @@
 
 #include "media/anime.hpp"
 #include "media/anime_db.hpp"
+#include "taiga/settings.hpp"
 #include "track/episode.hpp"
 #include "track/recognition_cache.hpp"
 #include "track/recognition_normalize.hpp"
 
 namespace track::recognition {
 
+namespace {
+
+void stripIgnoredSubstrings(std::string& s) {
+  const QString raw =
+      QString::fromStdString(taiga::settings.recognitionIgnoredSubstrings()).trimmed();
+  if (raw.isEmpty()) return;
+  QString qs = QString::fromStdString(s);
+  static const QRegularExpression kSep{QStringLiteral("[\\n\\r,;]+")};
+  const QStringList parts = raw.split(kSep, Qt::SkipEmptyParts);
+  for (QString tok : parts) {
+    tok = tok.trimmed();
+    if (tok.isEmpty()) continue;
+    qs.replace(tok, QString(), Qt::CaseInsensitive);
+  }
+  s = qs.toStdString();
+}
+
+}  // namespace
+
 Episode parse(std::string_view input, const anitomy::Options options) {
   Episode episode;
 
-  auto elements = anitomy::parse(input, options);
+  std::string work{input};
+  stripIgnoredSubstrings(work);
+  auto elements = anitomy::parse(work, options);
   episode.setElements(elements);
 
   return episode;
@@ -49,7 +73,8 @@ Episode parseFileInfo(const QFileInfo& info, const anitomy::Options options,
   Episode episode = track::recognition::parse(fileName, options);
 
   if (use_parent_directory_title_hint && !episode.contains(anitomy::ElementKind::Title)) {
-    const auto dirName = info.dir().dirName().toStdString();
+    auto dirName = info.dir().dirName().toStdString();
+    stripIgnoredSubstrings(dirName);
     episode.addElement(anitomy::ElementKind::Title, dirName);
   }
 
