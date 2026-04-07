@@ -41,6 +41,9 @@
 #include <QSystemTrayIcon>
 #include <QTimer>
 #include <QUrl>
+#include <QNetworkCookie>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QVBoxLayout>
 #include <QtWidgets>
 
@@ -73,6 +76,7 @@
 #include "media/anime_list_import.hpp"
 #include "taiga/accounts.hpp"
 #include "taiga/application.hpp"
+#include "taiga/network.hpp"
 #include "taiga/path.hpp"
 #include "taiga/session.hpp"
 #include "taiga/settings.hpp"
@@ -1462,6 +1466,15 @@ void MainWindow::refreshHomeDashboard() {
     clearContainer(m_homeUpNextContainer);
     auto* vl = qobject_cast<QVBoxLayout*>(m_homeUpNextContainer->layout());
 
+    // If qBittorrent Web API is enabled, we can gray out the Play button while that anime's
+    // folder is still downloading (best-effort: per-savepath progress).
+    struct UpNextButton {
+      QPointer<QPushButton> btn;
+      QString save_path;
+      int anime_id = 0;
+    };
+    QList<UpNextButton> playButtons;
+
     // Collect Watching entries that have the next episode on disk, sorted by title
     struct UpNextEntry { QString title; int anime_id; int next_ep; };
     QList<UpNextEntry> upNext;
@@ -1488,6 +1501,23 @@ void MainWindow::refreshHomeDashboard() {
       empty->setTextFormat(Qt::RichText);
       vl->addWidget(empty);
     } else {
+      // Helper: compute the same qBittorrent save-path Taiga uses when sending torrents.
+      const auto resolvedTorrentDownloadDir = [](const QString& folder_name) -> QString {
+        QString base = QString::fromStdString(taiga::settings.torrentClientDownloadPath()).trimmed();
+        if (base.isEmpty()) return {};
+        if (!QDir(base).exists()) return {};
+        if (taiga::settings.torrentDownloadCreateSubfolder()) {
+          QString sub = folder_name.trimmed();
+          for (const QChar c : QStringLiteral("\\/:*?\"<>|")) sub.replace(c, u'_');
+          if (sub.isEmpty()) return QDir(base).absolutePath();
+          sub = sub.left(120);
+          QDir d(base);
+          if (!d.exists(sub)) d.mkpath(sub);
+          return d.filePath(sub);
+        }
+        return QDir(base).absolutePath();
+      };
+
       for (const auto& ue : upNext) {
         auto* row = new QWidget(m_homeUpNextContainer);
         auto* rl = new QHBoxLayout(row);
@@ -1513,6 +1543,11 @@ void MainWindow::refreshHomeDashboard() {
 
         auto* playBtn = new QPushButton(tr("▶ Play"), row);
         playBtn->setFixedWidth(72);
+        playBtn->setCursor(Qt::PointingHandCursor);
+        // Make it look more like an action button.
+        playBtn->setStyleSheet(QStringLiteral(
+            "QPushButton{padding:4px 10px; font-weight:600;}"
+            "QPushButton:disabled{color:palette(placeholderText);}"));
         const int aid = ue.anime_id;
         connect(playBtn, &QPushButton::clicked, this, [this, aid]() {
           if (!track::playNextEpisode(aid)) {
@@ -1524,6 +1559,108 @@ void MainWindow::refreshHomeDashboard() {
         rl->addWidget(epLbl);
         rl->addWidget(playBtn);
         vl->addWidget(row);
+
+        // Capture button for qBittorrent progress gating.
+        if (taiga::settings.torrentQBitApiEnabled()) {
+          const auto* item = anime::db.item(aid);
+          const QString folder = item ? QString::fromStdString(item->titles.english).trimmed() : QString{};
+          const QString folder_name = folder.isEmpty() ? ue.title : folder;
+          const QString save_path = resolvedTorrentDownloadDir(folder_name);
+          playButtons.append({playBtn, save_path, aid});
+        }
+      }
+    }
+
+    // Gray out Play while qBittorrent reports active downloads in that save path (best-effort).
+    if (taiga::settings.torrentQBitApiEnabled() && !playButtons.isEmpty()) {
+      const QString base_url = QString::fromStdString(taiga::settings.torrentQBitApiUrl()).trimmed();
+      const QString username = QString::fromStdString(taiga::settings.torrentQBitApiUsername()).trimmed();
+      const QString password = QString::fromStdString(taiga::settings.torrentQBitApiPassword());
+
+      const auto applyEnabled = [this, playButtons](const QSet<QString>& downloading_paths) {
+        for (const auto& pb : playButtons) {
+          if (!pb.btn) continue;
+          const bool downloading = !pb.save_path.isEmpty() &&
+                                   downloading_paths.contains(QDir::cleanPath(pb.save_path));
+          pb.btn->setEnabled(!downloading);
+          pb.btn->setCursor(downloading ? Qt::ArrowCursor : Qt::PointingHandCursor);
+          if (downloading) {
+            pb.btn->setToolTip(tr("Downloading in qBittorrent…"));
+          } else {
+            pb.btn->setToolTip({});
+          }
+        }
+      };
+
+      // Default: enabled; will be disabled when we confirm active downloads for that folder.
+      applyEnabled({});
+
+      const auto fetchInfo = [=](const QString& cookie) {
+        if (base_url.isEmpty()) return;
+        QNetworkRequest req(QUrl(base_url + QStringLiteral("/api/v2/torrents/info")));
+        taiga::applyCommonHeaders(req);
+        if (!cookie.isEmpty()) req.setRawHeader("Cookie", cookie.toUtf8());
+        auto* reply = taiga::network()->get(req);
+        connect(reply, &QNetworkReply::finished, this, [reply, applyEnabled]() mutable {
+          reply->deleteLater();
+          if (reply->error() != QNetworkReply::NoError) {
+            // On failure, keep buttons enabled (non-blocking UX).
+            applyEnabled({});
+            return;
+          }
+          const QByteArray body = reply->readAll();
+          const QJsonDocument doc = QJsonDocument::fromJson(body);
+          if (!doc.isArray()) { applyEnabled({}); return; }
+
+          QSet<QString> downloading;
+          for (const QJsonValue& v : doc.array()) {
+            if (!v.isObject()) continue;
+            const QJsonObject o = v.toObject();
+            const double progress = o.value(QStringLiteral("progress")).toDouble(1.0);
+            const QString state = o.value(QStringLiteral("state")).toString();
+            const QString save_path = QDir::cleanPath(o.value(QStringLiteral("save_path")).toString());
+            if (save_path.isEmpty()) continue;
+            // Treat anything not fully complete as "downloading" for our purposes.
+            if (progress < 1.0) {
+              // Prefer state hints, but progress alone is enough.
+              if (state.contains(QStringLiteral("down"), Qt::CaseInsensitive) ||
+                  state.contains(QStringLiteral("dl"), Qt::CaseInsensitive) ||
+                  state.contains(QStringLiteral("meta"), Qt::CaseInsensitive) ||
+                  state.contains(QStringLiteral("stalled"), Qt::CaseInsensitive) ||
+                  state.contains(QStringLiteral("paused"), Qt::CaseInsensitive) ||
+                  true) {
+                downloading.insert(save_path);
+              }
+            }
+          }
+          applyEnabled(downloading);
+        });
+      };
+
+      if (username.isEmpty()) {
+        fetchInfo({});
+      } else {
+        QNetworkRequest login_req(QUrl(base_url + QStringLiteral("/api/v2/auth/login")));
+        taiga::applyCommonHeaders(login_req);
+        login_req.setHeader(QNetworkRequest::ContentTypeHeader,
+                            QStringLiteral("application/x-www-form-urlencoded"));
+        const QByteArray login_body =
+            QByteArrayLiteral("username=") + username.toUtf8() +
+            QByteArrayLiteral("&password=") + password.toUtf8();
+        auto* login_reply = taiga::network()->post(login_req, login_body);
+        connect(login_reply, &QNetworkReply::finished, this, [login_reply, fetchInfo]() mutable {
+          login_reply->deleteLater();
+          QString cookie_str;
+          const QVariant cv = login_reply->header(QNetworkRequest::SetCookieHeader);
+          if (cv.isValid()) {
+            for (const QNetworkCookie& c : cv.value<QList<QNetworkCookie>>()) {
+              if (!cookie_str.isEmpty()) cookie_str += QStringLiteral("; ");
+              cookie_str += QString::fromUtf8(c.name()) + QStringLiteral("=") +
+                            QString::fromUtf8(c.value());
+            }
+          }
+          fetchInfo(cookie_str);
+        });
       }
     }
 
