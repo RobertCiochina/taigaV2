@@ -63,6 +63,10 @@ public:
   /// Programmatically select a status tab (e.g. from sidebar navigation).
   void selectStatusTab(anime::list::Status status);
 
+  /// Refresh the status tab bar text/counts from the current database entries.
+  /// Useful when list entries are updated without a full model reset (e.g. media recognition commits).
+  void refreshStatusTabCountsNow();
+
 private:
   void initToolbar();
   void initSortMenu();

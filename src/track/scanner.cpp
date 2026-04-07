@@ -52,6 +52,16 @@ bool libraryHasLocalEpisode(const int anime_id, const int episode_number) {
   return it2 != g_manual_episodes.end() && it2->second.contains(episode_number);
 }
 
+void removeLibraryEpisode(const int anime_id, const int episode_number) {
+  if (episode_number < 1) return;
+  const auto it = g_library_episodes.find(anime_id);
+  if (it == g_library_episodes.end()) return;
+  it->second.erase(episode_number);
+  if (it->second.empty()) {
+    g_library_episodes.erase(it);
+  }
+}
+
 void addManualLibraryEpisode(const int anime_id, int episode) {
   if (episode < 1) episode = 1;
   g_manual_episodes[anime_id].insert(episode);

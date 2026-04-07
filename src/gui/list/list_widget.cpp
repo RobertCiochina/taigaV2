@@ -248,6 +248,10 @@ void ListWidget::selectStatusTab(const anime::list::Status status) {
   }
 }
 
+void ListWidget::refreshStatusTabCountsNow() {
+  refreshStatusTabCounts();
+}
+
 void ListWidget::initToolbar() {
   const auto actionSort = new QAction(theme.getIcon("sort"), tr("Sort"), this);
   const auto actionView = new QAction(theme.getIcon("grid_view"), tr("View"), this);

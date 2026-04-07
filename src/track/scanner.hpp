@@ -47,6 +47,11 @@ const std::unordered_map<int, std::unordered_set<int>>& libraryEpisodeAvailabili
 
 bool libraryHasLocalEpisode(int anime_id, int episode_number);
 
+/// Remove an episode from the on-disk availability index (best-effort).
+/// Used when Taiga deletes a watched file so UI (Home "Up next", auto-download) updates immediately
+/// without requiring a full rescan.
+void removeLibraryEpisode(int anime_id, int episode_number);
+
 /// Register a manually-assigned episode so libraryHasLocalEpisode() returns true for it.
 /// Call after a UI override is applied. Not cleared by scanLibraryFolders.
 void addManualLibraryEpisode(int anime_id, int episode);

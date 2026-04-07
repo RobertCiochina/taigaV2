@@ -1724,7 +1724,10 @@ void MainWindow::refreshHomeDashboard() {
 }
 
 void MainWindow::refreshListColors() {
-  if (m_listWidget) m_listWidget->refreshNewEpisodeHighlightDisplay();
+  if (m_listWidget) {
+    m_listWidget->refreshNewEpisodeHighlightDisplay();
+    m_listWidget->refreshStatusTabCountsNow();
+  }
   if (m_searchWidget) m_searchWidget->refreshNewEpisodeHighlightDisplay();
 }
 

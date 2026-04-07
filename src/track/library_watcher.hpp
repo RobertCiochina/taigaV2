@@ -26,6 +26,7 @@ signals:
 private:
   void scheduleRescan();
   void onDirectoryChanged(const QString& path);
+  void rebuildWatchedDirectories();
 
   QFileSystemWatcher* watcher_ = nullptr;
   QTimer* debounce_ = nullptr;
