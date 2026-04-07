@@ -1704,7 +1704,8 @@ void MainWindow::refreshHomeDashboard() {
       int episode;
       qint64 air_time;
     };
-    QList<UpcomingEntry> upcoming;
+    QList<UpcomingEntry> upcomingWatching;
+    QList<UpcomingEntry> upcomingOther;
     for (const auto& entry : anime::db.entries()) {
       if (entry.status != anime::list::Status::Watching &&
           entry.status != anime::list::Status::PlanToWatch)
@@ -1714,21 +1715,24 @@ void MainWindow::refreshHomeDashboard() {
       const qint64 secs_until = item->next_episode_time - now_secs;
       if (secs_until > 7LL * 86400) continue;
       const int next_ep = item->last_aired_episode + 1;
-      upcoming.push_back({preferredTitle(*item), entry.anime_id, next_ep, item->next_episode_time});
+      (entry.status == anime::list::Status::Watching ? upcomingWatching : upcomingOther)
+          .push_back({preferredTitle(*item), entry.anime_id, next_ep, item->next_episode_time});
     }
-    std::sort(upcoming.begin(), upcoming.end(),
-              [](const UpcomingEntry& a, const UpcomingEntry& b) {
-                return a.air_time < b.air_time;
-              });
+    const auto byAirTime = [](const UpcomingEntry& a, const UpcomingEntry& b) {
+      return a.air_time < b.air_time;
+    };
+    std::sort(upcomingWatching.begin(), upcomingWatching.end(), byAirTime);
+    std::sort(upcomingOther.begin(), upcomingOther.end(), byAirTime);
 
-    if (!upcoming.isEmpty()) {
-      auto* subHdr = new QLabel(
-          u"<span style=\"color:#aaa;font-size:medium\"><b>%1</b></span>"_s.arg(
-              tr("UPCOMING THIS WEEK")),
+    const auto addGroupLabel = [&](const QString& text) {
+      auto* lbl = new QLabel(
+          u"<span style=\"color:#888;font-size:small\"><b>%1</b></span>"_s.arg(text.toHtmlEscaped()),
           m_homeRecentContainer);
-      subHdr->setTextFormat(Qt::RichText);
-      vl->addWidget(subHdr);
+      lbl->setTextFormat(Qt::RichText);
+      vl->addWidget(lbl);
+    };
 
+    const auto addUpcomingRows = [&](const QList<UpcomingEntry>& upcoming) {
       for (int i = 0; i < upcoming.size(); ++i) {
         const auto& ue = upcoming[i];
         const qint64 secs_until = ue.air_time - now_secs;
@@ -1751,7 +1755,8 @@ void MainWindow::refreshHomeDashboard() {
         auto* titleBtn = new QPushButton(ue.title, row);
         titleBtn->setFlat(true);
         titleBtn->setCursor(Qt::PointingHandCursor);
-        titleBtn->setStyleSheet(u"text-align:left; color: palette(link); text-decoration: underline; border: none; padding: 0;"_s);
+        titleBtn->setStyleSheet(
+            u"text-align:left; color: palette(link); text-decoration: underline; border: none; padding: 0;"_s);
         titleBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
         connect(titleBtn, &QPushButton::clicked, this, [this, anime_id = ue.anime_id]() {
           const auto* item = anime::db.item(anime_id);
@@ -1762,15 +1767,12 @@ void MainWindow::refreshHomeDashboard() {
           gui::MediaDialog::show(this, gui::MediaDialogPage::Details, *item, entry);
         });
 
-        auto* epLbl = new QLabel(
-            u"<span style=\"color:#888\">Ep %1</span>"_s.arg(ue.episode), row);
+        auto* epLbl = new QLabel(u"<span style=\"color:#888\">Ep %1</span>"_s.arg(ue.episode), row);
         epLbl->setTextFormat(Qt::RichText);
         epLbl->setFixedWidth(54);
 
         auto* whenLbl = new QLabel(
-            u"<span style=\"color:#888;font-size:medium\">%1</span>"_s.arg(
-                when.toHtmlEscaped()),
-            row);
+            u"<span style=\"color:#888;font-size:medium\">%1</span>"_s.arg(when.toHtmlEscaped()), row);
         whenLbl->setTextFormat(Qt::RichText);
         whenLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
         whenLbl->setFixedWidth(90);
@@ -1781,6 +1783,31 @@ void MainWindow::refreshHomeDashboard() {
         vl->addWidget(row);
         if (i != upcoming.size() - 1) addHomeDivider(vl, m_homeRecentContainer);
       }
+    };
+
+    const bool haveUpcoming = !upcomingWatching.isEmpty() || !upcomingOther.isEmpty();
+    if (haveUpcoming) {
+      auto* subHdr = new QLabel(
+          u"<span style=\"color:#aaa;font-size:medium\"><b>%1</b></span>"_s.arg(
+              tr("UPCOMING THIS WEEK")),
+          m_homeRecentContainer);
+      subHdr->setTextFormat(Qt::RichText);
+      vl->addWidget(subHdr);
+
+      if (!upcomingWatching.isEmpty() && !upcomingOther.isEmpty()) {
+        addGroupLabel(tr("Watching"));
+      }
+      if (!upcomingWatching.isEmpty()) {
+        addUpcomingRows(upcomingWatching);
+      }
+      if (!upcomingWatching.isEmpty() && !upcomingOther.isEmpty()) {
+        vl->addSpacing(6);
+        addGroupLabel(tr("Not watching yet"));
+      }
+      if (!upcomingOther.isEmpty()) {
+        if (!upcomingWatching.isEmpty()) addHomeDivider(vl, m_homeRecentContainer);
+        addUpcomingRows(upcomingOther);
+      }
       vl->addSpacing(8);
     }
 
@@ -1790,8 +1817,10 @@ void MainWindow::refreshHomeDashboard() {
       int anime_id;
       QDate finished;
     };
-    QList<RecentlyAiredEntry> recentlyAired;
+    QList<RecentlyAiredEntry> recentlyAiredWatching;
+    QList<RecentlyAiredEntry> recentlyAiredOther;
     for (const auto& entry : anime::db.entries()) {
+      if (entry.status == anime::list::Status::Completed) continue;
       const auto* item = anime::db.item(entry.anime_id);
       if (!item || item->date_finished.empty()) continue;
       const int yr = item->date_finished.year();
@@ -1803,19 +1832,22 @@ void MainWindow::refreshHomeDashboard() {
       const int daysAgo = finishedDate.daysTo(today);
       if (daysAgo < 0 || daysAgo > 7) continue;
       // Avoid duplicates (multiple list entries for same anime)
-      const bool already = std::any_of(recentlyAired.cbegin(), recentlyAired.cend(),
-                                       [&](const RecentlyAiredEntry& r) {
-                                         return r.anime_id == entry.anime_id;
-                                       });
+      const auto isSame = [&](const RecentlyAiredEntry& r) { return r.anime_id == entry.anime_id; };
+      const bool already =
+          std::any_of(recentlyAiredWatching.cbegin(), recentlyAiredWatching.cend(), isSame) ||
+          std::any_of(recentlyAiredOther.cbegin(), recentlyAiredOther.cend(), isSame);
       if (already) continue;
-      recentlyAired.push_back({preferredTitle(*item), entry.anime_id, finishedDate});
+      (entry.status == anime::list::Status::Watching ? recentlyAiredWatching : recentlyAiredOther)
+          .push_back({preferredTitle(*item), entry.anime_id, finishedDate});
     }
-    std::sort(recentlyAired.begin(), recentlyAired.end(),
-              [](const RecentlyAiredEntry& a, const RecentlyAiredEntry& b) {
-                return b.finished < a.finished;  // most recently finished first
-              });
+    const auto byFinishedDesc = [](const RecentlyAiredEntry& a, const RecentlyAiredEntry& b) {
+      return b.finished < a.finished;  // most recently finished first
+    };
+    std::sort(recentlyAiredWatching.begin(), recentlyAiredWatching.end(), byFinishedDesc);
+    std::sort(recentlyAiredOther.begin(), recentlyAiredOther.end(), byFinishedDesc);
 
-    if (!recentlyAired.isEmpty()) {
+    const bool haveFinished = !recentlyAiredWatching.isEmpty() || !recentlyAiredOther.isEmpty();
+    if (haveFinished) {
       auto* subHdr = new QLabel(
           u"<span style=\"color:#aaa;font-size:medium\"><b>%1</b></span>"_s.arg(
               tr("FINISHED AIRING THIS WEEK")),
@@ -1823,8 +1855,9 @@ void MainWindow::refreshHomeDashboard() {
       subHdr->setTextFormat(Qt::RichText);
       vl->addWidget(subHdr);
 
-      for (int i = 0; i < recentlyAired.size(); ++i) {
-        const auto& ra = recentlyAired[i];
+      const auto addFinishedRows = [&](const QList<RecentlyAiredEntry>& recentlyAired) {
+        for (int i = 0; i < recentlyAired.size(); ++i) {
+          const auto& ra = recentlyAired[i];
         const int daysAgo = ra.finished.daysTo(today);
         QString when;
         if (daysAgo == 0)
@@ -1867,16 +1900,26 @@ void MainWindow::refreshHomeDashboard() {
         vl->addWidget(row);
         if (i != recentlyAired.size() - 1) addHomeDivider(vl, m_homeRecentContainer);
       }
+      };
+      if (!recentlyAiredWatching.isEmpty() && !recentlyAiredOther.isEmpty()) {
+        addGroupLabel(tr("Watching"));
+      }
+      if (!recentlyAiredWatching.isEmpty()) {
+        addFinishedRows(recentlyAiredWatching);
+      }
+      if (!recentlyAiredWatching.isEmpty() && !recentlyAiredOther.isEmpty()) {
+        vl->addSpacing(6);
+        addGroupLabel(tr("Not watching yet"));
+      }
+      if (!recentlyAiredOther.isEmpty()) {
+        if (!recentlyAiredWatching.isEmpty()) addHomeDivider(vl, m_homeRecentContainer);
+        addFinishedRows(recentlyAiredOther);
+      }
     }
 
-    if (upcoming.isEmpty() && recentlyAired.isEmpty()) {
-      auto* empty = new QLabel(
-          tr("<span style=\"color:#888\">Nothing upcoming or finished airing in the last 7 "
-             "days — sync your list to get airing schedules.</span>"),
-          m_homeRecentContainer);
-      empty->setTextFormat(Qt::RichText);
-      vl->addWidget(empty);
-    }
+    const bool anyContent = haveUpcoming || haveFinished;
+    if (m_homeRecentHeader) m_homeRecentHeader->setVisible(anyContent);
+    if (m_homeRecentContainer) m_homeRecentContainer->setVisible(anyContent);
   }
 }
 
