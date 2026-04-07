@@ -19,6 +19,9 @@
 #include "path.hpp"
 
 #include <QCoreApplication>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QStandardPaths>
 #include <format>
 
@@ -26,13 +29,55 @@
 
 namespace taiga {
 
-// Returns current path in portable mode, AppData location otherwise
+namespace {
+
+bool copyRecursively(const QString& src, const QString& dst) {
+  const QFileInfo srcInfo(src);
+  if (!srcInfo.exists()) return false;
+
+  if (srcInfo.isFile()) {
+    QDir().mkpath(QFileInfo(dst).absolutePath());
+    if (QFileInfo::exists(dst)) return true;  // do not clobber
+    return QFile::copy(src, dst);
+  }
+
+  // Directory
+  QDir srcDir(src);
+  if (!srcDir.exists()) return false;
+  QDir().mkpath(dst);
+
+  const QFileInfoList entries =
+      srcDir.entryInfoList(QDir::NoDotAndDotDot | QDir::AllEntries, QDir::DirsFirst);
+  bool ok = true;
+  for (const QFileInfo& e : entries) {
+    const QString nextSrc = e.filePath();
+    const QString nextDst = QDir(dst).filePath(e.fileName());
+    if (!copyRecursively(nextSrc, nextDst)) ok = false;
+  }
+  return ok;
+}
+
+}  // namespace
+
+// Returns current path in portable mode, AppData location otherwise.
+// Note: when switching from portable->AppData (common during dev rebuilds),
+// migrate existing portable data once so updates/rebuilds retain history/settings.
 std::string get_data_path() {
 #ifdef TAIGA_PORTABLE
   return std::format("{}/data", QCoreApplication::applicationDirPath().toStdString());
 #else
-  const auto location = QStandardPaths::standardLocations(QStandardPaths::AppDataLocation);
-  return std::format("{}/data", location.first().toStdString());
+  const QString appDataBase = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+  const QString appDataData = QDir(appDataBase).filePath(QStringLiteral("data"));
+
+  // Migrate from legacy portable location if AppData is empty/new.
+  const QString portableData =
+      QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("data"));
+  if (!QDir(appDataData).exists() && QDir(portableData).exists()) {
+    copyRecursively(portableData, appDataData);
+  }
+
+  QDir().mkpath(appDataData);
+  return appDataData.toStdString();
 #endif
 }
 

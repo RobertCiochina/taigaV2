@@ -21,16 +21,18 @@
 #include <QAbstractItemView>
 #include <QActionGroup>
 #include <QDateTime>
+#include <QFileDialog>
 #include <QHeaderView>
+#include <QItemSelectionModel>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
-#include <QFileDialog>
-#include <QItemSelectionModel>
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QListView>
 #include <QMenu>
-#include <QTabBar>
+#include <QFrame>
 #include <QToolBar>
 #include <QToolButton>
 #include <format>
@@ -88,34 +90,30 @@ ListWidget::ListWidget(QWidget* parent)
       m_moreMenu(new QMenu(this)) {
   m_proxyModel->sort(taiga::session.animeListSortColumn(), taiga::session.animeListSortOrder());
   m_proxyModel->setSecondarySort(taiga::session.animeListSortColumnSecondary(),
-                                taiga::session.animeListSortOrderSecondary());
+                                 taiga::session.animeListSortOrderSecondary());
 
   initToolbar();
-  initStatusTabBar();
+  initColorLegend();
   setViewMode(taiga::session.animeListViewMode());
 
   connect(m_sortMenu, &QMenu::aboutToShow, this, &ListWidget::initSortMenu);
   connect(m_viewMenu, &QMenu::aboutToShow, this, &ListWidget::initViewMenu);
   connect(m_moreMenu, &QMenu::aboutToShow, this, &ListWidget::initMoreMenu);
 
-  // Keep tab bar in sync with model changes (counts update after sync, import, etc.)
-  connect(m_model, &AnimeListModel::modelReset, this, &ListWidget::refreshStatusTabCounts);
-  connect(m_model, &AnimeListModel::rowsInserted, this, &ListWidget::refreshStatusTabCounts);
-  connect(m_model, &AnimeListModel::rowsRemoved, this, &ListWidget::refreshStatusTabCounts);
-  connect(m_model, &AnimeListModel::dataChanged, this, &ListWidget::refreshStatusTabCounts);
-
-  // Sync sidebar → tab bar
+  // Sidebar status selection controls the list status filter.
   connect(mainWindow()->navigation(), &NavigationWidget::currentListStatusChanged, this,
           [this](anime::list::Status status) {
-            const QSignalBlocker b(m_statusTabBar);
-            m_suppressTabSync = true;
-            selectStatusTab(status);
-            m_suppressTabSync = false;
             m_proxyModel->setListStatusFilter({
                 .status = static_cast<int>(status),
                 .anyStatus = !static_cast<int>(status),
             });
           });
+
+  // Default to "All" until the sidebar selection is applied.
+  m_proxyModel->setListStatusFilter({
+      .status = static_cast<int>(anime::list::Status::NotInList),
+      .anyStatus = true,
+  });
 }
 
 ListViewMode ListWidget::viewMode() const {
@@ -168,88 +166,45 @@ void ListWidget::saveState() {
   }
 }
 
-void ListWidget::initStatusTabBar() {
-  m_statusTabBar = new QTabBar(this);
-  m_statusTabBar->setObjectName("statusTabBar");
-  m_statusTabBar->setExpanding(false);
-  m_statusTabBar->setDrawBase(false);
-  m_statusTabBar->setDocumentMode(true);
+void ListWidget::initColorLegend() {
+  // Legend for the Title column color-coding (see AnimeListModel::ForegroundRole).
+  auto* w = new QWidget(this);
+  w->setObjectName("listColorLegend");
+  auto* hl = new QHBoxLayout(w);
+  hl->setContentsMargins(0, 0, 0, 0);
+  hl->setSpacing(10);
 
-  // Tab index 0 = "All", indices 1-N = each status in kStatuses order
-  m_statusTabBar->addTab(tr("All"));
-  m_statusTabBar->setTabData(0, QVariant::fromValue(static_cast<int>(anime::list::Status::NotInList)));
-  for (const auto status : anime::list::kStatuses) {
-    const int idx = m_statusTabBar->addTab(formatListStatus(status));
-    m_statusTabBar->setTabData(idx, QVariant::fromValue(static_cast<int>(status)));
-  }
+  auto addItem = [&](const QColor& color, const QString& text, const QString& tooltip) {
+    auto* swatch = new QFrame(w);
+    swatch->setFixedSize(10, 10);
+    swatch->setFrameShape(QFrame::NoFrame);
+    swatch->setStyleSheet(QStringLiteral("QFrame{border-radius:2px; background:%1;}").arg(color.name()));
+    swatch->setToolTip(tooltip);
 
-  refreshStatusTabCounts();
+    auto* label = new QLabel(text, w);
+    label->setToolTip(tooltip);
+    label->setStyleSheet(QStringLiteral("QLabel{color: palette(placeholderText);}"));
 
-  // Tab click → update proxy filter + sync sidebar
-  connect(m_statusTabBar, &QTabBar::currentChanged, this, [this](int idx) {
-    if (m_suppressTabSync) return;
-    const int raw = m_statusTabBar->tabData(idx).toInt();
-    const bool any = (raw == static_cast<int>(anime::list::Status::NotInList));
-    m_proxyModel->setListStatusFilter({.status = raw, .anyStatus = any});
+    hl->addWidget(swatch);
+    hl->addWidget(label);
+  };
 
-    // Sync sidebar navigation to match
-    if (!any && mainWindow()) {
-      const auto status = static_cast<anime::list::Status>(raw);
-      if (auto* nav = mainWindow()->navigation()) {
-        if (auto* item = nav->findItemByPage(MainWindowPage::List)) {
-          for (int c = 0; c < item->childCount(); ++c) {
-            const auto childStatus = static_cast<anime::list::Status>(
-                item->child(c)->data(0, static_cast<int>(NavigationItemDataRole::ListStatus)).toInt());
-            if (childStatus == status) {
-              const QSignalBlocker b(nav);
-              nav->setCurrentItem(item->child(c));
-              break;
-            }
-          }
-        }
-      }
-    }
-  });
+  // Keep these in sync with `AnimeListModel::data(... ForegroundRole ... COLUMN_TITLE)`.
+  addItem(QColor(0x4c, 0xaf, 0x50), tr("Caught up / completed"),
+          tr("Green: You’re caught up (watched all aired episodes) or completed the series."));
+  addItem(QColor(0x42, 0xa5, 0xf5), tr("Next episode on disk"),
+          tr("Blue: The next episode file is already in your library (ready to watch)."));
+  addItem(QColor(0x9e, 0x9e, 0x9e), tr("Aired, not downloaded"),
+          tr("Grey: A new episode has aired, but it’s not on disk yet."));
 
-  // Insert the tab bar between toolbar row and list content
+  hl->addStretch(1);
+
+  // Insert the legend just under the toolbar, above the list content.
   if (auto* vl = qobject_cast<QVBoxLayout*>(layout())) {
-    vl->insertWidget(1, m_statusTabBar);
+    // Toolbar is index 0.
+    vl->insertWidget(1, w);
   }
-}
-
-void ListWidget::refreshStatusTabCounts() {
-  if (!m_statusTabBar) return;
-  // Count entries per status
-  QMap<anime::list::Status, int> counts;
-  for (const auto& entry : anime::db.entries()) {
-    counts[entry.status] += 1;
-  }
-  const int total = static_cast<int>(anime::db.entries().size());
-
-  // Tab 0 = All
-  m_statusTabBar->setTabText(0, total > 0 ? tr("All (%1)").arg(total) : tr("All"));
-
-  for (int i = 1; i < m_statusTabBar->count(); ++i) {
-    const auto status = static_cast<anime::list::Status>(m_statusTabBar->tabData(i).toInt());
-    const int n = counts.value(status, 0);
-    m_statusTabBar->setTabText(i, n > 0 ? tr("%1 (%2)").arg(formatListStatus(status)).arg(n)
-                                        : formatListStatus(status));
-  }
-}
-
-void ListWidget::selectStatusTab(const anime::list::Status status) {
-  if (!m_statusTabBar) return;
-  for (int i = 0; i < m_statusTabBar->count(); ++i) {
-    const auto s = static_cast<anime::list::Status>(m_statusTabBar->tabData(i).toInt());
-    if (s == status || (i == 0 && !static_cast<int>(status))) {
-      m_statusTabBar->setCurrentIndex(i);
-      return;
-    }
-  }
-}
-
-void ListWidget::refreshStatusTabCountsNow() {
-  refreshStatusTabCounts();
+  m_colorLegend = w;
 }
 
 void ListWidget::initToolbar() {
@@ -332,10 +287,9 @@ void ListWidget::initSortMenu() {
     const auto headerData =
         m_model->headerData(column, Qt::Orientation::Horizontal, Qt::DisplayRole);
 
-    const auto action =
-        secondaryMenu->addAction(headerData.toString(), this, [this, column, order]() {
-          m_proxyModel->setSecondarySort(column, order);
-        });
+    const auto action = secondaryMenu->addAction(
+        headerData.toString(), this,
+        [this, column, order]() { m_proxyModel->setSecondarySort(column, order); });
     action->setCheckable(true);
     action->setChecked(m_proxyModel->secondarySortColumn().value_or(-1) == column &&
                        m_proxyModel->secondarySortOrder() == order);

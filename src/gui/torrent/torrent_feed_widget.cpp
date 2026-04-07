@@ -10,6 +10,7 @@
 #include <QCoreApplication>
 #include <QDesktopServices>
 #include <QDir>
+#include <QDialog>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -26,6 +27,7 @@
 #include <QNetworkCookie>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QShortcut>
@@ -265,6 +267,172 @@ QString resolvedTorrentDownloadDirForSavedTorrent(const QString& title_hint) {
   return QDir(base).absolutePath();
 }
 
+/// Ensure the base "torrent client download path" exists when Taiga is about to pass a save path.
+/// Returns a valid existing base directory, or std::nullopt if the user cancels.
+std::optional<QString> ensureClientDownloadBaseDir(QWidget* parent) {
+  QString base = QString::fromStdString(taiga::settings.torrentClientDownloadPath()).trimmed();
+  if (!base.isEmpty() && QDir(base).exists()) return base;
+
+  // Blocking prompt: create configured folder or choose a different one.
+  QDialog dlg(parent);
+  dlg.setWindowTitle(QObject::tr("Torrent download folder"));
+  dlg.setModal(true);
+  dlg.resize(560, 160);
+
+  auto* layout = new QVBoxLayout(&dlg);
+  auto* msg = new QLabel(&dlg);
+  msg->setWordWrap(true);
+  msg->setText(QObject::tr(
+      "The configured <b>torrent client download folder</b> does not exist.\n\n"
+      "Choose a folder or type a path and create it. This setting is used when Taiga passes a save "
+      "path (qBittorrent Web API / compatible clients)."));
+  layout->addWidget(msg);
+
+  auto* pathRow = new QHBoxLayout();
+  pathRow->addWidget(new QLabel(QObject::tr("Folder:"), &dlg));
+  auto* edit = new QLineEdit(&dlg);
+  edit->setPlaceholderText(QObject::tr("e.g. D:\\Anime\\Downloads"));
+  edit->setText(base);
+  pathRow->addWidget(edit, 1);
+  layout->addLayout(pathRow);
+
+  auto* row = new QHBoxLayout();
+  row->addStretch(1);
+
+  auto* btnCreate = new QPushButton(QObject::tr("Create folder"), &dlg);
+  btnCreate->setToolTip(QObject::tr("Create the configured folder path."));
+  row->addWidget(btnCreate);
+
+  auto* btnChoose = new QPushButton(QObject::tr("Choose folder…"), &dlg);
+  btnChoose->setToolTip(QObject::tr("Pick a different folder and update settings."));
+  row->addWidget(btnChoose);
+
+  auto* btnCancel = new QPushButton(QObject::tr("Cancel"), &dlg);
+  btnCancel->setDefault(true);
+  row->addWidget(btnCancel);
+
+  layout->addLayout(row);
+
+  std::optional<QString> result;
+
+  const auto refreshButtons = [&]() { btnCreate->setEnabled(!base.isEmpty()); };
+  refreshButtons();
+
+  QObject::connect(edit, &QLineEdit::textChanged, &dlg, [&](const QString& t) {
+    base = t.trimmed();
+    refreshButtons();
+  });
+
+  QObject::connect(btnCancel, &QPushButton::clicked, &dlg, [&]() { dlg.reject(); });
+
+  QObject::connect(btnCreate, &QPushButton::clicked, &dlg, [&]() {
+    if (base.isEmpty()) return;
+    // Persist the chosen/typed path so subsequent saves use it.
+    taiga::settings.setTorrentClientDownloadPath(base.toStdString());
+    if (QDir{}.mkpath(base) && QDir(base).exists()) {
+      result = base;
+      dlg.accept();
+      return;
+    }
+    QMessageBox::warning(&dlg, QObject::tr("Taiga"),
+                         QObject::tr("Could not create the folder:\n%1")
+                             .arg(QDir::toNativeSeparators(base)));
+  });
+
+  QObject::connect(btnChoose, &QPushButton::clicked, &dlg, [&]() {
+    const QString start = !base.isEmpty() ? base
+                          : QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    const QString picked = QFileDialog::getExistingDirectory(
+        &dlg, QObject::tr("Select torrent download folder"), start,
+        QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
+    if (picked.isEmpty()) return;
+    taiga::settings.setTorrentClientDownloadPath(picked.trimmed().toStdString());
+    base = QString::fromStdString(taiga::settings.torrentClientDownloadPath()).trimmed();
+    edit->setText(base);
+    if (!base.isEmpty() && QDir(base).exists()) {
+      result = base;
+      dlg.accept();
+      return;
+    }
+    QMessageBox::warning(&dlg, QObject::tr("Taiga"),
+                         QObject::tr("That folder does not exist or is not accessible."));
+  });
+
+  if (dlg.exec() != QDialog::Accepted) return std::nullopt;
+  return result;
+}
+
+struct QBitCreds {
+  QString username;
+  QString password;
+};
+
+std::optional<QBitCreds> promptQBitCredentials(QWidget* parent, const QString& details = {}) {
+  QDialog dlg(parent);
+  dlg.setWindowTitle(QObject::tr("qBittorrent Web API credentials"));
+  dlg.setModal(true);
+  dlg.resize(620, 220);
+
+  auto* layout = new QVBoxLayout(&dlg);
+
+  auto* msg = new QLabel(&dlg);
+  msg->setWordWrap(true);
+  msg->setText(QObject::tr(
+      "Taiga could not talk to qBittorrent’s Web API.\n\n"
+      "Enter credentials for the qBittorrent Web UI. If authentication is disabled in qBittorrent, "
+      "leave these blank.\n\n"
+      "If this still fails, check qBittorrent: <b>Tools → Preferences → Web UI</b> and enable the "
+      "Web UI. For localhost setups you may also need: <b>Bypass authentication for clients on "
+      "localhost</b>."));
+  layout->addWidget(msg);
+
+  if (!details.trimmed().isEmpty()) {
+    auto* det = new QLabel(&dlg);
+    det->setWordWrap(true);
+    det->setText(QObject::tr("<b>Details:</b> %1").arg(details.toHtmlEscaped()));
+    layout->addWidget(det);
+  }
+
+  auto* userRow = new QHBoxLayout();
+  userRow->addWidget(new QLabel(QObject::tr("Username:"), &dlg));
+  auto* userEdit = new QLineEdit(&dlg);
+  userEdit->setText(QString::fromStdString(taiga::settings.torrentQBitApiUsername()).trimmed());
+  userEdit->setPlaceholderText(QObject::tr("admin"));
+  userRow->addWidget(userEdit, 1);
+  layout->addLayout(userRow);
+
+  auto* passRow = new QHBoxLayout();
+  passRow->addWidget(new QLabel(QObject::tr("Password:"), &dlg));
+  auto* passEdit = new QLineEdit(&dlg);
+  passEdit->setEchoMode(QLineEdit::Password);
+  passEdit->setText(QString::fromStdString(taiga::settings.torrentQBitApiPassword()));
+  passEdit->setPlaceholderText(QObject::tr("(empty)"));
+  passRow->addWidget(passEdit, 1);
+  layout->addLayout(passRow);
+
+  auto* buttons = new QHBoxLayout();
+  buttons->addStretch(1);
+  auto* ok = new QPushButton(QObject::tr("Save and retry"), &dlg);
+  auto* cancel = new QPushButton(QObject::tr("Cancel"), &dlg);
+  cancel->setDefault(true);
+  buttons->addWidget(ok);
+  buttons->addWidget(cancel);
+  layout->addLayout(buttons);
+
+  std::optional<QBitCreds> out;
+  QObject::connect(cancel, &QPushButton::clicked, &dlg, [&]() { dlg.reject(); });
+  QObject::connect(ok, &QPushButton::clicked, &dlg, [&]() {
+    QBitCreds c;
+    c.username = userEdit->text().trimmed();
+    c.password = passEdit->text();
+    out = c;
+    dlg.accept();
+  });
+
+  if (dlg.exec() != QDialog::Accepted) return std::nullopt;
+  return out;
+}
+
 QStringList argsForTorrentClient(const QString& exe_path, const QString& torrent_file,
                                  const QString& download_dir) {
   if (exe_path.isEmpty()) return {torrent_file};
@@ -500,6 +668,14 @@ TorrentFeedWidget::TorrentFeedWidget(QLineEdit* toolbar_query_edit, QWidget* par
     }
 
     if (taiga::settings.torrentQBitApiEnabled()) {
+      // Only block when we're about to pass a save path to the client.
+      if (!ensureClientDownloadBaseDir(this).has_value()) {
+        cancelSaveTorrent();
+        if (auto* mw = mainWindow()) {
+          mw->statusBar()->showMessage(tr("Download cancelled."), 4000);
+        }
+        return;
+      }
       // Send everything directly to qBittorrent with per-item save path.
       const int total = items.size();
       const auto sent = std::make_shared<int>(0);
@@ -637,6 +813,10 @@ TorrentFeedWidget::TorrentFeedWidget(QLineEdit* toolbar_query_edit, QWidget* par
     const int total = targets.size();
 
     if (taiga::settings.torrentQBitApiEnabled()) {
+      if (!ensureClientDownloadBaseDir(this).has_value()) {
+        if (auto* mw = mainWindow()) mw->statusBar()->showMessage(tr("Download cancelled."), 4000);
+        return;
+      }
       const auto sent = std::make_shared<int>(0);
       for (const auto& t : targets) {
         const QString save_path = resolvedTorrentDownloadDirForSavedTorrent(t.folder);
@@ -875,68 +1055,125 @@ void TorrentFeedWidget::addTorrentViaQBitApi(const QString& torrent_url, const Q
                                               std::function<void(bool ok, QString error)> on_done) {
   const QString base_url =
       QString::fromStdString(taiga::settings.torrentQBitApiUrl()).trimmed().trimmed();
-  const QString username =
-      QString::fromStdString(taiga::settings.torrentQBitApiUsername()).trimmed();
-  const QString password = QString::fromStdString(taiga::settings.torrentQBitApiPassword());
 
-  const auto do_add = [=](const QString& cookie) {
-    QNetworkRequest req(QUrl(base_url + QStringLiteral("/api/v2/torrents/add")));
-    req.setHeader(QNetworkRequest::ContentTypeHeader,
-                  QStringLiteral("application/x-www-form-urlencoded"));
-    if (!cookie.isEmpty()) req.setRawHeader("Cookie", cookie.toUtf8());
+  const auto showFinalGuidance = [&](const QString& err) {
+    QMessageBox::warning(this, tr("Taiga"),
+                         tr("qBittorrent Web API request failed.\n\n"
+                            "Error: %1\n\n"
+                            "In qBittorrent: Tools → Preferences → Web UI → enable the Web UI.\n"
+                            "Then, under Authentication, check “Bypass authentication for clients on localhost”.")
+                             .arg(err.toHtmlEscaped()));
+  };
 
-    QByteArray body = QByteArrayLiteral("urls=") +
-                      QUrl::toPercentEncoding(torrent_url);
-    if (!save_path.isEmpty()) {
-      // Ensure the save directory exists before telling qBittorrent to use it.
-      QDir().mkpath(save_path);
-      body += QByteArrayLiteral("&savepath=") + QUrl::toPercentEncoding(save_path);
+  std::function<void(const QString& user, const QString& pass, bool allow_retry)> attemptWithCreds;
+  attemptWithCreds = [&](const QString& user, const QString& pass, const bool allow_retry) {
+    const auto do_add = [=](const QString& cookie) {
+      QNetworkRequest req(QUrl(base_url + QStringLiteral("/api/v2/torrents/add")));
+      req.setHeader(QNetworkRequest::ContentTypeHeader,
+                    QStringLiteral("application/x-www-form-urlencoded"));
+      if (!cookie.isEmpty()) req.setRawHeader("Cookie", cookie.toUtf8());
+
+      QByteArray body = QByteArrayLiteral("urls=") + QUrl::toPercentEncoding(torrent_url);
+      if (!save_path.isEmpty()) {
+        QDir().mkpath(save_path);
+        body += QByteArrayLiteral("&savepath=") + QUrl::toPercentEncoding(save_path);
+      }
+
+      auto* reply = taiga::network()->post(req, body);
+      connect(reply, &QNetworkReply::finished, this, [=]() mutable {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+          const QString err = reply->errorString();
+          if (allow_retry) {
+            if (const auto creds = promptQBitCredentials(this, err)) {
+              taiga::settings.setTorrentQBitApiUsername(creds->username.toStdString());
+              taiga::settings.setTorrentQBitApiPassword(creds->password.toStdString());
+              attemptWithCreds(creds->username.trimmed(), creds->password, false);
+              return;
+            }
+          }
+          if (allow_retry) showFinalGuidance(err);
+          if (on_done) on_done(false, err);
+          return;
+        }
+
+        const QString resp = QString::fromUtf8(reply->readAll()).trimmed();
+        const bool ok = resp.compare(QStringLiteral("Ok."), Qt::CaseInsensitive) == 0 ||
+                        resp.startsWith(QStringLiteral("Ok"), Qt::CaseInsensitive);
+        if (!ok) {
+          const QString err = resp.isEmpty() ? tr("Unexpected response from qBittorrent.") : resp;
+          if (allow_retry) {
+            if (const auto creds = promptQBitCredentials(this, err)) {
+              taiga::settings.setTorrentQBitApiUsername(creds->username.toStdString());
+              taiga::settings.setTorrentQBitApiPassword(creds->password.toStdString());
+              attemptWithCreds(creds->username.trimmed(), creds->password, false);
+              return;
+            }
+            showFinalGuidance(err);
+          }
+          if (on_done) on_done(false, err);
+          return;
+        }
+
+        if (on_done) on_done(true, {});
+      });
+    };
+
+    // If username is empty, try add directly (works when qBittorrent auth is disabled).
+    if (user.isEmpty()) {
+      do_add({});
+      return;
     }
 
-    auto* reply = taiga::network()->post(req, body);
-    connect(reply, &QNetworkReply::finished, this, [reply, on_done]() mutable {
-      reply->deleteLater();
-      if (reply->error() != QNetworkReply::NoError) {
-        if (on_done) on_done(false, reply->errorString());
+    QNetworkRequest login_req(QUrl(base_url + QStringLiteral("/api/v2/auth/login")));
+    login_req.setHeader(QNetworkRequest::ContentTypeHeader,
+                        QStringLiteral("application/x-www-form-urlencoded"));
+    const QByteArray login_body =
+        QByteArrayLiteral("username=") + user.toUtf8() +
+        QByteArrayLiteral("&password=") + pass.toUtf8();
+
+    m_qbit_login_reply_ = taiga::network()->post(login_req, login_body);
+    connect(m_qbit_login_reply_, &QNetworkReply::finished, this, [=]() mutable {
+      auto* r = m_qbit_login_reply_;
+      m_qbit_login_reply_ = nullptr;
+      if (!r) {
+        const QString err = tr("qBittorrent login request was cancelled.");
+        if (allow_retry) showFinalGuidance(err);
+        if (on_done) on_done(false, err);
         return;
       }
-      const QString resp = QString::fromUtf8(reply->readAll()).trimmed();
-      const bool ok = resp.compare(QStringLiteral("Ok."), Qt::CaseInsensitive) == 0 ||
-                      resp.startsWith(QStringLiteral("Ok"), Qt::CaseInsensitive);
-      if (on_done) on_done(ok, ok ? QString{} : resp);
+      r->deleteLater();
+      if (r->error() != QNetworkReply::NoError) {
+        const QString err = r->errorString();
+        if (allow_retry) {
+          if (const auto creds = promptQBitCredentials(this, err)) {
+            taiga::settings.setTorrentQBitApiUsername(creds->username.toStdString());
+            taiga::settings.setTorrentQBitApiPassword(creds->password.toStdString());
+            attemptWithCreds(creds->username.trimmed(), creds->password, false);
+            return;
+          }
+          showFinalGuidance(err);
+        }
+        if (on_done) on_done(false, err);
+        return;
+      }
+
+      QString cookie_str;
+      const QVariant cv = r->header(QNetworkRequest::SetCookieHeader);
+      if (cv.isValid()) {
+        for (const QNetworkCookie& c : cv.value<QList<QNetworkCookie>>()) {
+          if (!cookie_str.isEmpty()) cookie_str += QStringLiteral("; ");
+          cookie_str += QString::fromUtf8(c.name()) + QStringLiteral("=") +
+                        QString::fromUtf8(c.value());
+        }
+      }
+      do_add(cookie_str);
     });
   };
 
-  if (username.isEmpty()) {
-    do_add({});
-    return;
-  }
-
-  QNetworkRequest login_req(QUrl(base_url + QStringLiteral("/api/v2/auth/login")));
-  login_req.setHeader(QNetworkRequest::ContentTypeHeader,
-                      QStringLiteral("application/x-www-form-urlencoded"));
-  const QByteArray login_body =
-      QByteArrayLiteral("username=") + username.toUtf8() +
-      QByteArrayLiteral("&password=") + password.toUtf8();
-  m_qbit_login_reply_ = taiga::network()->post(login_req, login_body);
-  connect(m_qbit_login_reply_, &QNetworkReply::finished, this,
-          [this, do_add]() {
-            auto* r = m_qbit_login_reply_;
-            m_qbit_login_reply_ = nullptr;
-            if (!r) { do_add({}); return; }
-            r->deleteLater();
-            // Extract SID cookie.
-            QString cookie_str;
-            const QVariant cv = r->header(QNetworkRequest::SetCookieHeader);
-            if (cv.isValid()) {
-              for (const QNetworkCookie& c : cv.value<QList<QNetworkCookie>>()) {
-                if (!cookie_str.isEmpty()) cookie_str += QStringLiteral("; ");
-                cookie_str += QString::fromUtf8(c.name()) + QStringLiteral("=") +
-                              QString::fromUtf8(c.value());
-              }
-            }
-            do_add(cookie_str);
-          });
+  const QString username = QString::fromStdString(taiga::settings.torrentQBitApiUsername()).trimmed();
+  const QString password = QString::fromStdString(taiga::settings.torrentQBitApiPassword());
+  attemptWithCreds(username, password, true);
 }
 
 void TorrentFeedWidget::saveSessionState() {
@@ -1320,6 +1557,10 @@ void TorrentFeedWidget::downloadBestMatchForTitle(const QString& search_title,
 
             // ── Mode 1: qBittorrent Web API (preferred) ───────────────────
             if (taiga::settings.torrentQBitApiEnabled()) {
+              if (!ensureClientDownloadBaseDir(this).has_value()) {
+                if (on_done) on_done(false);
+                return;
+              }
               // Prefer magnet link → .torrent URL → page link.
               QString api_url;
               if (const auto m = best->namespace_elements.find(kTorrentFeedMagnetKey);
@@ -1591,6 +1832,11 @@ void TorrentFeedWidget::beginSaveTorrent(const QUrl& url, const QString& title_h
     // Mode 2: custom executable
     const QString exe = QString::fromStdString(taiga::settings.torrentAppExecutablePath()).trimmed();
     if (!exe.isEmpty() && QFileInfo::exists(exe)) {
+      // Only block when we would pass a save path to the client.
+      if (!ensureClientDownloadBaseDir(this).has_value()) {
+        done();
+        return;
+      }
       const QString dl_dir = resolvedTorrentDownloadDirForSavedTorrent(title_hint);
       const QStringList args = argsForTorrentClient(exe, full_path, dl_dir);
       if (!QProcess::startDetached(exe, args)) {

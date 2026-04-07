@@ -277,9 +277,16 @@ void MainWindow::initActions() {
   ui_->actionToggleNavigationSidebar->setStatusTip(
       tr("Show or hide the left navigation pane (Ctrl+B). Matches Taiga v1 View → sidebar."));
   connect(ui_->actionToggleNavigationSidebar, &QAction::toggled, this, [this](const bool on) {
-    if (m_navigationWidget) m_navigationWidget->setVisible(on);
-    taiga::settings.setNavigationSidebarVisible(on);
+    Q_UNUSED(on);
+    // Sidebar is always-on.
+    if (m_navigationWidget) m_navigationWidget->setVisible(true);
+    taiga::settings.setNavigationSidebarVisible(true);
+    const QSignalBlocker b(ui_->actionToggleNavigationSidebar);
+    ui_->actionToggleNavigationSidebar->setChecked(true);
   });
+  ui_->actionToggleNavigationSidebar->setEnabled(false);
+  ui_->actionToggleNavigationSidebar->setChecked(true);
+  ui_->actionToggleNavigationSidebar->setShortcuts({});
   connect(ui_->actionLibraryFolders, &QAction::triggered, this, &MainWindow::showLibraryFoldersDialog);
 }
 
@@ -396,37 +403,6 @@ void MainWindow::initPage(MainWindowPage page) {
         recentContainer->layout()->setSpacing(2);
         m_homeRecentContainer = recentContainer;
         lay->addWidget(recentContainer);
-
-        // ── Auto-download countdown ───────────────────────────────────────────
-        lay->addSpacing(8);
-        auto* adLbl = new QLabel(body);
-        adLbl->setTextFormat(Qt::RichText);
-        adLbl->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-        m_homeAutoDownloadLabel = adLbl;
-        lay->addWidget(adLbl);
-
-        // The countdown label here is a secondary display — the toolbar label is the primary one.
-        // The shared timer (m_home_countdown_timer_) was already created in initToolbar().
-        updateAutoDownloadCountdownLabel();
-
-        // ── Action buttons ───────────────────────────────────────────────────
-        lay->addSpacing(8);
-        auto* actionsRow = new QHBoxLayout();
-        auto* sync_btn = new QPushButton(tr("Synchronize now"), body);
-        connect(sync_btn, &QPushButton::clicked, this, &MainWindow::startListSynchronization);
-        auto* scan_btn = new QPushButton(tr("Scan episodes"), body);
-        connect(scan_btn, &QPushButton::clicked, this, &MainWindow::runInteractiveLibraryScan);
-        auto* ad_btn = new QPushButton(tr("Auto-download now"), body);
-        connect(ad_btn, &QPushButton::clicked, this, [this]() { runAutoDownload(false); });
-        auto* settings_btn = new QPushButton(tr("Settings…"), body);
-        connect(settings_btn, &QPushButton::clicked, this,
-                [this]() { SettingsDialog::show(this); });
-        actionsRow->addWidget(sync_btn);
-        actionsRow->addWidget(scan_btn);
-        actionsRow->addWidget(ad_btn);
-        actionsRow->addWidget(settings_btn);
-        actionsRow->addStretch(1);
-        lay->addLayout(actionsRow);
 
         lay->addStretch(1);
         scroll->setWidget(body);
@@ -550,17 +526,11 @@ void MainWindow::initToolbar() {
     button->setMenu([this]() {
       auto menu = new QMenu(this);
       auto* view_menu = menu->addMenu(tr("View"));
-      view_menu->addAction(ui_->actionToggleNavigationSidebar);
       view_menu->addAction(ui_->actionToggleStatusbar);
       view_menu->addAction(ui_->actionToggleNowPlaying);
       view_menu->addSeparator();
       view_menu->addAction(ui_->actionToggleDetection);
       view_menu->addAction(ui_->actionToggleSynchronization);
-      menu->addSeparator();
-      auto* act_autodownload = menu->addAction(tr("Auto-download new episodes…"));
-      act_autodownload->setToolTip(
-          tr("Search and download best-seeded torrent for each Watching anime with unreleased episodes."));
-      connect(act_autodownload, &QAction::triggered, this, [this]() { runAutoDownload(false); });
       menu->addSeparator();
       menu->addMenu(ui_->menuHelp);
       menu->addSeparator();
@@ -587,7 +557,7 @@ void MainWindow::initToolbar() {
     };
 
     insertSpacer(before);
-    ui_->toolbar->insertWidget(before, m_searchBox);
+    m_searchBoxAction = ui_->toolbar->insertWidget(before, m_searchBox);
     insertSpacer(before);
 
     connect(m_searchBox, &QLineEdit::textChanged, this, &MainWindow::routeToolbarSearchToActivePage);
@@ -754,6 +724,15 @@ void MainWindow::applyMainPage(const MainWindowPage page) {
 
   m_activePage = page;
   initPage(page);
+
+  // Home page doesn't use the toolbar search (it doesn't route anywhere),
+  // so hide it there to avoid confusing "does nothing" behavior.
+  if (m_searchBox) {
+    m_searchBox->setVisible(page != MainWindowPage::Home);
+  }
+  if (m_searchBoxAction) {
+    m_searchBoxAction->setVisible(page != MainWindowPage::Home);
+  }
 
   // Restore the saved text for the new page.  For Torrents, fall back to the
   // persisted last-query session value if no text was ever saved this session.
@@ -1311,6 +1290,11 @@ void MainWindow::onAutoDownloadTimer() {
 }
 
 void MainWindow::runAutoDownload(const bool silent) {
+  if (!m_torrentFeedWidget) {
+    // Auto-download relies on the TorrentFeedWidget backend; initialize it on-demand so the
+    // toolbar countdown action works even if the Torrents page has never been opened.
+    initPage(MainWindowPage::Torrents);
+  }
   if (!m_torrentFeedWidget) return;
 
   // Collect anime on the Watching list where an episode has aired but is not yet on disk.
@@ -1359,7 +1343,7 @@ void MainWindow::runAutoDownload(const bool silent) {
   }
 
   if (!silent) {
-    QString msg = tr("The following anime have unreleased/undownloaded episodes. "
+    QString msg = tr("The following anime have aired episodes that are not yet downloaded. "
                      "The app will try multiple title variants and download the best matching "
                      "torrent for each:\n\n");
     for (const auto& c : candidates) {
@@ -1461,6 +1445,33 @@ void MainWindow::refreshHomeDashboard() {
     }
   };
 
+  const auto applyHomeRowChrome = [&](QWidget* row, QHBoxLayout* rl) {
+    if (!row || !rl) return;
+    rl->setContentsMargins(8, 4, 8, 4);
+    row->setAttribute(Qt::WA_Hover, true);
+    row->setMouseTracking(true);
+    row->setObjectName(QStringLiteral("homeRow"));
+    row->setStyleSheet(theme.isDark()
+                           ? QStringLiteral(
+                                 "QWidget#homeRow{background: transparent; border-radius: 6px;}"
+                                 "QWidget#homeRow:hover{background-color: rgba(255,255,255,18);}")
+                           : QStringLiteral(
+                                 "QWidget#homeRow{background: transparent; border-radius: 6px;}"
+                                 "QWidget#homeRow:hover{background-color: rgba(0,0,0,10);}"));
+  };
+
+  const auto addHomeDivider = [&](QVBoxLayout* vl, QWidget* parent) {
+    if (!vl || !parent) return;
+    auto* line = new QFrame(parent);
+    line->setFrameShape(QFrame::NoFrame);
+    line->setFixedHeight(1);
+    line->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    line->setStyleSheet(theme.isDark()
+                            ? QStringLiteral("QFrame{background-color: rgba(255,255,255,28);}")
+                            : QStringLiteral("QFrame{background-color: rgba(0,0,0,28);}"));
+    vl->addWidget(line);
+  };
+
   // ── "Up next" section ────────────────────────────────────────────────────
   if (m_homeUpNextContainer) {
     clearContainer(m_homeUpNextContainer);
@@ -1518,11 +1529,13 @@ void MainWindow::refreshHomeDashboard() {
         return QDir(base).absolutePath();
       };
 
-      for (const auto& ue : upNext) {
+      for (int i = 0; i < upNext.size(); ++i) {
+        const auto& ue = upNext[i];
         auto* row = new QWidget(m_homeUpNextContainer);
         auto* rl = new QHBoxLayout(row);
         rl->setContentsMargins(0, 0, 0, 0);
         rl->setSpacing(8);
+        applyHomeRowChrome(row, rl);
 
         // Eye-catching accent: teal for dark, deep-teal for light.
         const QString accentColor = theme.isDark() ? u"#2dd4bf"_s : u"#0d9488"_s;
@@ -1559,6 +1572,7 @@ void MainWindow::refreshHomeDashboard() {
         rl->addWidget(epLbl);
         rl->addWidget(playBtn);
         vl->addWidget(row);
+        if (i != upNext.size() - 1) addHomeDivider(vl, m_homeUpNextContainer);
 
         // Capture button for qBittorrent progress gating.
         if (taiga::settings.torrentQBitApiEnabled()) {
@@ -1715,7 +1729,8 @@ void MainWindow::refreshHomeDashboard() {
       subHdr->setTextFormat(Qt::RichText);
       vl->addWidget(subHdr);
 
-      for (const auto& ue : upcoming) {
+      for (int i = 0; i < upcoming.size(); ++i) {
+        const auto& ue = upcoming[i];
         const qint64 secs_until = ue.air_time - now_secs;
         const int days = static_cast<int>(secs_until / 86400);
         const int hours = static_cast<int>((secs_until % 86400) / 3600);
@@ -1731,6 +1746,7 @@ void MainWindow::refreshHomeDashboard() {
         auto* rl = new QHBoxLayout(row);
         rl->setContentsMargins(0, 0, 0, 0);
         rl->setSpacing(8);
+        applyHomeRowChrome(row, rl);
 
         auto* titleBtn = new QPushButton(ue.title, row);
         titleBtn->setFlat(true);
@@ -1763,6 +1779,7 @@ void MainWindow::refreshHomeDashboard() {
         rl->addWidget(epLbl);
         rl->addWidget(whenLbl);
         vl->addWidget(row);
+        if (i != upcoming.size() - 1) addHomeDivider(vl, m_homeRecentContainer);
       }
       vl->addSpacing(8);
     }
@@ -1806,7 +1823,8 @@ void MainWindow::refreshHomeDashboard() {
       subHdr->setTextFormat(Qt::RichText);
       vl->addWidget(subHdr);
 
-      for (const auto& ra : recentlyAired) {
+      for (int i = 0; i < recentlyAired.size(); ++i) {
+        const auto& ra = recentlyAired[i];
         const int daysAgo = ra.finished.daysTo(today);
         QString when;
         if (daysAgo == 0)
@@ -1820,6 +1838,7 @@ void MainWindow::refreshHomeDashboard() {
         auto* rl = new QHBoxLayout(row);
         rl->setContentsMargins(0, 0, 0, 0);
         rl->setSpacing(8);
+        applyHomeRowChrome(row, rl);
 
         auto* titleBtn = new QPushButton(ra.title, row);
         titleBtn->setFlat(true);
@@ -1846,6 +1865,7 @@ void MainWindow::refreshHomeDashboard() {
         rl->addWidget(titleBtn);
         rl->addWidget(whenLbl);
         vl->addWidget(row);
+        if (i != recentlyAired.size() - 1) addHomeDivider(vl, m_homeRecentContainer);
       }
     }
 
@@ -1863,7 +1883,6 @@ void MainWindow::refreshHomeDashboard() {
 void MainWindow::refreshListColors() {
   if (m_listWidget) {
     m_listWidget->refreshNewEpisodeHighlightDisplay();
-    m_listWidget->refreshStatusTabCountsNow();
   }
   if (m_searchWidget) m_searchWidget->refreshNewEpisodeHighlightDisplay();
 }
@@ -1872,9 +1891,8 @@ void MainWindow::updateAutoDownloadCountdownLabel() {
   if (!m_auto_download_timer_) return;
   const int remaining_ms = m_auto_download_timer_->remainingTime();
 
-  QString homeText, toolbarText;
+  QString toolbarText;
   if (remaining_ms <= 0) {
-    homeText    = tr("<span style=\"color:#888;font-size:small\">Auto-download: running…</span>");
     toolbarText = tr("<span style=\"color:#888\">⬇ running…</span>");
   } else {
     const int total_secs = remaining_ms / 1000;
@@ -1888,20 +1906,18 @@ void MainWindow::updateAutoDownloadCountdownLabel() {
       when = tr("%1m %2s").arg(m).arg(s);
     else
       when = tr("%1s").arg(s);
-    homeText    = tr("<span style=\"color:#888;font-size:small\">Next auto-download in <b>%1</b></span>").arg(when);
     toolbarText = tr("<span style=\"font-size:large;font-weight:600\">⬇ %1</span>").arg(when);
   }
 
-  if (m_homeAutoDownloadLabel) m_homeAutoDownloadLabel->setText(homeText);
   if (m_toolbarCountdownLabel) m_toolbarCountdownLabel->setText(toolbarText);
 }
 
 void MainWindow::restoreViewChromeFromSession() {
-  const bool nav_visible = taiga::settings.navigationSidebarVisible();
-  if (m_navigationWidget) m_navigationWidget->setVisible(nav_visible);
+  // Sidebar is always-on.
+  if (m_navigationWidget) m_navigationWidget->setVisible(true);
   {
     const QSignalBlocker b(ui_->actionToggleNavigationSidebar);
-    ui_->actionToggleNavigationSidebar->setChecked(nav_visible);
+    ui_->actionToggleNavigationSidebar->setChecked(true);
   }
 
   ui_->statusbar->setVisible(taiga::session.mainWindowStatusBarVisible());

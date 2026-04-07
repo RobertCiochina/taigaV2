@@ -446,13 +446,13 @@ void Settings::setTorrentSearchTitleForAnime(const int anime_id, const QString& 
 }
 
 bool Settings::torrentQBitApiEnabled() const {
-  return value("torrent.qbit.apiEnabled", false).toBool();
+  return value("torrent.qbit.apiEnabled", true).toBool();
 }
 std::string Settings::torrentQBitApiUrl() const {
   return value("torrent.qbit.apiUrl", QStringLiteral("http://localhost:8080")).toString().toStdString();
 }
 std::string Settings::torrentQBitApiUsername() const {
-  return value("torrent.qbit.apiUsername").toString().toStdString();
+  return value("torrent.qbit.apiUsername", QStringLiteral("admin")).toString().toStdString();
 }
 std::string Settings::torrentQBitApiPassword() const {
   return value("torrent.qbit.apiPassword").toString().toStdString();

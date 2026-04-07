@@ -26,8 +26,6 @@
 #include "gui/common/page_widget.hpp"
 #include "media/anime_list.hpp"
 
-class QTabBar;
-
 namespace gui {
 
 class AnimeListModel;
@@ -60,20 +58,12 @@ public:
 
   void applyToolbarTextFilter(const QString& text);
 
-  /// Programmatically select a status tab (e.g. from sidebar navigation).
-  void selectStatusTab(anime::list::Status status);
-
-  /// Refresh the status tab bar text/counts from the current database entries.
-  /// Useful when list entries are updated without a full model reset (e.g. media recognition commits).
-  void refreshStatusTabCountsNow();
-
 private:
   void initToolbar();
   void initSortMenu();
   void initViewMenu();
   void initMoreMenu();
-  void initStatusTabBar();
-  void refreshStatusTabCounts();
+  void initColorLegend();
 
   AnimeListModel* m_model = nullptr;
   AnimeListProxyModel* m_proxyModel = nullptr;
@@ -83,8 +73,7 @@ private:
   QMenu* m_sortMenu = nullptr;
   QMenu* m_viewMenu = nullptr;
   QMenu* m_moreMenu = nullptr;
-  QTabBar* m_statusTabBar = nullptr;
-  bool m_suppressTabSync = false;
+  QWidget* m_colorLegend = nullptr;
 };
 
 }  // namespace gui

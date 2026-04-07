@@ -27,6 +27,7 @@
 
 class QLabel;
 class QLineEdit;
+class QAction;
 class QEvent;
 class QShowEvent;
 class QTimer;
@@ -163,6 +164,7 @@ private:
   ListWidget* m_listWidget = nullptr;
   NavigationWidget* m_navigationWidget = nullptr;
   NowPlayingWidget* m_nowPlayingWidget = nullptr;
+  QAction* m_searchBoxAction = nullptr;
   QLineEdit* m_searchBox = nullptr;
   SearchWidget* m_searchWidget = nullptr;
   TorrentFeedWidget* m_torrentFeedWidget = nullptr;
@@ -172,7 +174,6 @@ private:
   QTimer* m_home_countdown_timer_ = nullptr;  // 1-second tick to update the countdown label
   QLabel* m_toolbarCountdownLabel = nullptr;  // permanent toolbar countdown (all pages)
   QLabel* m_homeBodyLabel = nullptr;
-  QLabel* m_homeAutoDownloadLabel = nullptr;  // shows "Next auto-download in X min" on Home
   QWidget* m_homeUpNextContainer = nullptr;
   QLabel* m_homeUpNextHeader = nullptr;
   QWidget* m_homeRecentContainer = nullptr;

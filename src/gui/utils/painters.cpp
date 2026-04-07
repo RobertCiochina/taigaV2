@@ -65,9 +65,13 @@ void paintProgressBar(QPainter* painter, const QStyleOption& option, const Anime
 
   const int strip_h = std::clamp(r.height() / 5, 2, 4);
 
+  // Keep in sync with the list color legend:
+  // - Green: watched (progress)
+  // - Blue: episode(s) available on disk
+  // - Grey: aired but not downloaded yet
   const QColor watchedColor = theme.isDark() ? QColor{12, 164, 12, 140} : QColor{12, 164, 12, 220};
-  const QColor airedColor = theme.isDark() ? QColor{80, 160, 255, 180} : QColor{33, 150, 243, 200};
-  const QColor availableColor = theme.isDark() ? QColor{255, 200, 60, 200} : QColor{255, 180, 0, 220};
+  const QColor availableColor = theme.isDark() ? QColor{80, 160, 255, 180} : QColor{33, 150, 243, 200};
+  const QColor airedColor = theme.isDark() ? QColor{158, 158, 158, 140} : QColor{158, 158, 158, 200};
 
   if (taiga::settings.listProgressShowAired() && ratio_aired > 0.f) {
     QRect ar = r;
