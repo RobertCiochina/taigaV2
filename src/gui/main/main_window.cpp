@@ -1502,6 +1502,7 @@ void MainWindow::refreshHomeDashboard() {
       vl->addWidget(empty);
     } else {
       // Helper: compute the same qBittorrent save-path Taiga uses when sending torrents.
+      // IMPORTANT: must NOT create any directories here (Home should never create folders).
       const auto resolvedTorrentDownloadDir = [](const QString& folder_name) -> QString {
         QString base = QString::fromStdString(taiga::settings.torrentClientDownloadPath()).trimmed();
         if (base.isEmpty()) return {};
@@ -1512,7 +1513,6 @@ void MainWindow::refreshHomeDashboard() {
           if (sub.isEmpty()) return QDir(base).absolutePath();
           sub = sub.left(120);
           QDir d(base);
-          if (!d.exists(sub)) d.mkpath(sub);
           return d.filePath(sub);
         }
         return QDir(base).absolutePath();
