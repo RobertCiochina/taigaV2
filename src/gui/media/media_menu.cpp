@@ -516,7 +516,7 @@ void MediaMenu::addListItems() {
 
   // Edit
   if (!isBatch()) {
-    // Quick increment (+1 episode) — v1-style fast update
+    // Quick increment (+1 episode)
     {
       const auto& item = m_items.front();
       const auto* entry = getEntry(item.id);

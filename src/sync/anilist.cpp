@@ -59,7 +59,7 @@ QString restReplyFailureDetail(const QRestReply& reply) {
   return QStringLiteral("Network error");
 }
 
-/// AniList uses REPEATING (not CURRENT) while the user is rewatching (matches Taiga v1).
+/// AniList uses REPEATING (not CURRENT) while the user is rewatching.
 QString mediaListStatusForSave(const ListEntry& entry) {
   using anime::list::Status;
   if (entry.rewatching && entry.status == Status::Watching) {

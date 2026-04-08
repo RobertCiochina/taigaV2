@@ -46,6 +46,8 @@
 #include <QNetworkRequest>
 #include <QVBoxLayout>
 #include <QtWidgets>
+#include <QRunnable>
+#include <QThreadPool>
 
 #include <algorithm>
 #include <functional>
@@ -71,6 +73,7 @@
 #include "gui/utils/tray_icon.hpp"
 #include "gui/utils/widgets.hpp"
 #include "sync/service.hpp"
+#include "sync/anilist.hpp"
 #include "media/anime.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_list_export.hpp"
@@ -113,7 +116,7 @@ MainWindow::MainWindow() : QMainWindow(), ui_(new Ui::MainWindow) {
   if (const auto geometry = taiga::session.mainWindowGeometry(); !geometry.isEmpty()) {
     restoreGeometry(geometry);
   } else {
-    // First run (or no session): center like v1's CenterOwner() for a new default placement.
+    // First run (or no session): center for a good default placement.
     centerWidgetToScreen(this);
   }
 
@@ -149,6 +152,19 @@ void MainWindow::init() {
     }
   });
 
+  // Load last-known library availability index as early as possible so Home "Up next" can populate
+  // immediately when the first page is initialized (before any startup scan runs).
+  if (taiga::settings.scanLibraryOnStartup()) {
+    const bool ok = track::loadLibraryEpisodeIndexCache();
+    // We can't use the status bar yet (initStatusbar runs later). Stash a short note now and show
+    // it once the UI is ready.
+    const QString note = ok ? track::libraryEpisodeIndexCacheLastInfo()
+                            : tr("Library cache: %1").arg(track::libraryEpisodeIndexCacheLastError());
+    QTimer::singleShot(0, this, [this, note]() {
+      if (statusBar()) statusBar()->showMessage(note, 5000);
+    });
+  }
+
   initActions();
   initIcons();
   initTrayIcon();
@@ -182,7 +198,77 @@ void MainWindow::init() {
     QTimer::singleShot(2200, this, [this]() { taiga::checkForUpdates(this, true); });
   }
   if (taiga::settings.scanLibraryOnStartup()) {
-    QTimer::singleShot(2800, this, [this]() { runLibraryScan(true); });
+    // Run a quick scan immediately so Home "Up next" has minimal downtime on startup.
+    // If a sync also runs, we will do a second scan after sync finishes (so recognition uses the
+    // updated title DB) before auto-download.
+    QTimer::singleShot(0, this, [this]() {
+      if (m_startup_scan_done_) return;
+
+      const auto startPreSyncScan = [this]() {
+        if (m_startup_scan_done_) return;
+        m_startup_scan_done_ = true;
+        // Ensure recognition cache incorporates any newly-fetched Media entries.
+        track::recognition::cache()->clear();
+        runLibraryScan(true, LibraryScanReason::StartupPreSync);
+      };
+
+      // If the cached library episode index references anime ids that are not present in the local
+      // anime DB yet (common for specials), prefetch them so recognition can resolve those titles
+      // even before the full startup sync completes.
+      QSet<int> missing;
+      for (const auto& [aid, _] : track::libraryEpisodeAvailability()) {
+        if (!anime::db.item(aid)) missing.insert(aid);
+      }
+
+      if (missing.isEmpty() || sync::currentServiceId() != sync::ServiceId::AniList) {
+        startPreSyncScan();
+        return;
+      }
+
+      // Limit prefetch fanout.
+      constexpr int kMaxPrefetch = 40;
+      QList<int> ids = missing.values();
+      if (ids.size() > kMaxPrefetch) ids = ids.mid(0, kMaxPrefetch);
+
+      track::appendLibraryEpisodeIndexCacheDebugLine(
+          QStringLiteral("startup: prefetch missing media ids (%1) before pre-sync scan")
+              .arg(ids.size()));
+      for (int id : ids) {
+        track::appendLibraryEpisodeIndexCacheDebugLine(
+            QStringLiteral("startup: prefetch media id=%1").arg(id));
+      }
+
+      QPointer<MainWindow> guard(this);
+      auto* svc = sync::anilist::Service::instance();
+      auto remaining = std::make_shared<int>(ids.size());
+
+      const auto tryFinish = [guard, remaining, startPreSyncScan]() {
+        if (!guard) return;
+        if (*remaining <= 0) startPreSyncScan();
+      };
+
+      // If any fetch completes, decrement. Also guard with a timeout so startup isn't blocked.
+      QMetaObject::Connection conn;
+      conn = connect(svc, &sync::anilist::Service::mediaFetchFinished, this,
+                     [remaining, &conn, tryFinish](int /*id*/, bool /*success*/) {
+                       if (*remaining > 0) --(*remaining);
+                       if (*remaining <= 0) {
+                         disconnect(conn);
+                       }
+                       tryFinish();
+                     });
+
+      QTimer::singleShot(2500, this, [remaining, conn, tryFinish]() mutable {
+        // Timeout: stop waiting and proceed with scan.
+        disconnect(conn);
+        *remaining = 0;
+        tryFinish();
+      });
+
+      for (int id : ids) {
+        svc->fetchAnime(id);
+      }
+    });
   }
 
   connect(track::media::detection(), &track::media::Detection::currentEpisodeChanged, this,
@@ -194,7 +280,7 @@ void MainWindow::init() {
   connect(track::libraryFolderWatcher(), &track::LibraryFolderWatcher::debouncedRescanTriggered, this,
           [this]() {
             statusBar()->showMessage(tr("Library folders changed — rescanning…"), 4000);
-            runLibraryScan(true);
+            runLibraryScan(true, LibraryScanReason::Watcher);
           },
           Qt::QueuedConnection);
 
@@ -236,7 +322,8 @@ void MainWindow::initActions() {
       tr("Synchronize with %1").arg(sync::serviceName(sync::currentServiceId())));
 
   connect(ui_->actionAddNewFolder, &QAction::triggered, this, &MainWindow::addNewFolder);
-  connect(ui_->actionExit, &QAction::triggered, this, &QApplication::quit, Qt::QueuedConnection);
+  // Use window-close path so close-to-tray and "save on close" behavior runs consistently.
+  connect(ui_->actionExit, &QAction::triggered, this, [this]() { close(); }, Qt::QueuedConnection);
   connect(ui_->actionOpenDataFolder, &QAction::triggered, this, &MainWindow::openDataFolder);
   connect(ui_->actionSettings, &QAction::triggered, this, [this]() { SettingsDialog::show(this); });
   ui_->actionSettings->setToolTip(
@@ -256,7 +343,7 @@ void MainWindow::initActions() {
       tr("Download your list from %1 (F5 or Ctrl+S).").arg(sync::serviceName(sync::currentServiceId())));
   connect(ui_->actionCheckForUpdates, &QAction::triggered, this, &MainWindow::checkForUpdatesManually);
   connect(ui_->actionScanAvailableEpisodes, &QAction::triggered, this, [this]() {
-    runLibraryScan(false);
+    runLibraryScan(false, LibraryScanReason::Manual);
   });
 
   connect(ui_->actionExportListAsMarkdown, &QAction::triggered, this,
@@ -287,7 +374,7 @@ void MainWindow::initActions() {
   });
   ui_->actionToggleNavigationSidebar->setShortcutContext(Qt::ApplicationShortcut);
   ui_->actionToggleNavigationSidebar->setStatusTip(
-      tr("Show or hide the left navigation pane (Ctrl+B). Matches Taiga v1 View → sidebar."));
+      tr("Show or hide the left navigation pane (Ctrl+B)."));
   connect(ui_->actionToggleNavigationSidebar, &QAction::toggled, this, [this](const bool on) {
     Q_UNUSED(on);
     // Sidebar is always-on.
@@ -431,7 +518,20 @@ void MainWindow::initPage(MainWindowPage page) {
         scroll->setWidget(body);
         outerLayout->addWidget(scroll);
 
-        refreshHomeDashboard();
+        // If scan-on-startup is enabled, defer the first dashboard render until the startup scan
+        // completes to avoid individual titles popping in later (prefetch + scan updates).
+        if (taiga::settings.scanLibraryOnStartup() && !m_startup_scan_done_) {
+          m_defer_home_refresh_until_startup_scan_ = true;
+          m_homeBodyLabel->setText(tr("<span style=\"color:#888\">Preparing library…</span>"));
+          if (auto* vl = qobject_cast<QVBoxLayout*>(m_homeUpNextContainer->layout())) {
+            auto* pending = new QLabel(
+                tr("<span style=\"color:#888\">Preparing library…</span>"), m_homeUpNextContainer);
+            pending->setTextFormat(Qt::RichText);
+            vl->addWidget(pending);
+          }
+        } else {
+          refreshHomeDashboard();
+        }
       }
       break;
     }
@@ -673,6 +773,8 @@ void MainWindow::closeEvent(QCloseEvent* event) {
   if (m_searchWidget) m_searchWidget->saveState();
   if (m_torrentFeedWidget) m_torrentFeedWidget->saveSessionState();
   sync::flushPendingListSaves();
+  // Persist last-known library index so next startup can load it instantly.
+  track::saveLibraryEpisodeIndexCache();
 
   if (event->spontaneous() && taiga::settings.closeToTray() &&
       QSystemTrayIcon::isSystemTrayAvailable()) {
@@ -689,7 +791,7 @@ void MainWindow::refreshLibraryRootsFromSettings() {
 }
 
 void MainWindow::runInteractiveLibraryScan() {
-  runLibraryScan(false);
+  runLibraryScan(false, LibraryScanReason::Manual);
 }
 
 void MainWindow::addNewFolder() {
@@ -750,11 +852,12 @@ void MainWindow::applyMainPage(const MainWindowPage page) {
 
   // Home page doesn't use the toolbar search (it doesn't route anywhere),
   // so hide it there to avoid confusing "does nothing" behavior.
+  // Profile page currently has no filterable content either, so hide it there too.
   if (m_searchBox) {
-    m_searchBox->setVisible(page != MainWindowPage::Home);
+    m_searchBox->setVisible(page != MainWindowPage::Home && page != MainWindowPage::Profile);
   }
   if (m_searchBoxAction) {
-    m_searchBoxAction->setVisible(page != MainWindowPage::Home);
+    m_searchBoxAction->setVisible(page != MainWindowPage::Home && page != MainWindowPage::Profile);
   }
 
   // Restore the saved text for the new page.  For Torrents, fall back to the
@@ -1095,7 +1198,17 @@ void MainWindow::handleListSyncFinished(bool ok, QString message) {
     // so new episodes are picked up right away without waiting 2 hours.
     if (!m_startup_sync_done_) {
       m_startup_sync_done_ = true;
-      QTimer::singleShot(3000, this, [this]() { runAutoDownload(true); });
+      // Startup order (when enabled): scan → sync → scan → auto-download.
+      // We do an immediate scan in init() for Home uptime, then scan again after sync so recognition
+      // uses the updated title DB before auto-download runs.
+      if (taiga::settings.scanLibraryOnStartup()) {
+        // Don't start auto-download until the scan completes, otherwise the library index can be stale
+        // and we'd re-download episodes that are already on disk.
+        m_startup_auto_download_pending_ = true;
+        runLibraryScan(true, LibraryScanReason::StartupPostSync);
+        return;
+      }
+      QTimer::singleShot(0, this, [this]() { runAutoDownload(true); });
     }
   } else {
     statusBar()->showMessage(tr("Synchronization failed: %1").arg(message), 8000);
@@ -1161,7 +1274,8 @@ void MainWindow::checkForUpdatesManually() {
   taiga::checkForUpdates(this, false);
 }
 
-void MainWindow::runLibraryScan(const bool startup_silent) {
+void MainWindow::runLibraryScan(const bool startup_silent, const LibraryScanReason reason) {
+  if (m_library_scan_in_progress_) return;
   constexpr int kMaxEntries = 50'000;
   const auto folders = taiga::settings.libraryFolders();
   if (folders.empty()) {
@@ -1171,8 +1285,90 @@ void MainWindow::runLibraryScan(const bool startup_silent) {
     return;
   }
 
+  const auto reasonLabel = [reason]() -> QString {
+    switch (reason) {
+      case LibraryScanReason::StartupPreSync:
+        return QStringLiteral("startup-pre-sync");
+      case LibraryScanReason::StartupPostSync:
+        return QStringLiteral("startup-post-sync");
+      case LibraryScanReason::Watcher:
+        return QStringLiteral("watcher");
+      case LibraryScanReason::Manual:
+      default:
+        return QStringLiteral("manual");
+    }
+  }();
+  track::appendLibraryEpisodeIndexCacheDebugLine(
+      QStringLiteral("scan: begin (%1, silent=%2)").arg(reasonLabel).arg(startup_silent ? 1 : 0));
+
   statusBar()->showMessage(tr("Scanning library folders…"));
-  const track::LibraryScanSummary sum = track::scanLibraryFolders(folders, kMaxEntries);
+
+  // Startup (and watcher-triggered) scans should not block the UI for seconds.
+  if (startup_silent) {
+    m_library_scan_in_progress_ = true;
+    QPointer<MainWindow> guard(this);
+
+    struct ScanJob final : public QRunnable {
+      QPointer<MainWindow> w;
+      std::vector<std::string> folders;
+      QString reasonLabel;
+      void run() override {
+        constexpr int kMaxEntriesLocal = 50'000;
+        const bool allowApply = (reasonLabel != QStringLiteral("startup-pre-sync"));
+        const track::LibraryScanSummary sum =
+            track::scanLibraryFolders(folders, kMaxEntriesLocal, /*allow_regress_apply=*/allowApply);
+        if (!w) return;
+        QMetaObject::invokeMethod(
+            w.data(), [w = w, sum, reasonLabel = reasonLabel]() {
+              if (!w) return;
+              w->m_library_scan_in_progress_ = false;
+              QString msg =
+                  QObject::tr("Library scan: %1 video file(s), %2 recognized, %3 series with local episodes "
+                              "(visited %4 paths).")
+                      .arg(sum.video_files)
+                      .arg(sum.recognized)
+                      .arg(sum.series_with_local_episodes)
+                      .arg(sum.entries_visited);
+              if (sum.entries_visited >= kMaxEntries) {
+                msg += QObject::tr(" Scan stopped at safety limit.");
+              }
+              w->statusBar()->showMessage(msg, 6000);
+              w->refreshAnimeListProgressDecorations();
+              w->refreshAnimeListNewEpisodeHighlight();
+              if (w->m_defer_home_refresh_until_startup_scan_) {
+                w->m_defer_home_refresh_until_startup_scan_ = false;
+              }
+              w->refreshHomeDashboard();
+              track::appendLibraryEpisodeIndexCacheDebugLine(
+                  QStringLiteral("scan: end (%1) => %2 series, %3 recognized")
+                      .arg(reasonLabel)
+                      .arg(sum.series_with_local_episodes)
+                      .arg(sum.recognized));
+              const bool allowRegress = (reasonLabel != QStringLiteral("startup-pre-sync"));
+              track::saveLibraryEpisodeIndexCacheAfterScan(reasonLabel, allowRegress);
+              if (w->m_startup_auto_download_pending_) {
+                w->m_startup_auto_download_pending_ = false;
+                QTimer::singleShot(0, w.data(), [w]() {
+                  if (w) w->runAutoDownload(true);
+                });
+              }
+            },
+            Qt::QueuedConnection);
+      }
+    };
+
+    auto* job = new ScanJob();
+    job->setAutoDelete(true);
+    job->w = guard;
+    job->folders = folders;
+    job->reasonLabel = reasonLabel;
+    QThreadPool::globalInstance()->start(job);
+    return;
+  }
+
+  const bool allowApply = (reasonLabel != QStringLiteral("startup-pre-sync"));
+  const track::LibraryScanSummary sum =
+      track::scanLibraryFolders(folders, kMaxEntries, /*allow_regress_apply=*/allowApply);
 
   QString msg = tr("Library scan: %1 video file(s), %2 recognized, %3 series with local episodes "
                    "(visited %4 paths).")
@@ -1191,6 +1387,14 @@ void MainWindow::runLibraryScan(const bool startup_silent) {
   refreshAnimeListNewEpisodeHighlight();
   // Keep the Home "Up next" section in sync after every scan (watcher or interactive).
   refreshHomeDashboard();
+
+  track::appendLibraryEpisodeIndexCacheDebugLine(
+      QStringLiteral("scan: end (%1) => %2 series, %3 recognized")
+          .arg(reasonLabel)
+          .arg(sum.series_with_local_episodes)
+          .arg(sum.recognized));
+  const bool allowRegress = (reasonLabel != QStringLiteral("startup-pre-sync"));
+  track::saveLibraryEpisodeIndexCacheAfterScan(reasonLabel, allowRegress);
 }
 
 void MainWindow::maybeNotifyMediaDetectionBalloon(const std::optional<track::Episode>& episode) {
@@ -1427,6 +1631,7 @@ void MainWindow::runAutoDownload(const bool silent) {
 
 void MainWindow::refreshHomeDashboard() {
   if (!m_homeBodyLabel) return;
+  if (m_defer_home_refresh_until_startup_scan_) return;
 
   // ── Stats summary ─────────────────────────────────────────────────────────
   const taiga::ListStatistics st = taiga::computeListStatistics();
@@ -1508,6 +1713,16 @@ void MainWindow::refreshHomeDashboard() {
       int anime_id = 0;
     };
     QList<UpNextButton> playButtons;
+
+    // Avoid showing misleading empty/partial results at startup: the on-disk episode index is
+    // populated by scans/watcher events, and the startup scan runs on a timer.
+    if (taiga::settings.scanLibraryOnStartup() && !track::libraryScanHasResults()) {
+      auto* pending = new QLabel(
+          tr("<span style=\"color:#888\">Library scan pending…</span>"), m_homeUpNextContainer);
+      pending->setTextFormat(Qt::RichText);
+      vl->addWidget(pending);
+      return;
+    }
 
     // Collect Watching entries that have the next episode on disk, sorted by title
     struct UpNextEntry { QString title; int anime_id; int next_ep; };

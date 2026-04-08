@@ -22,8 +22,10 @@
 #include <QRadioButton>
 #include <QRegularExpression>
 #include <QScrollArea>
+#include <QTextEdit>
 #include <QDialogButtonBox>
 #include <QSpacerItem>
+#include <QClipboard>
 #include <QSystemTrayIcon>
 #include <QTreeWidgetItem>
 #include <QUrl>
@@ -38,6 +40,7 @@
 #include "track/library_watcher.hpp"
 #include "track/media.hpp"
 #include "track/recognition_cache.hpp"
+#include "track/scanner.hpp"
 #include "track/streaming_sites.hpp"
 #include "sync/anilist_utils.hpp"
 #include "sync/service.hpp"
@@ -248,7 +251,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   ui_->checkStartWithWindows->setToolTip(tr("Windows only."));
 #endif
   ui_->checkStartMinimized->setToolTip(
-      tr("If \"Minimize to tray\" is also enabled, Taiga starts in the tray only (v1 behavior)."));
+      tr("If \"Minimize to tray\" is also enabled, Taiga starts in the tray only."));
 
   ui_->checkCloseToTray->setChecked(taiga::settings.closeToTray());
   ui_->checkMinimizeToTray->setChecked(taiga::settings.minimizeToTray());
@@ -455,7 +458,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
     if (c->count() == 0) {
       c->addItem(tr("Notify (status bar and tray)"),
                  static_cast<int>(taiga::TorrentDiscoveryNewCatalogAction::Notify));
-      c->addItem(tr("Download automatically (v1) — status only until download queue exists"),
+      c->addItem(tr("Download automatically — status only until download queue exists"),
                  static_cast<int>(taiga::TorrentDiscoveryNewCatalogAction::Download));
     }
     const int want = static_cast<int>(taiga::settings.torrentDiscoveryNewCatalogAction());
@@ -836,7 +839,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
          "while scrolling."));
   ui_->checkListHighlightOnTop->setToolTip(
       tr("Applies on the Anime list and Search results. Secondary sort order is unchanged from "
-         "Taiga v1 (Qt build uses a single visible sort column)."));
+         "the imported secondary sort settings (this build uses a single visible sort column)."));
 
   ui_->treeWidget->setCurrentItem(ui_->treeWidget->topLevelItem(0));
 }
@@ -1055,7 +1058,7 @@ void SettingsDialog::buildDownloadsPage() {
     m_rss_sort_by_ = new QComboBox(page);
     m_rss_sort_by_->addItem(tr("Seeders"), QStringLiteral("seeders"));
     m_rss_sort_by_->addItem(tr("Title"), QStringLiteral("title"));
-    m_rss_sort_by_->addItem(tr("Episode number (v1)"), QStringLiteral("episode_number"));
+    m_rss_sort_by_->addItem(tr("Episode number"), QStringLiteral("episode_number"));
     m_rss_sort_by_->addItem(tr("Published date"), QStringLiteral("release_date"));
     const QString curBy = QString::fromStdString(taiga::settings.torrentRssSortBy());
     for (int i = 0; i < m_rss_sort_by_->count(); ++i)
@@ -1437,6 +1440,43 @@ void SettingsDialog::populatePlaceholderPage(const QString& parent, const QStrin
       track::recognition::cache()->clear();
       QMessageBox::information(this, tr("Taiga"),
                                tr("Recognition cache cleared. It will be rebuilt on next library scan."));
+    });
+
+    addParagraph(u"<br>"_s + tr("Cache diagnostics"));
+    auto* enabled = new QCheckBox(tr("Enable cache diagnostics log (for debugging)"), page);
+    enabled->setChecked(taiga::settings.cacheDiagnosticsEnabled());
+    layout->addWidget(enabled);
+
+    auto* logBox = new QTextEdit(page);
+    logBox->setReadOnly(true);
+    logBox->setMinimumHeight(220);
+    logBox->setVisible(taiga::settings.cacheDiagnosticsEnabled());
+    logBox->setText(track::libraryEpisodeIndexCacheDebugLog());
+    layout->addWidget(logBox);
+
+    auto* refreshRow = new QWidget(page);
+    auto* hr = new QHBoxLayout(refreshRow);
+    hr->setContentsMargins(0, 0, 0, 0);
+    auto* btnRefresh = new QPushButton(tr("Refresh log"), refreshRow);
+    auto* btnCopy = new QPushButton(tr("Copy to clipboard"), refreshRow);
+    hr->addWidget(btnRefresh);
+    hr->addWidget(btnCopy);
+    hr->addStretch(1);
+    refreshRow->setVisible(taiga::settings.cacheDiagnosticsEnabled());
+    layout->addWidget(refreshRow);
+
+    connect(enabled, &QCheckBox::toggled, this, [this, logBox, refreshRow](const bool on) {
+      taiga::settings.setCacheDiagnosticsEnabled(on);
+      logBox->setVisible(on);
+      refreshRow->setVisible(on);
+      if (on) logBox->setText(track::libraryEpisodeIndexCacheDebugLog());
+    });
+    connect(btnRefresh, &QPushButton::clicked, this,
+            [logBox]() { logBox->setText(track::libraryEpisodeIndexCacheDebugLog()); });
+    connect(btnCopy, &QPushButton::clicked, this, [logBox]() {
+      if (auto* cb = QApplication::clipboard()) {
+        cb->setText(logBox->toPlainText());
+      }
     });
   } else {
     // Generic fallback.

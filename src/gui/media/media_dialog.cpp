@@ -492,7 +492,7 @@ void MediaDialog::accept() {
   m_entry->notes = ui_->plainTextEditNotes->toPlainText().toStdString();
   m_entry->last_updated = QDateTime::currentSecsSinceEpoch();
 
-  // v1-style completion prompt: show dialog if episodes now equals the total
+  // Completion prompt: show dialog if episodes now equals the total
   gui::maybePromptCompletion(this, m_anime, *m_entry);
 
   gui::commitListEntryLocalAndMaybeRemote(*m_entry, this);

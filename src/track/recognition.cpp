@@ -207,6 +207,56 @@ int identify(Episode& episode) {
   return anime::kUnknownId;
 }
 
+QString debugIdentifySummary(const Episode& episode) {
+  cache()->init();
+
+  const std::string title = episode.element(anitomy::ElementKind::Title);
+  const std::string season_str = episode.element(anitomy::ElementKind::Season);
+  const std::string ep_str = episode.element(anitomy::ElementKind::Episode);
+  const int season_num = season_str.empty() ? 0 : QString::fromStdString(season_str).toInt();
+
+  const std::string key0 = normalize(title);
+  const bool hit0 = cache()->find(key0).has_value();
+
+  bool hitS = false;
+  std::string keyS;
+  if (title.size() > 16) {
+    const QString qt = QString::fromStdString(title).trimmed();
+    if (!qt.endsWith(QLatin1Char('s'), Qt::CaseInsensitive)) {
+      keyS = normalize(title + "s");
+      hitS = cache()->find(keyS).has_value();
+    }
+  }
+
+  bool hitSeason = false;
+  std::string keySeason;
+  if (season_num > 1) {
+    keySeason = normalize(std::format("{} season {}", title, season_num));
+    hitSeason = cache()->find(keySeason).has_value();
+  }
+
+  // Also show whether the title->matches we found map to an anime::db item yet.
+  int matches0 = 0;
+  int matches0_missing_item = 0;
+  if (const auto data = cache()->find(key0)) {
+    matches0 = static_cast<int>(data->matches.size());
+    for (const auto& [id, _] : data->matches) {
+      if (!anime::db.item(id)) ++matches0_missing_item;
+    }
+  }
+
+  return QStringLiteral("identify: title='%1' S='%2' E='%3' key0='%4' hit0=%5 m0=%6 missingDb=%7 hitS=%8 hitSeason=%9")
+      .arg(QString::fromStdString(title).left(80))
+      .arg(QString::fromStdString(season_str))
+      .arg(QString::fromStdString(ep_str))
+      .arg(QString::fromStdString(key0).left(80))
+      .arg(hit0 ? 1 : 0)
+      .arg(matches0)
+      .arg(matches0_missing_item)
+      .arg(hitS ? 1 : 0)
+      .arg(hitSeason ? 1 : 0);
+}
+
 bool isValidMatch(const int id, const Episode& episode) {
   const auto item = anime::db.item(id);
 

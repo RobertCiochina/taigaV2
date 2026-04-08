@@ -291,7 +291,7 @@ bool AnimeListProxyModel::lessThan(const QModelIndex& lhs, const QModelIndex& rh
   int c = cmp_col(sortColumn());
   if (c == 0 && m_secondarySortColumn && *m_secondarySortColumn != sortColumn()) {
     // QSortFilterProxyModel in descending order swaps lhs/rhs when calling lessThan.
-    // Secondary sort order is user-defined (v1 parity), so keep it stable regardless of primary order.
+    // Secondary sort order is user-defined, so keep it stable regardless of primary order.
     const QModelIndex& lhs2 = sortOrder() == Qt::SortOrder::DescendingOrder ? rhs : lhs;
     const QModelIndex& rhs2 = sortOrder() == Qt::SortOrder::DescendingOrder ? lhs : rhs;
     const auto lhs2_anime = getAnime(lhs2);

@@ -73,7 +73,7 @@ QVariant HistoryModel::data(const QModelIndex& index, int role) const {
           if (historyRowIsImportedQueue(historyItem)) {
             std::string_view tail{historyItem.time};
             tail.remove_prefix(anime::kHistoryItemQueuedImportPrefix.size());
-            if (tail.empty()) return tr("Pending list sync (v1 offline queue)");
+            if (tail.empty()) return tr("Pending list sync (imported queue)");
             return tr("Pending sync — %1").arg(QString::fromStdString(std::string{tail}));
           }
           return QString::fromStdString(historyItem.time);

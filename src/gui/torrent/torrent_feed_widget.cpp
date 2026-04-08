@@ -141,7 +141,7 @@ QList<const rss::Item*> filterRssItemsBySettings(const rss::Feed& feed) {
     return QSet<QString>(t.begin(), t.end());
   }();
 
-  // v1-style "Prefer new versions": within the current RSS view, hide older versions of the same episode
+  // Prefer new versions: within the current RSS view, hide older versions of the same episode
   // when a newer version exists.
   QHash<qulonglong, int> max_version_for_key;
   if (hide_older_versions) {
@@ -439,7 +439,7 @@ QStringList argsForTorrentClient(const QString& exe_path, const QString& torrent
   const QString exe = QFileInfo(exe_path).fileName().toLower();
   const bool have_dir = !download_dir.isEmpty() && QDir(download_dir).exists();
 
-  // Best-effort compatibility with common clients (v1 parity style).
+  // Best-effort compatibility with common clients.
   if (have_dir) {
     if (exe.contains(QStringLiteral("qbittorrent"))) {
       return {QStringLiteral("--save-path=%1").arg(download_dir),
@@ -500,7 +500,7 @@ TorrentFeedWidget::TorrentFeedWidget(QLineEdit* toolbar_query_edit, QWidget* par
 
   auto* hint = new QLabel(
       tr("Results load inside Taiga. Double-click opens the <b>primary</b> download link (magnet vs "
-         ".torrent order follows the v1 prefer-magnet checkbox in Settings → Library). When a "
+         ".torrent order follows the prefer-magnet checkbox in Settings → Library). When a "
          "<b>custom torrent client</b> is configured, that executable receives the link instead of the "
          "default OS handler. Column headers sort the table; their layout is remembered between "
          "sessions. <b>F5</b> fetches search RSS; <b>Ctrl+F5</b> refreshes the catalog feed. If enabled "
@@ -517,7 +517,7 @@ TorrentFeedWidget::TorrentFeedWidget(QLineEdit* toolbar_query_edit, QWidget* par
   m_btn_browser_ = new QPushButton(tr("Open in web browser…"), this);
   m_btn_catalog_ = new QPushButton(tr("Refresh catalog feed…"), this);
   m_btn_catalog_->setToolTip(
-      tr("Uses the catalog RSS URL from Settings → Library (Taiga v1: rss/torrent/source/address)."));
+      tr("Uses the catalog RSS URL from Settings → Library."));
   row->addWidget(m_btn_fetch_);
   row->addWidget(m_btn_browser_);
   row->addWidget(m_btn_catalog_);
@@ -2154,7 +2154,7 @@ void TorrentFeedWidget::populateTable(const rss::Feed& feed) {
     if (!magnet.isEmpty()) c3->setData(kTableMagnetDataRole, magnet);
     m_table_->setItem(i, 3, c3);
 
-    // v1-style nicety: show parsed episode metadata (best-effort; does not affect links).
+    // Nicety: show parsed episode metadata (best-effort; does not affect links).
     const track::Episode ep = track::recognition::parse(it.title);
     const QString anime = QString::fromStdString(ep.element(anitomy::ElementKind::Title));
     const QString ep_no = QString::fromStdString(ep.element(anitomy::ElementKind::Episode));
@@ -2197,7 +2197,7 @@ void TorrentFeedWidget::applyRssTableSortFromSettings() {
   if (sb == "release_date") {
     sort_col = 1;
   } else if (sb == "episode_number") {
-    // v1 behavior: sort by parsed episode number when available.
+    // Sort by parsed episode number when available.
     sort_col = 5;
   }
   const bool desc = taiga::settings.torrentRssSortOrder() == std::string{"descending"};

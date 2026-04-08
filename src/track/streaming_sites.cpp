@@ -22,9 +22,9 @@ struct Rule {
   std::regex title_pattern;
 };
 
-// Slugs align with Taiga v1 `recognition/streaming/providers/<slug>` and `settings_keys.cpp`.
-// URL/title regexes are ported from `src/v1/track/media_stream.cpp` where applicable; Crunchyroll,
-// Funimation, and HiDive use host-based patterns (present in v1 settings keys but not in v1 `Stream` enum).
+// Slugs align with stored provider keys and `settings_keys.cpp`.
+// URL/title regexes are ported from the legacy implementation where applicable; Crunchyroll,
+// Funimation, and HiDive use host-based patterns.
 const std::array<Rule, 17> kRules{{
     {"animelab",
      "AnimeLab",

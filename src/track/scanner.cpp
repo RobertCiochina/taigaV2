@@ -20,13 +20,20 @@
 
 #include <QDir>
 #include <QDirIterator>
+#include <QDataStream>
+#include <QDateTime>
+#include <QFile>
 #include <QFileInfo>
+#include <QSaveFile>
 #include <QSet>
+#include <QStringList>
 #include <optional>
+#include <shared_mutex>
 
 #include "media/anime.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_list.hpp"
+#include "taiga/path.hpp"
 #include "taiga/settings.hpp"
 #include "track/episode.hpp"
 #include "track/recognition.hpp"
@@ -38,6 +45,95 @@ namespace {
 std::unordered_map<int, std::unordered_set<int>> g_library_episodes;
 // Manual overrides from Library UI — not cleared by scanLibraryFolders.
 std::unordered_map<int, std::unordered_set<int>> g_manual_episodes;
+bool g_has_scan_results = false;
+std::shared_mutex g_index_mu;
+QString g_cache_last_error;
+QString g_cache_last_info;
+QStringList g_cache_log;
+int g_best_saved_series = -1;
+int g_best_saved_eps = -1;
+
+void logCacheEvent(const QString& msg) {
+  const QString line = QStringLiteral("%1  %2").arg(
+      QDateTime::currentDateTime().toString(Qt::ISODateWithMs), msg);
+  g_cache_log.push_back(line);
+  constexpr int kMax = 250;
+  while (g_cache_log.size() > kMax) g_cache_log.pop_front();
+}
+
+std::pair<int, int> snapshotIndexSizeLocked() {
+  std::shared_lock lk(g_index_mu);
+  const int series = static_cast<int>(g_library_episodes.size());
+  int eps = 0;
+  for (const auto& [_, set] : g_library_episodes) eps += static_cast<int>(set.size());
+  return {series, eps};
+}
+
+QString libraryIndexCachePath() {
+  const QString base = QString::fromStdString(taiga::get_data_path());
+  const QString dir = QDir(base).filePath(QStringLiteral("cache"));
+  QDir().mkpath(dir);
+  return QDir(dir).filePath(QStringLiteral("library_episode_index.dat"));
+}
+
+QString libraryIndexCacheSignature() {
+  // If library folders or scan options change, treat the cache as invalid.
+  QString sig;
+  sig += QString::fromStdString(
+      std::format("minBytes={};", taiga::settings.libraryScanMinFileSizeBytes()));
+  sig += QString::fromStdString(std::format(
+      "lookupParent={};", taiga::settings.libraryScanLookupParentDirectories() ? 1 : 0));
+  const auto folders = taiga::settings.libraryFolders();
+  sig += QStringLiteral("folders=");
+  for (const auto& f : folders) {
+    sig += QString::fromStdString(f);
+    sig += QLatin1Char('|');
+  }
+  return sig;
+}
+
+enum class CacheSaveResult { Saved, Skipped, Failed };
+
+CacheSaveResult saveLibraryEpisodeIndexCacheLocked(const bool allow_regress, const QString& source) {
+  const auto [series, eps] = snapshotIndexSizeLocked();
+  if (g_best_saved_series >= 0) {
+    const bool worse_series = series < g_best_saved_series;
+    const bool worse_eps = eps < g_best_saved_eps;
+    if (!allow_regress && (worse_series || worse_eps)) {
+      logCacheEvent(QStringLiteral("cache: save skipped (source=%1, worse index: %2 series/%3 eps < %4/%5)")
+                        .arg(source)
+                        .arg(series)
+                        .arg(eps)
+                        .arg(g_best_saved_series)
+                        .arg(g_best_saved_eps));
+      return CacheSaveResult::Skipped;
+    }
+  }
+
+  QSaveFile out(libraryIndexCachePath());
+  if (!out.open(QIODevice::WriteOnly)) return CacheSaveResult::Failed;
+
+  QDataStream ds(&out);
+  ds.setVersion(QDataStream::Qt_6_0);
+  ds << quint32(0x54474941);  // 'TGIA' magic
+  ds << quint16(1);           // version
+  ds << libraryIndexCacheSignature();
+
+  ds << quint32(series);
+  {
+    std::shared_lock lk(g_index_mu);
+    for (const auto& [aid, set] : g_library_episodes) {
+    ds << qint32(aid);
+      ds << quint32(set.size());
+      for (const int ep : set) ds << qint32(ep);
+    }
+  }
+
+  if (!out.commit()) return CacheSaveResult::Failed;
+  g_best_saved_series = series;
+  g_best_saved_eps = eps;
+  return CacheSaveResult::Saved;
+}
 
 /// Map S00Exx-style absolute numbers onto 1..N for short specials when xx > N (common with TVDB-style
 /// numbering). Skips unknown or non-season-0 releases.
@@ -56,20 +152,167 @@ int storageEpisodeNumber(const int anime_id, const track::Episode& episode) {
 
 }  // namespace
 
+void appendLibraryEpisodeIndexCacheDebugLine(const QString& msg) {
+  logCacheEvent(msg);
+}
+
+void saveLibraryEpisodeIndexCacheAfterScan(const QString& source, const bool allow_regress) {
+  g_cache_last_error.clear();
+  g_cache_last_info.clear();
+  logCacheEvent(QStringLiteral("cache: save requested (source=%1, allowRegress=%2)")
+                    .arg(source)
+                    .arg(allow_regress ? 1 : 0));
+  const CacheSaveResult r = saveLibraryEpisodeIndexCacheLocked(allow_regress, source);
+  if (r == CacheSaveResult::Saved) {
+    g_cache_last_info =
+        QStringLiteral("saved %1 series").arg(static_cast<int>(g_library_episodes.size()));
+    logCacheEvent(QStringLiteral("cache: save ok (%1)").arg(g_cache_last_info));
+  } else if (r == CacheSaveResult::Failed) {
+    g_cache_last_error = QStringLiteral("write failed");
+    logCacheEvent(QStringLiteral("cache: save failed (source=%1, %2)")
+                      .arg(source)
+                      .arg(g_cache_last_error));
+  }
+}
+
 const std::unordered_map<int, std::unordered_set<int>>& libraryEpisodeAvailability() {
   return g_library_episodes;
 }
 
+bool libraryScanHasResults() {
+  return g_has_scan_results;
+}
+
+bool loadLibraryEpisodeIndexCache() {
+  g_cache_last_error.clear();
+  g_cache_last_info.clear();
+  logCacheEvent(QStringLiteral("cache: load requested"));
+  QFile f(libraryIndexCachePath());
+  if (!f.exists()) {
+    g_cache_last_error = QStringLiteral("cache file missing");
+    logCacheEvent(QStringLiteral("cache: load failed (%1)").arg(g_cache_last_error));
+    return false;
+  }
+  if (!f.open(QIODevice::ReadOnly)) {
+    g_cache_last_error = QStringLiteral("open failed");
+    logCacheEvent(QStringLiteral("cache: load failed (%1)").arg(g_cache_last_error));
+    return false;
+  }
+
+  QDataStream ds(&f);
+  ds.setVersion(QDataStream::Qt_6_0);
+
+  quint32 magic = 0;
+  quint16 ver = 0;
+  QString sig;
+  ds >> magic >> ver >> sig;
+  if (ds.status() != QDataStream::Ok) {
+    g_cache_last_error = QStringLiteral("header read failed");
+    logCacheEvent(QStringLiteral("cache: load failed (%1)").arg(g_cache_last_error));
+    return false;
+  }
+  if (magic != 0x54474941 || ver != 1) {
+    g_cache_last_error = QStringLiteral("bad magic/version");
+    logCacheEvent(QStringLiteral("cache: load failed (%1)").arg(g_cache_last_error));
+    return false;
+  }
+  // Best-effort: do not hard-fail on signature mismatch. Folder strings can differ by slash style,
+  // case, or trailing separators across runs, and an imperfect cache is still better than none.
+
+  quint32 n = 0;
+  ds >> n;
+  if (ds.status() != QDataStream::Ok) {
+    g_cache_last_error = QStringLiteral("count read failed");
+    logCacheEvent(QStringLiteral("cache: load failed (%1)").arg(g_cache_last_error));
+    return false;
+  }
+
+  std::unordered_map<int, std::unordered_set<int>> loaded;
+  loaded.reserve(static_cast<size_t>(n));
+  for (quint32 i = 0; i < n; ++i) {
+    qint32 aid = 0;
+    quint32 ec = 0;
+    ds >> aid >> ec;
+    if (ds.status() != QDataStream::Ok) {
+      g_cache_last_error = QStringLiteral("row read failed");
+      logCacheEvent(QStringLiteral("cache: load failed (%1)").arg(g_cache_last_error));
+      return false;
+    }
+    auto& set = loaded[static_cast<int>(aid)];
+    for (quint32 j = 0; j < ec; ++j) {
+      qint32 ep = 0;
+      ds >> ep;
+      if (ds.status() != QDataStream::Ok) {
+        g_cache_last_error = QStringLiteral("episode read failed");
+        logCacheEvent(QStringLiteral("cache: load failed (%1)").arg(g_cache_last_error));
+        return false;
+      }
+      set.insert(static_cast<int>(ep));
+    }
+  }
+
+  int total_eps = 0;
+  for (const auto& [_, eps] : loaded) total_eps += static_cast<int>(eps.size());
+
+  {
+    std::unique_lock lk(g_index_mu);
+    g_library_episodes = std::move(loaded);
+    g_has_scan_results = true;
+  }
+  g_cache_last_info = QStringLiteral("loaded %1 series, %2 episode(s)")
+                          .arg(static_cast<int>(g_library_episodes.size()))
+                          .arg(total_eps);
+  logCacheEvent(QStringLiteral("cache: load ok (%1)").arg(g_cache_last_info));
+  g_best_saved_series = static_cast<int>(g_library_episodes.size());
+  g_best_saved_eps = total_eps;
+  return true;
+}
+
+void saveLibraryEpisodeIndexCache() {
+  g_cache_last_error.clear();
+  g_cache_last_info.clear();
+  // Non-scan save (exit-to-tray, etc.): avoid overwriting the cache with a smaller index that may be
+  // caused by transient startup state (pre-sync recognition DB) rather than real file removal.
+  const QString source = QStringLiteral("exit-or-manual-save");
+  const CacheSaveResult r = saveLibraryEpisodeIndexCacheLocked(/*allow_regress=*/false, source);
+  if (r == CacheSaveResult::Saved) {
+    g_cache_last_info = QStringLiteral("saved %1 series")
+                            .arg(static_cast<int>(g_library_episodes.size()));
+    logCacheEvent(QStringLiteral("cache: save ok (%1)").arg(g_cache_last_info));
+  } else if (r == CacheSaveResult::Failed) {
+    g_cache_last_error = QStringLiteral("write failed");
+    logCacheEvent(QStringLiteral("cache: save failed (source=%1, %2)")
+                      .arg(source)
+                      .arg(g_cache_last_error));
+  }
+}
+
+QString libraryEpisodeIndexCacheLastError() {
+  return g_cache_last_error;
+}
+
+QString libraryEpisodeIndexCacheLastInfo() {
+  return g_cache_last_info;
+}
+
+QString libraryEpisodeIndexCacheDebugLog() {
+  return g_cache_log.join(QLatin1Char('\n'));
+}
+
 bool libraryHasLocalEpisode(const int anime_id, const int episode_number) {
   if (episode_number < 1) return false;
-  const auto it = g_library_episodes.find(anime_id);
-  if (it != g_library_episodes.end() && it->second.contains(episode_number)) return true;
+  {
+    std::shared_lock lk(g_index_mu);
+    const auto it = g_library_episodes.find(anime_id);
+    if (it != g_library_episodes.end() && it->second.contains(episode_number)) return true;
+  }
   const auto it2 = g_manual_episodes.find(anime_id);
   return it2 != g_manual_episodes.end() && it2->second.contains(episode_number);
 }
 
 void removeLibraryEpisode(const int anime_id, const int episode_number) {
   if (episode_number < 1) return;
+  std::unique_lock lk(g_index_mu);
   const auto it = g_library_episodes.find(anime_id);
   if (it == g_library_episodes.end()) return;
   it->second.erase(episode_number);
@@ -96,11 +339,16 @@ bool nextEpisodeIsOnDisk(const int anime_id, const anime::Details* anime, const 
 }
 
 LibraryScanSummary scanLibraryFolders(const std::vector<std::string>& folders,
-                                      const int max_entries) {
+                                      const int max_entries,
+                                      const bool allow_regress_apply) {
   LibraryScanSummary s;
   if (max_entries <= 0) return s;
 
-  g_library_episodes.clear();
+  std::unordered_map<int, std::unordered_set<int>> local;
+  const bool diag = taiga::settings.cacheDiagnosticsEnabled();
+  int unknown_files = 0;
+  int diag_unknown_logged = 0;
+  constexpr int kDiagUnknownLimit = 18;
 
   const qint64 min_bytes = taiga::settings.libraryScanMinFileSizeBytes();
 
@@ -131,17 +379,91 @@ LibraryScanSummary scanLibraryFolders(const std::vector<std::string>& folders,
         ++s.recognized;
         const int ep = storageEpisodeNumber(aid, episode);
         if (ep > 0) {
-          g_library_episodes[aid].insert(ep);
+          local[aid].insert(ep);
         } else {
           // No episode number in filename (movie, batch, or single-file release).
           // Treat as episode 1 so the entry appears in "Up next" and library lookups.
-          g_library_episodes[aid].insert(1);
+          local[aid].insert(1);
+        }
+      } else {
+        ++unknown_files;
+        // For startup-pre-sync diagnostics: sample a few unknown matches so we can see what the
+        // parser produced before the post-sync scan fixes them.
+        if (diag && !allow_regress_apply && diag_unknown_logged < kDiagUnknownLimit) {
+          ++diag_unknown_logged;
+          const QString t =
+              QString::fromStdString(episode.element(anitomy::ElementKind::Title, {}));
+          const QString s0 = QString::fromStdString(episode.element(anitomy::ElementKind::Season, {}));
+          const QString e0 = QString::fromStdString(episode.element(anitomy::ElementKind::Episode, {}));
+          const QString parent = fi.dir().dirName();
+          logCacheEvent(QStringLiteral("scan: unknown file #%1: title='%2' S='%3' E='%4' parent='%5' file='%6'")
+                            .arg(diag_unknown_logged)
+                            .arg(t.left(80))
+                            .arg(s0)
+                            .arg(e0)
+                            .arg(parent.left(80))
+                            .arg(fi.fileName().left(120)));
+          logCacheEvent(QStringLiteral("scan: unknown file #%1: %2")
+                            .arg(diag_unknown_logged)
+                            .arg(recognition::debugIdentifySummary(episode).left(240)));
         }
       }
     }
   }
 
-  s.series_with_local_episodes = static_cast<int>(g_library_episodes.size());
+  s.series_with_local_episodes = static_cast<int>(local.size());
+  int local_eps = 0;
+  for (const auto& [_, set] : local) local_eps += static_cast<int>(set.size());
+  {
+    std::unique_lock lk(g_index_mu);
+    const int cur_series = static_cast<int>(g_library_episodes.size());
+    int cur_eps = 0;
+    for (const auto& [_, set] : g_library_episodes) cur_eps += static_cast<int>(set.size());
+
+    // If this scan is known to be potentially incomplete (startup-pre-sync), don't let it wipe out
+    // a better index we just loaded from cache.
+    const bool would_regress =
+        static_cast<int>(local.size()) < cur_series || (local_eps < cur_eps);
+    if (!allow_regress_apply && would_regress) {
+      logCacheEvent(QStringLiteral("scan: apply skipped (worse than current: %1 series/%2 eps -> %3/%4)")
+                        .arg(cur_series)
+                        .arg(cur_eps)
+                        .arg(static_cast<int>(local.size()))
+                        .arg(local_eps));
+      if (diag) {
+        // Show which anime ids would disappear (present in current index but missing in scan).
+        int shown = 0;
+        constexpr int kMaxShown = 12;
+        for (const auto& [aid, _] : g_library_episodes) {
+          if (local.contains(aid)) continue;
+          const Anime* item = anime::db.item(aid);
+          QString name = QStringLiteral("<unknown>");
+          if (item) {
+            if (!item->titles.english.empty()) {
+              name = QString::fromStdString(item->titles.english);
+            } else {
+              name = QString::fromStdString(item->titles.romaji);
+            }
+          }
+          logCacheEvent(QStringLiteral("scan: missing vs current: aid=%1 '%2'")
+                            .arg(aid)
+                            .arg(name.left(120)));
+          if (++shown >= kMaxShown) break;
+        }
+        if (unknown_files > 0) {
+          logCacheEvent(QStringLiteral("scan: unknown totals: %1/%2 video file(s) not identified")
+                            .arg(unknown_files)
+                            .arg(s.video_files));
+        }
+      }
+    } else {
+      g_library_episodes = std::move(local);
+      g_has_scan_results = true;
+      logCacheEvent(QStringLiteral("scan: apply ok (%1 series, %2 eps)")
+                        .arg(static_cast<int>(g_library_episodes.size()))
+                        .arg(local_eps));
+    }
+  }
   return s;
 }
 

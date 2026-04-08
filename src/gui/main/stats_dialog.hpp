@@ -9,7 +9,7 @@ class QWidget;
 
 namespace gui {
 
-/// List / database statistics (Taiga v1 “Statistics” dialog, Qt port).
+/// List / database statistics.
 class StatsDialog {
 public:
   static void show(QWidget* parent);

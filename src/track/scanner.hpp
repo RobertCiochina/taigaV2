@@ -45,6 +45,31 @@ struct LibraryScanSummary {
 /// Episode numbers seen on disk for each anime id during the last `scanLibraryFolders` call.
 const std::unordered_map<int, std::unordered_set<int>>& libraryEpisodeAvailability();
 
+/// True once a library scan has completed in this session.
+/// Used by Home "Up next" to avoid showing misleading empty/partial results at startup.
+bool libraryScanHasResults();
+
+/// Best-effort: load the most recent on-disk availability index from cache.
+/// Returns true when a cache was loaded and the index is now usable immediately.
+bool loadLibraryEpisodeIndexCache();
+
+/// Best-effort: persist the current on-disk availability index to cache.
+/// Useful on shutdown so the next startup can be instant even if no scan runs.
+void saveLibraryEpisodeIndexCache();
+
+/// Debugging helpers for the library episode index cache.
+/// (Used to diagnose startup "Up next" being incomplete before a scan finishes.)
+QString libraryEpisodeIndexCacheLastError();
+QString libraryEpisodeIndexCacheLastInfo();
+QString libraryEpisodeIndexCacheDebugLog();
+
+/// Append a line to the cache diagnostics log.
+void appendLibraryEpisodeIndexCacheDebugLine(const QString& msg);
+
+/// Persist cache after a completed scan, tagged with a source label.
+/// \p allow_regress should be true for authoritative scans (post-sync, manual, watcher).
+void saveLibraryEpisodeIndexCacheAfterScan(const QString& source, bool allow_regress);
+
 bool libraryHasLocalEpisode(int anime_id, int episode_number);
 
 /// Remove an episode from the on-disk availability index (best-effort).
@@ -59,12 +84,15 @@ void addManualLibraryEpisode(int anime_id, int episode);
 /// Remove all manual episode registrations for an anime (e.g. when clearing an override).
 void removeManualLibraryEpisode(int anime_id);
 
-/// True when episode (watched + 1) exists in the library scan index (Taiga v1 "next episode available").
+/// True when episode (watched + 1) exists in the library scan index.
 bool nextEpisodeIsOnDisk(int anime_id, const anime::Details* anime, const anime::list::Entry* entry);
 
 /// Walks configured library folders, parses filenames, and counts how many match the recognition DB.
 /// Stops after \a max_entries filesystem entries (files only) to keep the UI responsive.
-LibraryScanSummary scanLibraryFolders(const std::vector<std::string>& folders, int max_entries);
+/// If \a allow_regress_apply is false, a smaller scan result will not overwrite an already-loaded
+/// index (used for the startup-pre-sync scan so Home stays populated from cache until post-sync).
+LibraryScanSummary scanLibraryFolders(const std::vector<std::string>& folders, int max_entries,
+                                     bool allow_regress_apply = true);
 
 std::optional<QString> findEpisode(const QString& path, const int anime_id,
                                    const int episode_number);

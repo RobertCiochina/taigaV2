@@ -168,6 +168,14 @@ bool Settings::scanLibraryOnStartup() const {
   return value("app.startup.scanLibrary", false).toBool();
 }
 
+bool Settings::cacheDiagnosticsEnabled() const {
+  return value("app.debug.cacheDiagnosticsEnabled", false).toBool();
+}
+
+void Settings::setCacheDiagnosticsEnabled(const bool enabled) const {
+  setValue("app.debug.cacheDiagnosticsEnabled", enabled);
+}
+
 bool Settings::startMinimized() const {
   return value("app.startup.startMinimized", false).toBool();
 }

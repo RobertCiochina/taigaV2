@@ -19,6 +19,7 @@
 #pragma once
 
 #include <QFileInfo>
+#include <QString>
 #include <anitomy.hpp>
 #include <string_view>
 
@@ -29,7 +30,7 @@ class Episode;
 namespace track::recognition {
 
 Episode parse(std::string_view input, const anitomy::Options options = {});
-/// When `use_parent_directory_title_hint` is false (Taiga v1 `lookup_parent_directories` off), only the
+/// When `use_parent_directory_title_hint` is false, only the
 /// file name is parsed — no folder-name title fallback.
 Episode parseFileInfo(const QFileInfo& info, const anitomy::Options options = {},
                       bool use_parent_directory_title_hint = true);
@@ -37,5 +38,9 @@ Episode parseFileInfo(const QFileInfo& info, const anitomy::Options options = {}
 int identify(Episode& episode);
 
 bool isValidMatch(const int id, const Episode& episode);
+
+/// Debug helper: returns a one-line summary of how identify() would look up this episode.
+/// Intended for cache diagnostics (startup-pre-sync vs post-sync differences).
+QString debugIdentifySummary(const Episode& episode);
 
 }  // namespace track::recognition

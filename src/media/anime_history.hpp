@@ -33,7 +33,7 @@ struct HistoryItem {
   std::string time;
 };
 
-/// Prefix on `HistoryItem::time` for rows imported from Taiga v1 `history.xml` `<queue>`.
+/// Prefix on `HistoryItem::time` for rows imported from legacy `history.xml` `<queue>`.
 inline constexpr std::string_view kHistoryItemQueuedImportPrefix = "[v1queue] ";
 
 class History {

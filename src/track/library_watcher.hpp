@@ -11,7 +11,7 @@
 
 namespace track {
 
-/// Taiga v1 `anime/folders/watch/enabled` — debounced rescan when library roots change on disk.
+/// Debounced rescan when library roots change on disk.
 class LibraryFolderWatcher final : public QObject {
   Q_OBJECT
   Q_DISABLE_COPY_MOVE(LibraryFolderWatcher)

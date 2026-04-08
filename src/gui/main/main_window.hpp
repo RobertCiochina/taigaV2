@@ -144,7 +144,8 @@ private:
   void trySyncAfterFocusReturn();
   void updateToolbarSearchPlaceholder();
   void checkForUpdatesManually();
-  void runLibraryScan(bool startup_silent);
+  enum class LibraryScanReason { StartupPreSync, StartupPostSync, Watcher, Manual };
+  void runLibraryScan(bool startup_silent, LibraryScanReason reason);
   void initFeatureToggleActions();
   void applyMainPage(MainWindowPage page);
   void recordNavHistory(MainWindowPage page);
@@ -189,6 +190,12 @@ private:
 
   MainWindowPage m_activePage = MainWindowPage::Home;
   bool m_startup_sync_done_ = false;  // true after the first sync on this run
+  bool m_startup_scan_done_ = false;  // true after first startup library scan (this run)
+  bool m_library_scan_in_progress_ = false;
+  bool m_startup_auto_download_pending_ = false;
+  // Avoid "pop-in" on Home at startup: when scan-on-startup is enabled, we defer the first
+  // Home dashboard render until the startup-pre-sync scan finishes.
+  bool m_defer_home_refresh_until_startup_scan_ = false;
   // Per-page saved search-box text so switching pages doesn't bleed one page's
   // filter text into another page's query field.
   QHash<int, QString> m_pageSearchTexts_;

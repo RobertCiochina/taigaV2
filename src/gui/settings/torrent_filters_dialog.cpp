@@ -262,7 +262,7 @@ TorrentFiltersDialog::TorrentFiltersDialog(QWidget* parent) : QDialog(parent) {
   // ── Presets & actions ─────────────────────────────────────────────────────
   auto* presetsLayout = new QHBoxLayout();
   presetsLayout->addWidget(new QLabel(tr("Quick presets:"), this));
-  auto* b_bad = new QPushButton(tr("Block bad video (v1)"), this);
+  auto* b_bad = new QPushButton(tr("Block bad video"), this);
   b_bad->setToolTip(tr("Exclude: AVI, DIVX, LQ, RMVB, SD, WMV, XVID"));
   auto* b_1080 = new QPushButton(tr("Prefer 1080p"), this);
   b_1080->setToolTip(tr("Include only: 1080p"));

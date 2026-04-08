@@ -15,16 +15,16 @@
 
 namespace taiga {
 
-/// Taiga v1 default (`rss/torrent/search/address`): Nyaa RSS with `%title%` placeholder.
+/// Default (`rss/torrent/search/address`): Nyaa RSS with `%title%` placeholder.
 QString defaultTorrentDiscoverySearchUrl();
-/// Taiga v1 default (`rss/torrent/source/address`): catalog RSS (no `%title%` substitution).
+/// Default (`rss/torrent/source/address`): catalog RSS (no `%title%` substitution).
 QString defaultTorrentDiscoveryFeedSourceUrl();
 
-/// Same substitution as v1 `CheckFeed` / torrent search — use for **HTTP GET** (RSS, not HTML).
+/// Same substitution as legacy feed fetch — use for **HTTP GET** (RSS, not HTML).
 QUrl torrentDiscoveryFeedFetchUrl(const QString& template_with_placeholders, const QString& title);
 
-/// Taiga v1 `rss/torrent/source/address` — full GET URL (no `%title%` substitution). Empty uses Tokyo
-/// Tosho default.
+/// `rss/torrent/source/address` — full GET URL (no `%title%` substitution). Empty uses Tokyo Tosho
+/// default.
 QUrl torrentDiscoveryCatalogFeedUrl(const QString& source_url_or_empty);
 
 /// Substitutes `%title%` (case-insensitive) with the URL-encoded title; may rewrite Nyaa RSS URLs

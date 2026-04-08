@@ -2,7 +2,7 @@
  * Taiga
  * Copyright (C) 2010-2024, Eren Okka
  *
- * Row actions for anime list / search views (Taiga v1 program/list/action/doubleclick|middleclick).
+ * Row actions for anime list / search views.
  */
 
 #pragma once

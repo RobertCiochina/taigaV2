@@ -253,7 +253,7 @@
                  <string>Detect media in web browsers (Windows)</string>
                 </property>
                 <property name="toolTip">
-                 <string>Taiga v1: recognition/streaming/enabled. Uses the browser tab title and URL to recognize what you are watching—only for updating your list, not for streaming or broadcasting to others. (Experimental.)</string>
+                 <string>Uses the browser tab title and URL to recognize what you are watching—only for updating your list, not for streaming or broadcasting to others. (Experimental.)</string>
                 </property>
                </widget>
               </item>
@@ -266,7 +266,7 @@
                  <item>
                   <widget class="QLabel" name="labelStreamingProvidersHint">
                    <property name="text">
-                    <string>When browser detection is on, only checked sites are used to parse titles from the page. This is for recognizing what you watch locally—not for sharing or streaming video to others. Turn off sites you never use (Taiga v1: recognition/streaming/providers).</string>
+                    <string>When browser detection is on, only checked sites are used to parse titles from the page. This is for recognizing what you watch locally—not for sharing or streaming video to others. Turn off sites you never use.</string>
                    </property>
                    <property name="wordWrap">
                     <bool>true</bool>
@@ -302,7 +302,7 @@
               <item>
                <widget class="QLabel" name="labelBalloonFormatHint">
                 <property name="text">
-                 <string>Tray message body templates (Taiga v1: program/notifications/balloon/format). Use %title%, %romaji%, %english%, %native%, %name%, %episode%, %total%, %score%, %watched%, %user%, %playstatus%, %image%, %animeurl%, %group%, %season%. Type \n or a real newline for line breaks.</string>
+                 <string>Tray message body templates. Use %title%, %romaji%, %english%, %native%, %name%, %episode%, %total%, %score%, %watched%, %user%, %playstatus%, %image%, %animeurl%, %group%, %season%. Type \n or a real newline for line breaks.</string>
                 </property>
                 <property name="wordWrap">
                  <bool>true</bool>
@@ -415,7 +415,7 @@
                  <item>
                   <widget class="QCheckBox" name="checkAutoUpdateList">
                    <property name="text">
-                    <string>Automatically update watched episode count when an episode is recognized (Taiga v1: account/update/auto)</string>
+                    <string>Automatically update watched episode count when an episode is recognized</string>
                    </property>
                    <property name="checked">
                     <bool>true</bool>
@@ -434,7 +434,7 @@
                    <item>
                     <widget class="QSpinBox" name="spinAutoUpdateDelay">
                      <property name="toolTip">
-                      <string>Taiga v1: account/update/delay. The now-playing bar counts down this many seconds before committing the list update. Default is 120 s (v1 default).</string>
+                      <string>The now-playing bar counts down this many seconds before committing the list update.</string>
                      </property>
                      <property name="minimum">
                       <number>1</number>
@@ -465,7 +465,7 @@
                  <item>
                   <widget class="QCheckBox" name="checkAutoUpdateOutOfRange">
                    <property name="text">
-                    <string>Skip update if episode number exceeds the anime's total episode count (Taiga v1: account/update/outofrange)</string>
+                    <string>Skip update if episode number exceeds the anime's total episode count</string>
                    </property>
                    <property name="toolTip">
                     <string>When enabled, Taiga will not update your list if the detected episode number is beyond the known total (e.g., a bonus/OVA that doesn't fit the series count).</string>
@@ -481,7 +481,7 @@
               <item>
                <widget class="QCheckBox" name="checkLibraryLookupParent">
                 <property name="text">
-                 <string>Use parent folder name as title hint when the filename has no title (Taiga v1: lookup_parent_directories)</string>
+                 <string>Use parent folder name as title hint when the filename has no title</string>
                 </property>
                 <property name="checked">
                  <bool>true</bool>
@@ -491,7 +491,7 @@
               <item>
                <widget class="QLabel" name="labelRecognitionIgnored">
                 <property name="text">
-                 <string>Strip substrings before parsing filenames (Taiga v1: anitomy ignored_strings; separate with newlines, commas, or semicolons):</string>
+                 <string>Strip substrings before parsing filenames (separate with newlines, commas, or semicolons):</string>
                 </property>
                 <property name="wordWrap">
                  <bool>true</bool>
@@ -519,7 +519,7 @@
                    <string>Media player executable:</string>
                   </property>
                   <property name="toolTip">
-                   <string>Taiga v1: recognition/mediaplayers/launchpath. If set, Play / open episode uses this program with the file path; otherwise the OS default handler is used.</string>
+                  <string>If set, Play / open episode uses this program with the file path; otherwise the OS default handler is used.</string>
                   </property>
                  </widget>
                 </item>
@@ -585,7 +585,7 @@
               <item row="3" column="0" colspan="2">
                <widget class="QCheckBox" name="checkNetworkRelaxedTls">
                 <property name="text">
-                 <string>Relax TLS certificate verification (Taiga v1: sslnorevoke)</string>
+                 <string>Relax TLS certificate verification</string>
                 </property>
                </widget>
               </item>
@@ -692,7 +692,7 @@
            <item>
             <widget class="QCheckBox" name="checkLibraryWatchFolders">
              <property name="text">
-              <string>Watch library folders and rescan automatically when files change (Taiga v1: anime/folders/watch; debounced)</string>
+              <string>Watch library folders and rescan automatically when files change</string>
              </property>
              <property name="checked">
               <bool>true</bool>
@@ -745,7 +745,7 @@
              <item>
               <widget class="QLabel" name="labelLibraryMinFileSize">
                <property name="text">
-                <string>Ignore videos smaller than (saves time on huge folders; Taiga v1: anime/folders/scan minfilesize):</string>
+                <string>Ignore videos smaller than (saves time on huge folders):</string>
                </property>
               </widget>
              </item>
@@ -761,7 +761,7 @@
                 <string> MiB</string>
                </property>
                <property name="toolTip">
-                <string>0 = no minimum (all video sizes). Matches Taiga v1 minfilesize in bytes after import.</string>
+                <string>0 = no minimum (all video sizes).</string>
                </property>
               </widget>
              </item>
@@ -789,7 +789,7 @@
               <item>
                <widget class="QLabel" name="labelTorrentSearchHelp">
                 <property name="text">
-                 <string>Search URL: Taiga fetches this RSS inside the app (Taiga v1: rss/torrent/search/address). Use %title% for the query. “Open in web browser” still uses this URL with the Nyaa HTML tweak when applicable.</string>
+                 <string>Search URL: Taiga fetches this RSS inside the app. Use %title% for the query. “Open in web browser” still uses this URL with the Nyaa HTML tweak when applicable.</string>
                 </property>
                 <property name="wordWrap">
                  <bool>true</bool>
@@ -806,7 +806,7 @@
               <item>
                <widget class="QLabel" name="labelTorrentFeedHelp">
                 <property name="text">
-                 <string>Catalog feed: optional RSS for “Refresh catalog feed” on the Torrents page (Taiga v1: rss/torrent/source/address). Leave empty for Tokyo Tosho default.</string>
+                 <string>Catalog feed: optional RSS for “Refresh catalog feed” on the Torrents page. Leave empty for Tokyo Tosho default.</string>
                 </property>
                 <property name="wordWrap">
                  <bool>true</bool>
@@ -823,7 +823,7 @@
               <item>
                <widget class="QLabel" name="labelTorrentPathsHelp">
                 <property name="text">
-                 <string>Download folders (Taiga v1: rss/torrent/options downloadpath / filedownloadpath). Used when opening folders from the Torrents page and for future download features.</string>
+                 <string>Download folders. Used when opening folders from the Torrents page and for future download features.</string>
                 </property>
                 <property name="wordWrap">
                  <bool>true</bool>
@@ -888,7 +888,7 @@
                    <string>Automatically refresh catalog feed while Taiga is open</string>
                   </property>
                   <property name="toolTip">
-                   <string>Taiga v1: rss/torrent/options/autocheck and checkinterval. Runs in the background; Taiga compares to the last snapshot and can show a tray hint when new items appear.</string>
+                  <string>Runs in the background; Taiga compares to the last snapshot and can show a tray hint when new items appear.</string>
                   </property>
                  </widget>
                 </item>
@@ -935,14 +935,14 @@
                    <string>When new catalog items appear:</string>
                   </property>
                   <property name="toolTip">
-                   <string>Taiga v1: rss/torrent/options/newaction. “Download” matched the old automatic queue; this build shows a status message only until the download manager is ported.</string>
+                  <string>“Download” shows a status message only until the download queue is implemented.</string>
                   </property>
                  </widget>
                 </item>
                 <item>
                  <widget class="QComboBox" name="comboTorrentNewCatalogAction">
                   <property name="toolTip">
-                   <string>Taiga v1: rss/torrent/options/newaction</string>
+                  <string/>
                   </property>
                  </widget>
                 </item>
@@ -969,14 +969,14 @@
                    <string>Sort RSS results by:</string>
                   </property>
                   <property name="toolTip">
-                   <string>Taiga v1: rss/torrent/options/downloadsortby. v1 used this for the download list; here it controls the Torrents page table after each fetch.</string>
+                  <string>Controls the Torrents page table after each fetch.</string>
                   </property>
                  </widget>
                 </item>
                 <item>
                  <widget class="QComboBox" name="comboTorrentRssSortBy">
                   <property name="toolTip">
-                   <string>Taiga v1: downloadsortby (episode_number | release_date)</string>
+                  <string>downloadsortby (episode_number | release_date)</string>
                   </property>
                  </widget>
                 </item>
@@ -990,7 +990,7 @@
                 <item>
                  <widget class="QComboBox" name="comboTorrentRssSortOrder">
                   <property name="toolTip">
-                   <string>Taiga v1: downloadsortorder</string>
+                  <string>downloadsortorder</string>
                   </property>
                  </widget>
                 </item>
@@ -1012,13 +1012,13 @@
               <item>
                <widget class="QCheckBox" name="checkTorrentFeedFilterEnabled">
                 <property name="text">
-                 <string>Limit how many RSS items appear in the Torrents table (Taiga v1: filter enabled)</string>
+                 <string>Limit how many RSS items appear in the Torrents table</string>
                 </property>
                 <property name="checked">
                  <bool>true</bool>
                 </property>
                 <property name="toolTip">
-                 <string>Taiga v1: rss/torrent/filter/enabled. When off, the full feed is shown. When on, only the first N items (below) load — faster UI on huge feeds.</string>
+                 <string>When off, the full feed is shown. When on, only the first N items (below) load — faster UI on huge feeds.</string>
                 </property>
                </widget>
               </item>
@@ -1090,21 +1090,21 @@
                 <item>
                  <widget class="QPushButton" name="buttonTorrentPresetDiscardBadVideo">
                   <property name="text">
-                   <string>Discard bad video keywords (v1)</string>
+                   <string>Discard bad video keywords</string>
                   </property>
                  </widget>
                 </item>
                 <item>
                  <widget class="QPushButton" name="buttonTorrentPresetPrefer1080p">
                   <property name="text">
-                   <string>Prefer 1080p (v1)</string>
+                   <string>Prefer 1080p</string>
                   </property>
                  </widget>
                 </item>
                 <item>
                  <widget class="QPushButton" name="buttonTorrentPresetPreferV2">
                   <property name="text">
-                   <string>Prefer v2+ (v1)</string>
+                   <string>Prefer v2+</string>
                   </property>
                  </widget>
                 </item>
@@ -1180,7 +1180,7 @@
                    <string>Max items to show:</string>
                   </property>
                   <property name="toolTip">
-                   <string>Taiga v1: rss/torrent/filter/archive_maxcount</string>
+                   <string>rss/torrent/filter/archive_maxcount</string>
                   </property>
                  </widget>
                 </item>
@@ -1221,7 +1221,7 @@
                  <string>Prefer magnet links when both a magnet and a .torrent URL are present</string>
                 </property>
                 <property name="toolTip">
-                 <string>Taiga v1: rss/torrent/options/downloadusemagnet. When off, double-click / primary actions use the HTTP(S) .torrent URL first (if any).</string>
+                 <string>When off, double-click / primary actions use the HTTP(S) .torrent URL first (if any).</string>
                 </property>
                </widget>
               </item>
@@ -1231,13 +1231,13 @@
            <item>
             <widget class="QGroupBox" name="groupTorrentHandling">
              <property name="title">
-              <string>Torrent client &amp; download rules (Taiga v1)</string>
+              <string>Torrent client &amp; download rules</string>
              </property>
              <layout class="QVBoxLayout" name="verticalLayout_torrentHandling">
               <item>
                <widget class="QLabel" name="labelTorrentHandlingHelp">
                 <property name="text">
-                 <string>Folder rules are used when Taiga hands torrents to a client with a save path (full download manager parity is still in progress). “Custom executable” matches v1 rss/torrent/application.</string>
+                 <string>Folder rules are used when Taiga hands torrents to a client with a save path (full download manager parity is still in progress). “Custom executable” matches rss/torrent/application.</string>
                 </property>
                 <property name="wordWrap">
                  <bool>true</bool>
@@ -1250,7 +1250,7 @@
                  <string>Use anime library folder as download target when available</string>
                 </property>
                 <property name="toolTip">
-                 <string>Taiga v1: rss/torrent/options/autosetfolder</string>
+                 <string>rss/torrent/options/autosetfolder</string>
                 </property>
                </widget>
               </item>
@@ -1260,7 +1260,7 @@
                  <string>If no per-title folder, use “Client download folder” from above</string>
                 </property>
                 <property name="toolTip">
-                 <string>Taiga v1: rss/torrent/options/autousefolder</string>
+                 <string>rss/torrent/options/autousefolder</string>
                 </property>
                </widget>
               </item>
@@ -1270,7 +1270,7 @@
                  <string>Create a subfolder by anime title under that client download folder</string>
                 </property>
                 <property name="toolTip">
-                 <string>Taiga v1: rss/torrent/options/autocreatefolder</string>
+                 <string>rss/torrent/options/autocreatefolder</string>
                 </property>
                </widget>
               </item>
@@ -1280,7 +1280,7 @@
                  <string>Open torrents with an application (after download / when launching)</string>
                 </property>
                 <property name="toolTip">
-                 <string>Taiga v1: rss/torrent/application/open</string>
+                 <string>rss/torrent/application/open</string>
                 </property>
                </widget>
               </item>

@@ -22,8 +22,7 @@ class QListWidgetItem;
 
 namespace gui {
 
-/// In-app RSS torrent discovery (Taiga v1 parity: fetch search/catalog URLs, show items; open links on
-/// demand).
+/// In-app RSS torrent discovery (fetch search/catalog URLs, show items; open links on demand).
 class TorrentFeedWidget final : public QWidget {
   Q_OBJECT
   Q_DISABLE_COPY_MOVE(TorrentFeedWidget)
@@ -35,7 +34,7 @@ public:
   /// Set an alternative search title to retry automatically if the primary search returns 0 results.
   void setSearchFallback(const QString& fallback);
   void refreshCatalogFeed();
-  /// Background catalog RSS fetch (Taiga v1 timer); silent unless new items vs last session snapshot.
+  /// Background catalog RSS fetch; silent unless new items vs last session snapshot.
   void runCatalogAutocheckFetch();
   /// Re-apply **Settings → Library** RSS sort (after changing options or refilling the table).
   void resortRssTableFromSettings();

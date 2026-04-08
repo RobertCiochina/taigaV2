@@ -349,7 +349,7 @@ void parseProgramElement(QXmlStreamReader& xml, const taiga::Settings& settings)
           }
           xml.skipCurrentElement();
         } else if (xml.name() == u"sort") {
-          // Taiga v1 stores these as attributes on <program><list><sort/> (see settings DeserializeFromXml).
+          // Legacy build stores these as attributes on <program><list><sort/> (see settings DeserializeFromXml).
           const auto attrs = xml.attributes();
           const auto col = attrs.value(u"column");
           if (!col.isEmpty()) {
