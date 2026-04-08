@@ -58,6 +58,7 @@
 #include "gui/history/history_widget.hpp"
 #include "gui/library/library_widget.hpp"
 #include "gui/list/list_widget.hpp"
+#include "gui/list/watch_next_dialog.hpp"
 #include "gui/main/about_dialog.hpp"
 #include "gui/main/navigation_widget.hpp"
 #include "gui/media/media_dialog.hpp"
@@ -153,6 +154,17 @@ void MainWindow::init() {
   initTrayIcon();
   initToolbar();
   initNavigation();
+
+  // Keep sidebar counts and Home dashboard in sync after list edits (Media dialog, menus, etc.).
+  connect(&anime::db, &anime::Database::entryUpdated, this, [this](int) {
+    if (m_navigationWidget) m_navigationWidget->refresh();
+    refreshHomeDashboard();
+  });
+  connect(&anime::db, &anime::Database::itemUpdated, this, [this](int) {
+    if (m_navigationWidget) m_navigationWidget->refresh();
+    refreshHomeDashboard();
+  });
+
   if (const QByteArray splitter_state = taiga::session.mainWindowSplitterState();
       !splitter_state.isEmpty()) {
     ui_->splitter->restoreState(splitter_state);
@@ -324,6 +336,17 @@ void MainWindow::initNavigation() {
   connect(m_navigationWidget, &NavigationWidget::currentPageChanged, this, &MainWindow::setPage);
   connect(m_navigationWidget, &NavigationWidget::currentListStatusChanged, this,
           [this](anime::list::Status) { updateToolbarSearchPlaceholder(); });
+  connect(m_navigationWidget, &NavigationWidget::watchNextRequested, this, [this]() {
+    // Keep selection on the List page (avoids leaving the sidebar highlight on an action row).
+    navigateTo(MainWindowPage::List);
+    applyMainPage(MainWindowPage::List);
+
+    WatchNextDialog dlg(this);
+    dlg.runModalRandomPlanningSession();
+    dlg.exec();
+    if (!dlg.didChangeList()) return;
+    applyWatchNextListSideEffects();
+  });
 
   navigateTo(MainWindowPage::Home);
 
@@ -2069,6 +2092,47 @@ void MainWindow::showLibraryFoldersDialog() {
   refreshLibraryRootsFromSettings();
   statusBar()->showMessage(tr("Library folders updated."), 4000);
 }
+
+void MainWindow::applyWatchNextListSideEffects() {
+  if (sync::currentServiceId() != sync::ServiceId::Unknown &&
+      taiga::settings.listSynchronizationEnabled()) {
+    QPointer<MainWindow> guard(this);
+    statusBar()->showMessage(tr("Synchronizing with %1…")
+                                 .arg(sync::serviceName(sync::currentServiceId())));
+    ui_->actionSynchronize->setEnabled(false);
+    sync::fetchListEntries([guard](const bool ok, const QString& message) {
+      if (!guard) return;
+      QMetaObject::invokeMethod(guard.data(), "handleListSyncFinished", Qt::QueuedConnection,
+                                Q_ARG(bool, ok), Q_ARG(QString, message));
+      if (ok && guard) {
+        QTimer::singleShot(0, guard.data(), [guard]() {
+          if (guard) guard->runAutoDownload(true);
+        });
+      }
+    });
+  } else {
+    runAutoDownload(true);
+  }
+}
+
+void MainWindow::ensureWatchOrderGuideWindow() {
+  if (m_watchOrderGuide) return;
+  m_watchOrderGuide = new WatchNextDialog(this);
+  m_watchOrderGuide->setAttribute(Qt::WA_DeleteOnClose, false);
+  connect(m_watchOrderGuide, &WatchNextDialog::listChangeCommitted, this,
+          &MainWindow::onWatchOrderGuideListCommitted);
+}
+
+void MainWindow::openWatchOrderGuideForAnime(const int anime_id) {
+  if (anime_id <= 0) return;
+  ensureWatchOrderGuideWindow();
+  m_watchOrderGuide->presentModelessGuideForAnime(anime_id);
+  m_watchOrderGuide->show();
+  m_watchOrderGuide->raise();
+  m_watchOrderGuide->activateWindow();
+}
+
+void MainWindow::onWatchOrderGuideListCommitted() { applyWatchNextListSideEffects(); }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
   if (watched == m_toolbarCountdownLabel && event->type() == QEvent::MouseButtonPress) {

@@ -45,6 +45,7 @@ public slots:
 signals:
   void currentPageChanged(MainWindowPage page);
   void currentListStatusChanged(anime::list::Status status);
+  void watchNextRequested();
 
 protected:
   void mouseMoveEvent(QMouseEvent* event) override;

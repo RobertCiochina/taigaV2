@@ -42,6 +42,8 @@ class Episode;
 
 namespace gui {
 
+class WatchNextDialog;
+
 class HistoryWidget;
 class LibraryWidget;
 class ListWidget;
@@ -107,6 +109,10 @@ public slots:
   void refreshListColors();
   void updateAutoDownloadCountdownLabel();
   void openDataFolder();
+  /// Non-modal franchise / watch-order graph for one anime (from list context menu).
+  void openWatchOrderGuideForAnime(int anime_id);
+  /// Sync + auto-download after the embedded list-page watch-order panel or modeless guide edits the list.
+  void applyWatchNextListSideEffects();
 
 private slots:
   void about();
@@ -117,6 +123,7 @@ private slots:
   void statistics();
   void onTorrentCatalogAutocheckTimer();
   void onAutoDownloadTimer();
+  void onWatchOrderGuideListCommitted();
 
 protected:
   bool eventFilter(QObject* watched, QEvent* event) override;
@@ -156,6 +163,7 @@ private:
   void restoreViewChromeFromSession();
   void updateTrayTooltip();
   void maybeNotifyMediaDetectionBalloon(const std::optional<track::Episode>& episode);
+  void ensureWatchOrderGuideWindow();
 
   Ui::MainWindow* ui_ = nullptr;
 
@@ -191,6 +199,8 @@ private:
   int m_navHistoryPos = -1;
   bool m_navHistorySuppress = false;
   QString m_last_media_balloon_sig_;
+
+  WatchNextDialog* m_watchOrderGuide = nullptr;
 };
 
 MainWindow* mainWindow();

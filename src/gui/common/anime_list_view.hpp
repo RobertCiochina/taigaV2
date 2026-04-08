@@ -20,11 +20,19 @@
 
 #include <QTreeView>
 
+class QHeaderView;
+
 namespace gui {
 
 class AnimeListModel;
 class AnimeListProxyModel;
 class ListViewBase;
+
+/// Places the **Guide** column immediately after **Title** (default enum order puts it last).
+void positionAnimeListGuideColumnAfterTitle(QHeaderView* header);
+
+/// **Title** stretches to use extra width; **Guide** stays fixed. Call after `restoreState`.
+void applyAnimeListHorizontalStretch(QHeaderView* header);
 
 class ListView final : public QTreeView {
   Q_OBJECT

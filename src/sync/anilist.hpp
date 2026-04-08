@@ -20,6 +20,8 @@
 
 #include <functional>
 
+#include <QQueue>
+#include <QSet>
 #include <QString>
 
 #include "media/anime_list.hpp"
@@ -31,6 +33,8 @@ namespace sync::anilist {
 using ListFetchComplete = std::function<void(bool ok, QString message)>;
 
 class Service final : public sync::Service {
+  Q_OBJECT
+
 public:
   Service();
 
@@ -47,14 +51,30 @@ public:
   /// Removes by anime id; deletes locally when offline, local-only entry, or non-AniList service.
   void deleteListEntry(int anime_id);
 
+signals:
+  /// Emitted when `fetchAnime` accepts a new id into the serial queue (deduped).
+  void mediaFetchQueued(int id);
+  /// Emitted immediately before the `Media` HTTP request for `id` is sent.
+  void mediaFetchStarted(int id);
+  /// Emitted when a `Media` request for `id` completes (success after parse, or terminal failure).
+  /// Omitted when the client will retry the same id immediately (e.g. HTTP 429 backoff).
+  void mediaFetchFinished(int id, bool success);
+
 private:
   void fetchSeasonMediaSearchPage(anime::SeasonName season, int year, int page, int items_so_far,
                                   ListFetchComplete on_complete);
+
+  /// One in-flight `Media` query at a time — avoids AniList rate limits when many related ids load at once.
+  void startNextFetchAnime();
 
   QString gql(const QString& name) const;
 
   bool isError(const QRestReply& reply) const;
   void handleError(const QRestReply& reply, const QString& message = {}) const;
+
+  QQueue<int> fetch_anime_queue_;
+  QSet<int> fetch_anime_pending_;
+  bool fetch_anime_busy_ = false;
 };
 
 }  // namespace sync::anilist

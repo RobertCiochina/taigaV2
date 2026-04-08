@@ -27,6 +27,7 @@
 #include "base/string.hpp"
 #include "gui/models/anime_list_model.hpp"
 #include "media/anime.hpp"
+#include "media/anime_db.hpp"
 #include "media/anime_list.hpp"
 #include "media/anime_list_utils.hpp"
 #include "media/anime_season.hpp"
@@ -54,6 +55,10 @@ AnimeListProxyModel::AnimeListProxyModel(QObject* parent) : QSortFilterProxyMode
 
   setSortCaseSensitivity(Qt::CaseInsensitive);
   setSortRole(Qt::UserRole);
+
+  // List entry / anime metadata edits can change filter (e.g. status) and sort order.
+  connect(&anime::db, &anime::Database::entryUpdated, this, [this](int) { invalidate(); });
+  connect(&anime::db, &anime::Database::itemUpdated, this, [this](int) { invalidate(); });
 }
 
 std::optional<int> AnimeListProxyModel::secondarySortColumn() const {
@@ -266,6 +271,9 @@ bool AnimeListProxyModel::lessThan(const QModelIndex& lhs, const QModelIndex& rh
         if (l != r) return l < r ? -1 : 1;
         return 0;
       }
+
+      case AnimeListModel::COLUMN_WATCH_ORDER_GUIDE:
+        return 0;
     }
     return 0;
   };
@@ -364,6 +372,8 @@ bool AnimeListProxyModel::lessThan(const QModelIndex& lhs, const QModelIndex& rh
             if (l != r) return l < r ? -1 : 1;
             return 0;
           }
+          case AnimeListModel::COLUMN_WATCH_ORDER_GUIDE:
+            return 0;
         }
         return 0;
       };

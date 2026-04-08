@@ -28,13 +28,17 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
+#include <QAction>
+#include <QSignalBlocker>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QListView>
 #include <QMenu>
 #include <QFrame>
+#include <QSplitter>
 #include <QToolBar>
 #include <QToolButton>
+#include <QVBoxLayout>
 #include <format>
 
 #include "base/string.hpp"
@@ -50,6 +54,7 @@
 #include "media/anime_db.hpp"
 #include "media/anime_list.hpp"
 #include "media/anime_list_export.hpp"
+#include "gui/list/watch_next_dialog.hpp"
 #include "taiga/session.hpp"
 #include "taiga/user_feedback.hpp"
 
@@ -121,38 +126,82 @@ ListViewMode ListWidget::viewMode() const {
 }
 
 void ListWidget::setViewMode(ListViewMode mode) {
-  if (m_listView) {
-    layout()->removeWidget(m_listView);
-    m_listView->deleteLater();
-    m_listView = nullptr;
-  };
-  if (m_listViewCards) {
-    layout()->removeWidget(m_listViewCards);
-    m_listViewCards->deleteLater();
-    m_listViewCards = nullptr;
-  };
+  QWidget* oldCenter = m_listSplitter ? m_listSplitter->widget(0) : nullptr;
+
+  if (!m_listSplitter) {
+    if (m_listView) {
+      layout()->removeWidget(m_listView);
+      m_listView->deleteLater();
+      m_listView = nullptr;
+    }
+    if (m_listViewCards) {
+      layout()->removeWidget(m_listViewCards);
+      m_listViewCards->deleteLater();
+      m_listViewCards = nullptr;
+    }
+  }
 
   m_viewMode = mode;
 
+  QWidget* center = nullptr;
   switch (mode) {
-    case ListViewMode::List:
-      m_listView = new ListView(this, m_model, m_proxyModel);
+    case ListViewMode::List: {
+      auto* v = new ListView(this, m_model, m_proxyModel);
       if (const QByteArray header_state = taiga::session.animeListHeaderState();
           !header_state.isEmpty()) {
-        m_listView->header()->restoreState(header_state);
+        v->header()->restoreState(header_state);
       } else {
-        applyPendingV1ListColumnLayout(m_listView);
+        applyPendingV1ListColumnLayout(v);
       }
-      layout()->addWidget(m_listView);
-      m_listView->show();
+      positionAnimeListGuideColumnAfterTitle(v->header());
+      applyAnimeListHorizontalStretch(v->header());
+      m_listView = v;
+      m_listViewCards = nullptr;
+      center = v;
       break;
-
-    case ListViewMode::Cards:
-      m_listViewCards = new ListViewCards(this, m_model, m_proxyModel);
-      layout()->addWidget(m_listViewCards);
-      m_listViewCards->show();
+    }
+    case ListViewMode::Cards: {
+      auto* c = new ListViewCards(this, m_model, m_proxyModel);
+      m_listViewCards = c;
+      m_listView = nullptr;
+      center = c;
       break;
+    }
   }
+
+  if (!m_listSplitter) {
+    m_listSplitter = new QSplitter(Qt::Vertical, this);
+    m_watchOrderPanel = new QWidget(m_listSplitter);
+    auto* pl = new QVBoxLayout(m_watchOrderPanel);
+    pl->setContentsMargins(0, 0, 0, 0);
+    pl->setSpacing(0);
+    m_embeddedWatchNext = new WatchNextDialog(m_watchOrderPanel);
+    pl->addWidget(m_embeddedWatchNext);
+    connect(m_embeddedWatchNext, &WatchNextDialog::listChangeCommitted, mainWindow(),
+            &MainWindow::applyWatchNextListSideEffects);
+
+    m_listSplitter->addWidget(center);
+    m_listSplitter->addWidget(m_watchOrderPanel);
+    m_listSplitter->setStretchFactor(0, 1);
+    m_listSplitter->setStretchFactor(1, 1);
+    if (const QByteArray st = taiga::session.animeListWatchOrderSplitterState(); !st.isEmpty()) {
+      m_listSplitter->restoreState(st);
+    } else {
+      m_listSplitter->setSizes({520, 280});
+    }
+
+    if (auto* vl = qobject_cast<QVBoxLayout*>(layout())) {
+      vl->addWidget(m_listSplitter, 1);
+    }
+    applyWatchOrderPanelSession();
+  } else {
+    m_listSplitter->replaceWidget(0, center);
+    if (oldCenter && oldCenter != center) {
+      oldCenter->deleteLater();
+    }
+  }
+
+  center->show();
 }
 
 void ListWidget::saveState() {
@@ -164,6 +213,44 @@ void ListWidget::saveState() {
   if (m_listView) {
     taiga::session.setAnimeListHeaderState(m_listView->header()->saveState());
   }
+  if (m_listSplitter) {
+    taiga::session.setAnimeListWatchOrderSplitterState(m_listSplitter->saveState());
+  }
+  if (m_showWatchOrderPanelAction) {
+    taiga::session.setAnimeListWatchOrderPanelVisible(m_showWatchOrderPanelAction->isChecked());
+  }
+}
+
+void ListWidget::applyWatchOrderPanelSession() {
+  if (!m_embeddedWatchNext || !m_watchOrderPanel || !m_listSplitter) return;
+  const bool show = taiga::session.animeListWatchOrderPanelVisible();
+  if (m_showWatchOrderPanelAction) {
+    const QSignalBlocker b(m_showWatchOrderPanelAction);
+    m_showWatchOrderPanelAction->setChecked(show);
+  }
+  m_watchOrderPanel->setVisible(show);
+  const int pinId = taiga::session.animeListPinnedWatchOrderAnimeId();
+  m_embeddedWatchNext->presentEmbeddedGuideForAnime(pinId);
+}
+
+void ListWidget::onWatchOrderPanelToggled(const bool visible) {
+  taiga::session.setAnimeListWatchOrderPanelVisible(visible);
+  if (m_watchOrderPanel) m_watchOrderPanel->setVisible(visible);
+}
+
+void ListWidget::pinSelectedForWatchOrderPanel() {
+  const auto id = selectedAnimeId();
+  if (!id) return;
+  taiga::session.setAnimeListPinnedWatchOrderAnimeId(*id);
+  taiga::session.setAnimeListWatchOrderPanelVisible(true);
+  if (m_embeddedWatchNext) {
+    m_embeddedWatchNext->presentEmbeddedGuideForAnime(*id);
+  }
+  if (m_showWatchOrderPanelAction) {
+    const QSignalBlocker b(m_showWatchOrderPanelAction);
+    m_showWatchOrderPanelAction->setChecked(true);
+  }
+  if (m_watchOrderPanel) m_watchOrderPanel->setVisible(true);
 }
 
 void ListWidget::initColorLegend() {
@@ -212,9 +299,28 @@ void ListWidget::initToolbar() {
   const auto actionView = new QAction(theme.getIcon("grid_view"), tr("View"), this);
   const auto actionMore = new QAction(theme.getIcon("more_horiz"), tr("More"), this);
 
+  m_showWatchOrderPanelAction =
+      new QAction(theme.getIcon("list_alt"), tr("Watch order panel below list"), this);
+  m_showWatchOrderPanelAction->setCheckable(true);
+  m_showWatchOrderPanelAction->setChecked(taiga::session.animeListWatchOrderPanelVisible());
+  m_showWatchOrderPanelAction->setToolTip(
+      tr("Show or hide the pinned franchise / watch-order graph under the anime list."));
+  connect(m_showWatchOrderPanelAction, &QAction::toggled, this,
+          &ListWidget::onWatchOrderPanelToggled);
+
+  m_pinWatchOrderAction = new QAction(theme.getIcon("shuffle"), tr("Pin watch order graph"), this);
+  m_pinWatchOrderAction->setToolTip(
+      tr("Use the selected list row as the pinned title for the watch-order panel."));
+
+  connect(m_pinWatchOrderAction, &QAction::triggered, this,
+          &ListWidget::pinSelectedForWatchOrderPanel);
+
   m_toolbar->addAction(actionSort);
   m_toolbar->addAction(actionView);
   m_toolbar->addAction(actionMore);
+  m_toolbar->addSeparator();
+  m_toolbar->addAction(m_showWatchOrderPanelAction);
+  m_toolbar->addAction(m_pinWatchOrderAction);
 
   const auto sortButton = static_cast<QToolButton*>(m_toolbar->widgetForAction(actionSort));
   sortButton->setPopupMode(QToolButton::InstantPopup);
@@ -246,6 +352,7 @@ void ListWidget::initSortMenu() {
       {AnimeListModel::COLUMN_COMPLETED, DescendingOrder},
       {AnimeListModel::COLUMN_LAST_UPDATED, DescendingOrder},
       {AnimeListModel::COLUMN_NOTES, AscendingOrder},
+      {AnimeListModel::COLUMN_WATCH_ORDER_GUIDE, AscendingOrder},
   };
 
   const auto actionGroup = new QActionGroup(this);
@@ -317,10 +424,6 @@ void ListWidget::initViewMenu() {
 
 void ListWidget::initMoreMenu() {
   m_moreMenu->clear();
-
-  m_moreMenu->addAction(tr("Synchronize list from service…"), mainWindow(),
-                        &MainWindow::startListSynchronization);
-  m_moreMenu->addSeparator();
 
   constexpr auto export_as = [](QWidget* parent, const QString& extension, auto export_function) {
     const auto directory = QFileDialog::getExistingDirectory(

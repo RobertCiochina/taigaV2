@@ -20,6 +20,8 @@
 
 #include <QComboBox>
 #include <QPainter>
+#include <QStyle>
+#include <QStyleOptionButton>
 #include <limits>
 
 #include "gui/models/anime_list_model.hpp"
@@ -69,6 +71,37 @@ void ListItemDelegate::updateEditorGeometry(QWidget* editor, const QStyleOptionV
 
 void ListItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem& option,
                              const QModelIndex& index) const {
+  if (index.column() == AnimeListModel::COLUMN_WATCH_ORDER_GUIDE) {
+    const PainterStateSaver painterStateSaver(painter);
+    if (index.column() > 0) {
+      painter->setPen(theme.isDark() ? QColor{255, 255, 255, 8} : QColor{0, 0, 0, 8});
+      painter->drawLine(option.rect.topLeft(), option.rect.bottomLeft());
+    }
+    QStyleOptionViewItem opt = option;
+    initStyleOption(&opt, index);
+    opt.text.clear();
+    QWidget* w = const_cast<QWidget*>(opt.widget);
+    QStyle* st = w ? w->style() : nullptr;
+    if (!st) {
+      QStyledItemDelegate::paint(painter, option, index);
+      return;
+    }
+    const QRect inner = option.rect.adjusted(3, 2, -3, -2);
+    QStyleOptionButton btn;
+    btn.initFrom(w);
+    btn.rect = inner;
+    btn.state = QStyle::State_Enabled | QStyle::State_Raised;
+    if (opt.state & QStyle::State_MouseOver) btn.state |= QStyle::State_MouseOver;
+    if (opt.state & QStyle::State_Sunken) btn.state |= QStyle::State_Sunken;
+    st->drawPrimitive(QStyle::PE_PanelButtonCommand, &btn, painter, w);
+    const QIcon icon = theme.getIcon("shuffle");
+    const QSize iconSize(18, 18);
+    const QRect iconRect(
+        QPoint(inner.center() - QPoint(iconSize.width() / 2, iconSize.height() / 2)), iconSize);
+    icon.paint(painter, iconRect, Qt::AlignCenter);
+    return;
+  }
+
   // Grid lines
   if (index.column() > 0) {
     const PainterStateSaver painterStateSaver(painter);
@@ -97,6 +130,9 @@ void ListItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
 QSize ListItemDelegate::sizeHint(const QStyleOptionViewItem& option,
                                  const QModelIndex& index) const {
   if (index.isValid()) {
+    if (index.column() == AnimeListModel::COLUMN_WATCH_ORDER_GUIDE) {
+      return QSize(42, 24);
+    }
     return QSize(0, 24);
   }
 

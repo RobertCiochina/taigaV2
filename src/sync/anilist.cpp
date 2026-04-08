@@ -22,6 +22,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRestReply>
+#include <QTimer>
 #include <ranges>
 
 #include "base/file.hpp"
@@ -143,26 +144,100 @@ void Service::authenticateUser(ListFetchComplete on_complete) {
 }
 
 void Service::fetchAnime(const int id) {
+  if (id <= 0) return;
+  if (fetch_anime_pending_.contains(id)) return;
+  fetch_anime_pending_.insert(id);
+  fetch_anime_queue_.enqueue(id);
+  emit mediaFetchQueued(id);
+  startNextFetchAnime();
+}
+
+void Service::startNextFetchAnime() {
+  if (fetch_anime_busy_) return;
+  if (fetch_anime_queue_.isEmpty()) return;
+
+  const int id = fetch_anime_queue_.dequeue();
+  fetch_anime_busy_ = true;
+
+  emit mediaFetchStarted(id);
+
   const QJsonDocument data{{
       {"query", gql("Media")},
       {"variables", QJsonObject{{"id", id}}},
   }};
 
-  const auto callback = [this](QRestReply& reply) {
+  const auto callback = [this, id](QRestReply& reply) {
+    const auto finish = [this, id](const bool retry_after_delay, const bool emit_fin, const bool success) {
+      fetch_anime_busy_ = false;
+      fetch_anime_pending_.remove(id);
+      if (emit_fin) emit mediaFetchFinished(id, success);
+      if (retry_after_delay) {
+        QTimer::singleShot(2500, this, [this, id]() { fetchAnime(id); });
+      }
+      startNextFetchAnime();
+    };
+
     if (isError(reply)) {
       handleError(reply);
+      if (reply.httpStatus() == 429) {
+        finish(/*retry_after_delay=*/true, /*emit_fin=*/false, false);
+      } else {
+        finish(false, true, false);
+      }
       return;
     }
 
-    const auto item = reply.readJson().and_then(
-        [](const QJsonDocument& json) { return parseMedia(json["data"]["Media"]); });
+    const auto doc = reply.readJson();
+    if (!doc.has_value()) {
+      handleError(reply, "Empty response.");
+      finish(false, true, false);
+      return;
+    }
+
+    const QJsonObject root = doc->object();
+    if (const QString gql_msg = firstGraphQlErrorMessage(root); !gql_msg.isEmpty()) {
+      handleError(reply, gql_msg);
+      const bool rate = gql_msg.contains(QStringLiteral("Too many"), Qt::CaseInsensitive) ||
+                        gql_msg.contains(QStringLiteral("rate"), Qt::CaseInsensitive) ||
+                        gql_msg.contains(QStringLiteral("limit"), Qt::CaseInsensitive);
+      if (rate) {
+        finish(true, false, false);
+      } else {
+        finish(false, true, false);
+      }
+      return;
+    }
+
+    const QJsonValue media = root["data"].toObject()["Media"];
+    const auto item = parseMedia(media);
 
     if (!item) {
       handleError(reply, "Could not parse media object.");
+      finish(false, true, false);
       return;
     }
 
     anime::db.updateItem(*item);
+
+    // Also store related media nodes so the relations UI has titles/images immediately.
+    // Nested `node` objects do not include `relations` in our query, so parseMedia leaves
+    // `relations` empty — never overwrite a full fetch that already populated edges.
+    const QJsonArray rel_edges = media["relations"]["edges"].toArray();
+    for (const QJsonValue& v : rel_edges) {
+      if (!v.isObject()) continue;
+      const QJsonObject edge = v.toObject();
+      if (const auto rel_item = parseMedia(edge["node"]); rel_item) {
+        Anime merged = *rel_item;
+        if (merged.relations.empty()) {
+          if (const Anime* existing = anime::db.item(merged.id); existing && !existing->relations.empty()) {
+            merged.relations = existing->relations;
+          }
+        }
+        anime::db.updateItem(merged);
+      }
+    }
+
+    finish(false, true, true);
   };
 
   manager_.post(api_.createRequest(), data, this, callback);

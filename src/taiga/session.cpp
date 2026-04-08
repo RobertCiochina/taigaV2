@@ -65,6 +65,18 @@ QByteArray Session::animeListHeaderState() const {
   return QByteArray::fromBase64(value("animeList.headerState", QByteArray{}).toByteArray());
 }
 
+int Session::animeListPinnedWatchOrderAnimeId() const {
+  return value("animeList.pinnedWatchOrderAnimeId", 0).toInt();
+}
+
+bool Session::animeListWatchOrderPanelVisible() const {
+  return value("animeList.watchOrderPanelVisible", false).toBool();
+}
+
+QByteArray Session::animeListWatchOrderSplitterState() const {
+  return QByteArray::fromBase64(value("animeList.watchOrderSplitterState", QByteArray{}).toByteArray());
+}
+
 void Session::setPendingV1ListColumnLayout(const QString& json) const {
   setValue("animeList.pendingV1ColumnLayout", json);
 }
@@ -194,6 +206,18 @@ void Session::setAnimeListViewMode(const gui::ListViewMode mode) const {
 
 void Session::setAnimeListHeaderState(const QByteArray& state) const {
   setValue("animeList.headerState", state.toBase64().toStdString());
+}
+
+void Session::setAnimeListPinnedWatchOrderAnimeId(const int anime_id) const {
+  setValue("animeList.pinnedWatchOrderAnimeId", anime_id);
+}
+
+void Session::setAnimeListWatchOrderPanelVisible(const bool visible) const {
+  setValue("animeList.watchOrderPanelVisible", visible);
+}
+
+void Session::setAnimeListWatchOrderSplitterState(const QByteArray& state) const {
+  setValue("animeList.watchOrderSplitterState", state.toBase64().toStdString());
 }
 
 void Session::setMainWindowGeometry(const QByteArray& geometry) const {

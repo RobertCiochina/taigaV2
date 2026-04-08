@@ -86,6 +86,24 @@ struct Titles {
   std::vector<std::string> synonyms;
 };
 
+enum class RelationType {
+  Unknown,
+  Prequel,
+  Sequel,
+  Alternative,
+  SideStory,
+  Parent,
+  SpinOff,
+  Summary,
+  Character,
+  Other,
+};
+
+struct RelationEdge {
+  int related_id = kUnknownId;  // AniList media id
+  RelationType type = RelationType::Unknown;
+};
+
 struct Details {
   int id = kUnknownId;
   // std::map<sync::ServiceId, std::string> uids;
@@ -111,6 +129,7 @@ struct Details {
   std::vector<std::string> tags;
   int last_aired_episode = 0;
   std::time_t next_episode_time = 0;
+  std::vector<RelationEdge> relations;
 };
 
 /// Primary string for list display / sorting for the given language (fallback to romaji).

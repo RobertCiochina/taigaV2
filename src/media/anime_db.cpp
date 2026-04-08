@@ -21,6 +21,9 @@
 #include <QFile>
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSqlRecord>
 #include <QSqlResult>
 #include <format>
@@ -245,6 +248,21 @@ void Database::bindItemToQuery(const Anime& item, QSqlQuery& q) const {
   q.bindValue(":synopsis", QString::fromStdString(item.synopsis));
   q.bindValue(":last_aired_episode", item.last_aired_episode);
   q.bindValue(":next_episode_time", QString::number(item.next_episode_time));
+  // Persist relations as compact JSON array: [{"id":123,"t":2}, ...]
+  if (item.relations.empty()) {
+    q.bindValue(":relations_json", QString{});
+  } else {
+    QJsonArray arr;
+    for (const auto& e : item.relations) {
+      if (e.related_id <= 0) continue;
+      QJsonObject o;
+      o.insert(QStringLiteral("id"), e.related_id);
+      o.insert(QStringLiteral("t"), static_cast<int>(e.type));
+      arr.push_back(o);
+    }
+    q.bindValue(":relations_json",
+                QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact)));
+  }
   q.bindValue(":modified", QString::number(item.last_modified));
 }
 
@@ -268,7 +286,7 @@ Anime Database::itemFromQuery(const QSqlQuery& q) const {
   static const auto splitToVector = [](const QVariant& variant) {
     return toVector(variant.toString().split(", ", Qt::SkipEmptyParts));
   };
-  return {
+  Anime a{
       .id = q.value("id").toInt(),
       .last_modified = q.value("modified").toInt(),
       .episode_count = q.value("episode_count").toInt(),
@@ -296,6 +314,22 @@ Anime Database::itemFromQuery(const QSqlQuery& q) const {
       .last_aired_episode = q.value("last_aired_episode").toInt(),
       .next_episode_time = q.value("next_episode_time").toInt(),
   };
+  const QString rel = q.value("relations_json").toString().trimmed();
+  if (!rel.isEmpty()) {
+    const QJsonDocument doc = QJsonDocument::fromJson(rel.toUtf8());
+    if (doc.isArray()) {
+      for (const QJsonValue& v : doc.array()) {
+        if (!v.isObject()) continue;
+        const QJsonObject o = v.toObject();
+        const int id = o.value(QStringLiteral("id")).toInt();
+        const int t = o.value(QStringLiteral("t")).toInt(0);
+        if (id > 0) {
+          a.relations.push_back({.related_id = id, .type = static_cast<anime::RelationType>(t)});
+        }
+      }
+    }
+  }
+  return a;
 }
 
 ListEntry Database::entryFromQuery(const QSqlQuery& q) const {

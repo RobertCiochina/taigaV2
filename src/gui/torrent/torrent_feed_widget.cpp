@@ -1305,10 +1305,14 @@ void TorrentFeedWidget::downloadBestMatchWithFallbacks(const QString& english_ti
 static QMap<int, const rss::Item*> selectBestPerEpisode(const QList<const rss::Item*>& filtered) {
   QMap<int, const rss::Item*> best;
   QMap<int, int> seeds_for;
+  static const QRegularExpression kBatchLike(
+      QStringLiteral(R"((\bBatch\b|\bComplete\s+Collection\b|\bBD\s*Batch\b))"),
+      QRegularExpression::CaseInsensitiveOption);
   for (const rss::Item* it : filtered) {
     track::Episode ep = track::recognition::parse(it->title);
     const QString ep_str =
         QString::fromStdString(ep.element(anitomy::ElementKind::Episode));
+    const QString title_full = QString::fromStdString(it->title);
     int ep_no = 0;
     if (ep_str.contains(QChar('-'))) {
       ep_no = -1;  // range → batch
@@ -1317,6 +1321,9 @@ static QMap<int, const rss::Item*> selectBestPerEpisode(const QList<const rss::I
       ep_no = ep_str.toInt(&ok);
       if (!ok) ep_no = 0;
     }
+    // Nyaa season packs often omit an episode token; anitomy leaves Episode empty while the
+    // title still says "(Batch)" — treat those as a single multi-episode item (key -1).
+    if (ep_no == 0 && title_full.contains(kBatchLike)) ep_no = -1;
     const auto seed_it = it->namespace_elements.find("seeders");
     const int seeds = (seed_it != it->namespace_elements.end())
                           ? QString::fromStdString(seed_it->second).toInt()
@@ -1391,10 +1398,6 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
               const QList<const rss::Item*> filtered = filterRssItemsBySettings(feed);
               if (filtered.isEmpty()) { (*try_fn)(); return; }
 
-              // Cache the winning title.
-              if (anime_id > 0)
-                taiga::settings.setTorrentSearchTitleForAnime(anime_id, title);
-
               // Determine which episodes are missing.
               const auto* item_db = anime::db.item(anime_id);
               const auto* entry_db = anime::db.entry(anime_id);
@@ -1414,40 +1417,44 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
               // Build best-per-episode map from filtered feed.
               const QMap<int, const rss::Item*> best_ep = selectBestPerEpisode(filtered);
 
-              // ── Batch preference: all episodes aired (or completed series), ≥3 missing, batch exists ─
               const int effective_last = item_db ? (item_db->last_aired_episode > 0
                                                         ? item_db->last_aired_episode
                                                         : item_db->episode_count)
                                                  : 0;
+
+              // Cache only after we actually queue a download (below).
+
+              const auto enqueue_batch = [&](const rss::Item* batch) -> bool {
+                if (!batch) return false;
+                const QString batch_url = bestUrlForItem(batch);
+                if (batch_url.isEmpty()) return false;
+                if (anime_id > 0) taiga::settings.setTorrentSearchTitleForAnime(anime_id, title);
+                const QString save_path = resolvedTorrentDownloadDirForSavedTorrent(folder_name);
+                if (taiga::settings.torrentQBitApiEnabled()) {
+                  addTorrentViaQBitApi(
+                      batch_url, save_path,
+                      [on_done](bool ok, const QString& err) {
+                        if (!err.isEmpty())
+                          taiga::userFeedback(QStringLiteral("qBit: ") + err, true);
+                        if (on_done) on_done(ok ? 1 : 0);
+                      });
+                } else {
+                  if (const auto u = httpUrlFromUserString(batch_url)) {
+                    enqueueSaveTorrent(*u, folder_name);
+                    startNextQueuedSave();
+                  } else {
+                    openPrimaryTorrentUrl(batch_url);
+                  }
+                  if (on_done) on_done(1);
+                }
+                return true;
+              };
+
+              // ── Batch preference: cour/series complete in DB, several eps missing ─
               if (item_db && item_db->episode_count > 0 &&
                   effective_last >= item_db->episode_count &&
                   missing.size() >= 3) {
-                if (const auto* batch = best_ep.value(-1, nullptr)) {
-                  const QString batch_url = bestUrlForItem(batch);
-                  if (!batch_url.isEmpty()) {
-                    const QString save_path =
-                        resolvedTorrentDownloadDirForSavedTorrent(folder_name);
-                    if (taiga::settings.torrentQBitApiEnabled()) {
-                      addTorrentViaQBitApi(
-                          batch_url, save_path,
-                          [on_done](bool ok, const QString& err) {
-                            if (!err.isEmpty())
-                              taiga::userFeedback(
-                                  QStringLiteral("qBit: ") + err, true);
-                            if (on_done) on_done(ok ? 1 : 0);
-                          });
-                    } else {
-                      if (const auto u = httpUrlFromUserString(batch_url)) {
-                        enqueueSaveTorrent(*u, folder_name);
-                        startNextQueuedSave();
-                      } else {
-                        openPrimaryTorrentUrl(batch_url);
-                      }
-                      if (on_done) on_done(1);
-                    }
-                    return;
-                  }
-                }
+                if (enqueue_batch(best_ep.value(-1, nullptr))) return;
               }
 
               // ── Individual episode downloads ──────────────────────────────────
@@ -1459,7 +1466,15 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
                   if (!ep_url.isEmpty()) targets.append({ep, ep_url});
                 }
               }
-              if (targets.isEmpty()) { if (on_done) on_done(0); return; }
+              if (targets.isEmpty()) {
+                // Season packs often have no per-episode rows; try a batch before the next query
+                // variant (e.g. romaji) or giving up.
+                if (enqueue_batch(best_ep.value(-1, nullptr))) return;
+                (*try_fn)();
+                return;
+              }
+
+              if (anime_id > 0) taiga::settings.setTorrentSearchTitleForAnime(anime_id, title);
 
               if (taiga::settings.torrentQBitApiEnabled()) {
                 const QString save_path =

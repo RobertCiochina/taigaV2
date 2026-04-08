@@ -45,6 +45,12 @@ NavigationWidget::NavigationWidget(QWidget* parent) : QTreeWidget(parent) {
   connect(this, &QTreeWidget::currentItemChanged, this, [this](QTreeWidgetItem* current) {
     if (!current) return;
 
+    constexpr auto watchNextRole = static_cast<int>(NavigationItemDataRole::IsActionWatchNext);
+    if (current->data(0, watchNextRole).toBool()) {
+      emit watchNextRequested();
+      return;
+    }
+
     constexpr auto pageIndexRole = static_cast<int>(NavigationItemDataRole::PageIndex);
     const auto page = current->data(0, pageIndexRole).value<MainWindowPage>();
     emit currentPageChanged(page);
@@ -63,6 +69,10 @@ void NavigationWidget::refresh() {
 
   addItem(tr("Home"), "home", MainWindowPage::Home);
   addItem(tr("Search"), "search", MainWindowPage::Search);
+  {
+    auto item = addItem(tr("What to watch next"), "shuffle", MainWindowPage::List);
+    setItemData(item, NavigationItemDataRole::IsActionWatchNext, true);
+  }
   addSeparator();
 
   auto listItem = addItem(tr("Anime List"), "list_alt", MainWindowPage::List);
@@ -156,10 +166,15 @@ void NavigationWidget::setItemData(QTreeWidgetItem* item, NavigationItemDataRole
 }
 
 QTreeWidgetItem* NavigationWidget::findItemByPage(MainWindowPage page) const {
-  const auto find = [page](this auto const& find, QTreeWidgetItem* item) -> QTreeWidgetItem* {
-    const auto role = static_cast<int>(NavigationItemDataRole::PageIndex);
-    const int data = item->data(0, role).toInt();
-    if (data == static_cast<int>(page)) return item;
+  const auto pageRole = static_cast<int>(NavigationItemDataRole::PageIndex);
+  const auto actionRole = static_cast<int>(NavigationItemDataRole::IsActionWatchNext);
+
+  const auto find = [page, pageRole, actionRole](this auto const& find,
+                                                 QTreeWidgetItem* item) -> QTreeWidgetItem* {
+    const int data = item->data(0, pageRole).toInt();
+    if (data == static_cast<int>(page) && !item->data(0, actionRole).toBool()) {
+      return item;
+    }
     for (int i = 0; i < item->childCount(); ++i) {
       if (const auto child = find(item->child(i))) return child;
     }

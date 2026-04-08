@@ -40,6 +40,10 @@ public:
   gui::ListViewMode animeListViewMode() const;
   /// `QHeaderView::saveState` for the anime list table (widths, order, shown/hidden columns).
   QByteArray animeListHeaderState() const;
+  /// Pinned anime id for the embedded watch-order panel below the list (0 = none).
+  int animeListPinnedWatchOrderAnimeId() const;
+  bool animeListWatchOrderPanelVisible() const;
+  QByteArray animeListWatchOrderSplitterState() const;
   /// One-shot JSON array from v1 `settings.xml` list columns migration (consumed when list view opens).
   void setPendingV1ListColumnLayout(const QString& json) const;
   QString takePendingV1ListColumnLayout() const;
@@ -69,6 +73,9 @@ public:
   void setAnimeListSortOrderSecondary(const Qt::SortOrder order) const;
   void setAnimeListViewMode(const gui::ListViewMode mode) const;
   void setAnimeListHeaderState(const QByteArray& state) const;
+  void setAnimeListPinnedWatchOrderAnimeId(int anime_id) const;
+  void setAnimeListWatchOrderPanelVisible(bool visible) const;
+  void setAnimeListWatchOrderSplitterState(const QByteArray& state) const;
   void setMainWindowGeometry(const QByteArray& geometry) const;
   void setMainWindowSplitterState(const QByteArray& state) const;
   void setMainWindowStatusBarVisible(bool visible) const;

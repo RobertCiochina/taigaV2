@@ -34,6 +34,8 @@ target_sources(taiga-gui PRIVATE
 
 	list/list_widget.cpp
 	list/list_widget.hpp
+	list/watch_next_dialog.cpp
+	list/watch_next_dialog.hpp
 
 	main/about_dialog.cpp
 	main/about_dialog.hpp

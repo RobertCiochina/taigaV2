@@ -23,6 +23,9 @@
 #include <optional>
 
 #include "gui/common/anime_list_view_base.hpp"
+
+class QAction;
+class QSplitter;
 #include "gui/common/page_widget.hpp"
 #include "media/anime_list.hpp"
 
@@ -32,6 +35,7 @@ class AnimeListModel;
 class AnimeListProxyModel;
 class ListView;
 class ListViewCards;
+class WatchNextDialog;
 
 class ListWidget final : public PageWidget {
   Q_OBJECT
@@ -64,11 +68,19 @@ private:
   void initViewMenu();
   void initMoreMenu();
   void initColorLegend();
+  void applyWatchOrderPanelSession();
+  void onWatchOrderPanelToggled(bool visible);
+  void pinSelectedForWatchOrderPanel();
 
   AnimeListModel* m_model = nullptr;
   AnimeListProxyModel* m_proxyModel = nullptr;
   ListView* m_listView = nullptr;
   ListViewCards* m_listViewCards = nullptr;
+  QSplitter* m_listSplitter = nullptr;
+  QWidget* m_watchOrderPanel = nullptr;
+  WatchNextDialog* m_embeddedWatchNext = nullptr;
+  QAction* m_showWatchOrderPanelAction = nullptr;
+  QAction* m_pinWatchOrderAction = nullptr;
   ListViewMode m_viewMode = ListViewMode::List;
   QMenu* m_sortMenu = nullptr;
   QMenu* m_viewMenu = nullptr;

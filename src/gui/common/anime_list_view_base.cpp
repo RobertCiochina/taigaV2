@@ -68,7 +68,27 @@ ListViewBase::ListViewBase(QWidget* parent, QAbstractItemView* view, AnimeListMo
 }
 
 bool ListViewBase::eventFilter(QObject* watched, QEvent* event) {
-  if (watched == m_view->viewport() && event->type() == QEvent::MouseButtonPress) {
+  if (watched != m_view->viewport()) {
+    return QObject::eventFilter(watched, event);
+  }
+
+  if (event->type() == QEvent::MouseButtonRelease) {
+    const auto* me = static_cast<QMouseEvent*>(event);
+    if (me->button() == Qt::LeftButton) {
+      const QModelIndex proxyIndex = m_view->indexAt(me->pos());
+      if (proxyIndex.isValid() && proxyIndex.column() == AnimeListModel::COLUMN_WATCH_ORDER_GUIDE) {
+        const auto mapped = m_proxyModel->mapToSource(proxyIndex);
+        if (const auto* anime = m_model->getAnime(mapped)) {
+          if (auto* mw = mainWindow()) {
+            mw->openWatchOrderGuideForAnime(anime->id);
+          }
+          return true;
+        }
+      }
+    }
+  }
+
+  if (event->type() == QEvent::MouseButtonPress) {
     const auto* me = static_cast<QMouseEvent*>(event);
     if (me->button() == Qt::MiddleButton) {
       const QModelIndex index = m_view->indexAt(me->pos());

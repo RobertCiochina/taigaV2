@@ -279,6 +279,7 @@ void SearchWidget::initSortMenu() {
       {AnimeListModel::COLUMN_COMPLETED, DescendingOrder},
       {AnimeListModel::COLUMN_LAST_UPDATED, DescendingOrder},
       {AnimeListModel::COLUMN_NOTES, AscendingOrder},
+      {AnimeListModel::COLUMN_WATCH_ORDER_GUIDE, AscendingOrder},
   };
 
   const auto actionGroup = new QActionGroup(this);
@@ -350,10 +351,6 @@ void SearchWidget::initViewMenu() {
 
 void SearchWidget::initMoreMenu() {
   m_moreMenu->clear();
-
-  m_moreMenu->addAction(tr("Synchronize list from service…"), mainWindow(),
-                        &MainWindow::startListSynchronization);
-  m_moreMenu->addSeparator();
 
   constexpr auto export_as = [](QWidget* parent, const QString& extension, auto export_function) {
     const auto directory = QFileDialog::getExistingDirectory(

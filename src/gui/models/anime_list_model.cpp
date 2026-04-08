@@ -21,6 +21,7 @@
 #include <QApplication>
 #include <QColor>
 #include <QCoreApplication>
+#include <QList>
 #include <QDateTime>
 #include <QFont>
 #include <QPalette>
@@ -56,6 +57,19 @@ AnimeListModel::AnimeListModel(QObject* parent) : QAbstractListModel(parent) {
       emit dataChanged(index(row), index(row), {static_cast<int>(AnimeListItemDataRole::Poster)});
     }
   });
+
+  const auto emitRowOrReload = [this](int id) {
+    const int row = m_ids.indexOf(id);
+    if (row < 0) {
+      reloadFromDatabase();
+      return;
+    }
+    const QModelIndex topLeft = index(row, 0);
+    const QModelIndex bottomRight = index(row, columnCount() - 1);
+    emit dataChanged(topLeft, bottomRight, QList<int>{});
+  };
+  connect(&anime::db, &anime::Database::entryUpdated, this, emitRowOrReload);
+  connect(&anime::db, &anime::Database::itemUpdated, this, emitRowOrReload);
 }
 
 int AnimeListModel::rowCount(const QModelIndex&) const {
@@ -106,6 +120,8 @@ QVariant AnimeListModel::data(const QModelIndex& index, int role) const {
         case COLUMN_NOTES:
           if (entry) return QString::fromStdString(entry->notes);
           break;
+        case COLUMN_WATCH_ORDER_GUIDE:
+          return {};
       }
       break;
 
@@ -135,6 +151,8 @@ QVariant AnimeListModel::data(const QModelIndex& index, int role) const {
         case COLUMN_NOTES:
           if (entry) return QString::fromStdString(entry->notes);
           break;
+        case COLUMN_WATCH_ORDER_GUIDE:
+          return QCoreApplication::translate("AnimeListModel", "Open the watch order guide for this title");
       }
       break;
 
@@ -152,6 +170,8 @@ QVariant AnimeListModel::data(const QModelIndex& index, int role) const {
         case COLUMN_COMPLETED:
         case COLUMN_LAST_UPDATED:
           return QVariant(Qt::AlignRight | Qt::AlignVCenter);
+        case COLUMN_WATCH_ORDER_GUIDE:
+          return QVariant(Qt::AlignHCenter | Qt::AlignVCenter);
         default:
           return {};
       }
@@ -296,8 +316,16 @@ QVariant AnimeListModel::headerData(int section, Qt::Orientation orientation, in
         case COLUMN_COMPLETED: return tr("Completed");
         case COLUMN_LAST_UPDATED: return tr("Last updated");
         case COLUMN_NOTES: return tr("Notes");
+        case COLUMN_WATCH_ORDER_GUIDE: return tr("Guide");
       }
       // clang-format on
+      break;
+    }
+
+    case Qt::ToolTipRole: {
+      if (orientation == Qt::Horizontal && section == COLUMN_WATCH_ORDER_GUIDE) {
+        return tr("Open the watch order guide for this title");
+      }
       break;
     }
 
@@ -315,6 +343,8 @@ QVariant AnimeListModel::headerData(int section, Qt::Orientation orientation, in
         case COLUMN_COMPLETED:
         case COLUMN_LAST_UPDATED:
           return QVariant(Qt::AlignRight | Qt::AlignVCenter);
+        case COLUMN_WATCH_ORDER_GUIDE:
+          return QVariant(Qt::AlignHCenter | Qt::AlignVCenter);
       }
       break;
     }
@@ -331,6 +361,8 @@ QVariant AnimeListModel::headerData(int section, Qt::Orientation orientation, in
         case COLUMN_COMPLETED:
         case COLUMN_LAST_UPDATED:
           return Qt::DescendingOrder;
+        case COLUMN_WATCH_ORDER_GUIDE:
+          return Qt::AscendingOrder;
         default:
           return Qt::AscendingOrder;
       }
@@ -344,7 +376,9 @@ QVariant AnimeListModel::headerData(int section, Qt::Orientation orientation, in
 Qt::ItemFlags AnimeListModel::flags(const QModelIndex& index) const {
   if (!index.isValid()) return Qt::NoItemFlags;
 
-  return QAbstractListModel::flags(index) | Qt::ItemIsEditable;
+  const auto base = QAbstractListModel::flags(index);
+  if (index.column() == COLUMN_WATCH_ORDER_GUIDE) return base;
+  return base | Qt::ItemIsEditable;
 }
 
 const Anime* AnimeListModel::getAnime(const QModelIndex& index) const {

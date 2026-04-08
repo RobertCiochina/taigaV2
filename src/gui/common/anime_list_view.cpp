@@ -30,6 +30,26 @@
 
 namespace gui {
 
+void positionAnimeListGuideColumnAfterTitle(QHeaderView* header) {
+  if (!header) return;
+  const int guide = AnimeListModel::COLUMN_WATCH_ORDER_GUIDE;
+  const int title = AnimeListModel::COLUMN_TITLE;
+  const int from = header->visualIndex(guide);
+  const int titleVis = header->visualIndex(title);
+  if (from < 0 || titleVis < 0) return;
+  const int target = titleVis + 1;
+  if (from != target) {
+    header->moveSection(from, target);
+  }
+}
+
+void applyAnimeListHorizontalStretch(QHeaderView* header) {
+  if (!header) return;
+  header->setStretchLastSection(false);
+  header->setSectionResizeMode(AnimeListModel::COLUMN_TITLE, QHeaderView::Stretch);
+  header->setSectionResizeMode(AnimeListModel::COLUMN_WATCH_ORDER_GUIDE, QHeaderView::Fixed);
+}
+
 ListView::ListView(QWidget* parent, AnimeListModel* model, AnimeListProxyModel* proxyModel)
     : m_base(new ListViewBase(parent, this, model, proxyModel)) {
   setObjectName("animeList");
@@ -47,6 +67,8 @@ ListView::ListView(QWidget* parent, AnimeListModel* model, AnimeListProxyModel* 
   // is required for variable row heights; the modest perf cost is acceptable.
   setUniformRowHeights(false);
   setWordWrap(true);
+  setMouseTracking(true);
+  viewport()->setAttribute(Qt::WA_Hover, true);
 
   header()->setFirstSectionMovable(true);
   header()->setStretchLastSection(false);
@@ -64,6 +86,10 @@ ListView::ListView(QWidget* parent, AnimeListModel* model, AnimeListProxyModel* 
   header()->resizeSection(AnimeListModel::COLUMN_AVERAGE, 75);
   header()->resizeSection(AnimeListModel::COLUMN_TYPE, 75);
   header()->resizeSection(AnimeListModel::COLUMN_LAST_UPDATED, 110);
+  header()->setSectionResizeMode(AnimeListModel::COLUMN_WATCH_ORDER_GUIDE, QHeaderView::Fixed);
+  header()->resizeSection(AnimeListModel::COLUMN_WATCH_ORDER_GUIDE, 42);
+  positionAnimeListGuideColumnAfterTitle(header());
+  applyAnimeListHorizontalStretch(header());
 
   // `sortByColumn` needs to be called before `setSortingEnabled`.
   // Otherwise the sort column is set to `0`.

@@ -27,7 +27,6 @@
 #include <QInputDialog>
 #include <QItemSelectionModel>
 #include <QMessageBox>
-#include <QRandomGenerator>
 #include <QUrl>
 #include <QUrlQuery>
 #include <chrono>
@@ -47,9 +46,7 @@
 #include "sync/service.hpp"
 #include "taiga/accounts.hpp"
 #include "taiga/settings.hpp"
-#include "taiga/torrent_discovery.hpp"
 #include "track/media.hpp"
-#include "track/play.hpp"
 #include "track/scanner.hpp"
 
 namespace {
@@ -161,6 +158,23 @@ void MediaMenu::incrementEpisode() const {
   commitListEntry(this, e);
 }
 
+void MediaMenu::decrementEpisode() const {
+  if (m_items.empty()) return;
+  const auto& item = m_items.front();
+  const auto* entry = getEntry(item.id);
+  if (!entry) return;
+  if (entry->watched_episodes <= 0) return;
+
+  ListEntry e = *entry;
+  e.watched_episodes -= 1;
+  e.last_updated = static_cast<std::time_t>(QDateTime::currentSecsSinceEpoch());
+  if (e.status == anime::list::Status::Completed && item.episode_count > 0 &&
+      e.watched_episodes < item.episode_count) {
+    e.status = anime::list::Status::Watching;
+  }
+  commitListEntry(this, e);
+}
+
 void MediaMenu::editNotes() const {
   QString initial;
   if (m_items.size() == 1) {
@@ -217,17 +231,6 @@ void MediaMenu::openFolder() const {
                            tr("Could not find folder for %1.").arg(item.titles.romaji));
 }
 
-void MediaMenu::playEpisode(int number) const {
-  const auto& item = m_items.front();
-
-  if (track::playEpisode(item.id, number)) {
-    return;
-  }
-
-  QMessageBox::information(nullptr, tr("Play Episode"),
-                           tr("Could not find %1 #%2.").arg(item.titles.romaji).arg(number));
-}
-
 void MediaMenu::removeFromList() const {
   QMessageBox msgBox;
   msgBox.setIcon(QMessageBox::Icon::Question);
@@ -250,12 +253,6 @@ void MediaMenu::removeFromList() const {
       sync::deleteListEntry(item.id);
     }
   }
-}
-
-void MediaMenu::search() const {
-  const auto& item = m_items.front();
-  mainWindow()->navigateTo(MainWindowPage::Search);
-  mainWindow()->searchBox()->setText(QString::fromStdString(item.titles.romaji));
 }
 
 void MediaMenu::searchAniDB() const {
@@ -370,15 +367,6 @@ void MediaMenu::torrents() const {
   }
 }
 
-void MediaMenu::torrentsOpenInBrowser() const {
-  const auto& item = m_items.front();
-  const QString q = QString::fromStdString(
-      anime::preferredListTitleString(item, taiga::settings.listTitleLanguage()));
-  if (taiga::openTorrentDiscoverySearch(q) && mainWindow()) {
-    mainWindow()->statusBar()->showMessage(tr("Opened torrent search in your browser."), 5000);
-  }
-}
-
 void MediaMenu::batchSetScore(const int score) const {
   const auto now = static_cast<std::time_t>(QDateTime::currentSecsSinceEpoch());
   for (const auto& item : m_items) {
@@ -484,10 +472,7 @@ void MediaMenu::edit() const {
 
 void MediaMenu::addMediaItems() {
   if (!isBatch()) {
-    // View details
     addAction(theme.getIcon("info"), tr("Details"), tr("Enter"), this, &MediaMenu::viewDetails);
-    // Search
-    addAction(theme.getIcon("search"), tr("Search"), this, &MediaMenu::search);
   }
 
   // External
@@ -542,7 +527,14 @@ void MediaMenu::addListItems() {
           const QString label = item.episode_count > 0
               ? tr("+1 episode (→ %1/%2)").arg(next).arg(item.episode_count)
               : tr("+1 episode (→ %1)").arg(next);
-          addAction(theme.getIcon("add"), label, this, &MediaMenu::incrementEpisode);
+          addAction(theme.getIcon("add_box"), label, this, &MediaMenu::incrementEpisode);
+        }
+        if (entry->watched_episodes > 0) {
+          const int prev = entry->watched_episodes - 1;
+          const QString label = item.episode_count > 0
+              ? tr("-1 episode (→ %1/%2)").arg(prev).arg(item.episode_count)
+              : tr("-1 episode (→ %1)").arg(prev);
+          addAction(label, this, &MediaMenu::decrementEpisode);
         }
       }
     }
@@ -601,69 +593,13 @@ void MediaMenu::addListItems() {
 }
 
 void MediaMenu::addLibraryItems() {
-  // Open folder
   addAction(theme.getIcon("folder"), tr("Open folder"), this, &MediaMenu::openFolder);
-
-  if (isBatch()) return;
-
-  const auto& item = m_items.front();
-  const auto entry = getEntry(item.id);
-
-  // Play
-  addMenu([this, &item, entry]() {
-    const int total_episodes = item.episode_count;
-    const int last_episode = entry ? std::min(entry->watched_episodes, total_episodes) : 0;
-    const int next_episode = last_episode + 1;
-
-    auto menu = new QMenu(tr("Play"), this);
-    menu->setIcon(theme.getIcon("play_arrow"));
-
-    // Play next episode
-    if (next_episode < total_episodes || total_episodes == 1) {
-      menu->addAction(theme.getIcon("skip_next"), tr("Next episode (#%1)").arg(next_episode), this,
-                      [this, next_episode]() { playEpisode(next_episode); });
-    }
-
-    // Play last episode
-    if (last_episode > 0) {
-      menu->addAction(tr("Last episode (#%1)").arg(last_episode), this,
-                      [this, last_episode]() { playEpisode(last_episode); });
-    }
-
-    if (total_episodes > 1) {
-      // Play random episode
-      menu->addAction(theme.getIcon("shuffle"), tr("Random episode"), this, [this, total_episodes]() {
-        const int number =
-            QRandomGenerator::global()->bounded(1, total_episodes + 1);  // [1, total_episodes]
-        playEpisode(number);
-      });
-
-      // Play episode
-      menu->addSeparator();
-      menu->addMenu([this, total_episodes, last_episode]() {
-        auto menu = new QMenu(tr("Episode"), this);
-        for (int i = 1; i <= total_episodes; ++i) {
-          auto action = new QAction(u"#%1"_s.arg(i), this);
-          action->setCheckable(true);
-          action->setChecked(i <= last_episode);
-          menu->addAction(action);
-          connect(action, &QAction::triggered, this, [this, i]() { playEpisode(i); });
-        }
-        return menu;
-      }());
-    }
-
-    return menu;
-  }());
 }
 
 void MediaMenu::addTorrentsItems() {
   if (isBatch()) return;
 
-  // Torrents (Taiga v1: RSS search + optional browser)
   addAction(theme.getIcon("rss_feed"), tr("Search torrents…"), this, &MediaMenu::torrents);
-  addAction(theme.getIcon("open_in_new"), tr("Search torrents in web browser…"), this,
-            &MediaMenu::torrentsOpenInBrowser);
 }
 
 void MediaMenu::addMetaItems() {

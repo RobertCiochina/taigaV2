@@ -23,6 +23,7 @@ INSERT OR REPLACE INTO
     synopsis,
     last_aired_episode,
     next_episode_time,
+    relations_json,
     modified
   )
   VALUES(
@@ -49,5 +50,6 @@ INSERT OR REPLACE INTO
     :synopsis,
     :last_aired_episode,
     :next_episode_time,
+    :relations_json,
     :modified
   )

@@ -95,6 +95,21 @@ anime::Type parseType(const QString& value) {
   return table.value(value, Type::Unknown);
 }
 
+anime::RelationType parseRelationType(const QString& value) {
+  using anime::RelationType;
+  static const QMap<QString, RelationType> table{
+      {QStringLiteral("PREQUEL"), RelationType::Prequel},
+      {QStringLiteral("SEQUEL"), RelationType::Sequel},
+      {QStringLiteral("ALTERNATIVE"), RelationType::Alternative},
+      {QStringLiteral("SIDE_STORY"), RelationType::SideStory},
+      {QStringLiteral("PARENT"), RelationType::Parent},
+      {QStringLiteral("SPIN_OFF"), RelationType::SpinOff},
+      {QStringLiteral("SUMMARY"), RelationType::Summary},
+      {QStringLiteral("CHARACTER"), RelationType::Character},
+  };
+  return table.value(value.trimmed().toUpper(), RelationType::Unknown);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 std::optional<Anime> parseMedia(const QJsonValue& json) {
@@ -170,6 +185,19 @@ std::optional<Anime> parseMedia(const QJsonValue& json) {
         static_cast<std::time_t>(next_ep["airingAt"].toVariant().toLongLong());
   } else {
     item.next_episode_time = 0;
+  }
+
+  // Relations (AniList Media.relations)
+  const QJsonArray rel_edges = json["relations"]["edges"].toArray();
+  for (const QJsonValue& v : rel_edges) {
+    if (!v.isObject()) continue;
+    const QJsonObject edge = v.toObject();
+    // Exclude non-anime relations (manga/novels/etc.)
+    if (edge["node"]["type"].toString() != QStringLiteral("ANIME")) continue;
+    const int rid = edge["node"]["id"].toInt();
+    if (rid <= 0) continue;
+    item.relations.push_back(
+        anime::RelationEdge{.related_id = rid, .type = parseRelationType(edge["relationType"].toString())});
   }
 
   return item;

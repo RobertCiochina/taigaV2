@@ -45,12 +45,11 @@ private slots:
   void edit() const;
   void editEpisode() const;
   void incrementEpisode() const;
+  void decrementEpisode() const;
   void editNotes() const;
   void editStatus(const anime::list::Status status) const;
   void openFolder() const;
-  void playEpisode(int number) const;
   void removeFromList() const;
-  void search() const;
   void searchAniDB() const;
   void searchAniList() const;
   void searchANN() const;
@@ -60,7 +59,6 @@ private slots:
   void searchWikipedia() const;
   void searchYouTube() const;
   void torrents() const;
-  void torrentsOpenInBrowser() const;
   void viewDetails() const;
 
   void batchSetScore(int score) const;
