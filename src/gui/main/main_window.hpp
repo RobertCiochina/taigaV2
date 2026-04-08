@@ -18,8 +18,10 @@
 
 #pragma once
 
+#include <QDate>
 #include <QHash>
 #include <QMainWindow>
+#include <QPointer>
 #include <optional>
 #include <vector>
 
@@ -31,6 +33,7 @@ class QAction;
 class QEvent;
 class QShowEvent;
 class QTimer;
+class QPushButton;
 
 namespace Ui {
 class MainWindow;
@@ -165,6 +168,7 @@ private:
   void updateTrayTooltip();
   void maybeNotifyMediaDetectionBalloon(const std::optional<track::Episode>& episode);
   void ensureWatchOrderGuideWindow();
+  void refreshHomeQBitPlayButtons();
 
   Ui::MainWindow* ui_ = nullptr;
 
@@ -181,6 +185,7 @@ private:
   QTimer* m_catalog_autocheck_timer_ = nullptr;
   QTimer* m_auto_download_timer_ = nullptr;
   QTimer* m_home_countdown_timer_ = nullptr;  // 1-second tick to update the countdown label
+  QTimer* m_home_qbit_poll_timer_ = nullptr;
   QLabel* m_toolbarCountdownLabel = nullptr;  // permanent toolbar countdown (all pages)
   QLabel* m_homeBodyLabel = nullptr;
   QWidget* m_homeUpNextContainer = nullptr;
@@ -188,11 +193,24 @@ private:
   QWidget* m_homeRecentContainer = nullptr;
   QLabel* m_homeRecentHeader = nullptr;
 
+  struct HomeUpNextButton {
+    QPointer<QPushButton> btn;
+    QString save_path;
+    int anime_id = 0;
+  };
+  QList<HomeUpNextButton> m_home_upnext_play_buttons_;
+
   MainWindowPage m_activePage = MainWindowPage::Home;
   bool m_startup_sync_done_ = false;  // true after the first sync on this run
   bool m_startup_scan_done_ = false;  // true after first startup library scan (this run)
   bool m_library_scan_in_progress_ = false;
   bool m_startup_auto_download_pending_ = false;
+  bool m_upcoming_release_sync_in_progress_ = false;
+  bool m_upcoming_release_auto_download_pending_ = false;
+  qint64 m_last_upcoming_release_sync_trigger_secs_ = 0;
+
+  QDate m_auto_download_fail_day_;
+  QHash<int, int> m_auto_download_fail_streak_today_;
   // Avoid "pop-in" on Home at startup: when scan-on-startup is enabled, we defer the first
   // Home dashboard render until the startup-pre-sync scan finishes.
   bool m_defer_home_refresh_until_startup_scan_ = false;

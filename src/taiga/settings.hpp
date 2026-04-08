@@ -192,6 +192,9 @@ public:
   std::string torrentClientDownloadPath() const;
   /// Legacy: `rss/torrent/options/filedownloadpath` — where Taiga saves `.torrent` files (when implemented).
   std::string torrentFileSavePath() const;
+  /// Auto-download only: when enabled, a title that fails to find torrents twice in the same day is
+  /// skipped for the rest of that day (manual downloads are unaffected).
+  bool torrentAutoDownloadSkipAfterTwoFailuresToday() const;
   /// Legacy: `rss/torrent/options/autosetfolder` — prefer per-title library folder when passing paths to client.
   bool torrentDownloadUseAnimeFolder() const;
   /// Legacy: `rss/torrent/options/autousefolder` — fall back to client download path when no anime folder.
@@ -273,6 +276,7 @@ public:
   void setTorrentDownloadUseMagnet(bool enabled) const;
   void setTorrentClientDownloadPath(const std::string& path) const;
   void setTorrentFileSavePath(const std::string& path) const;
+  void setTorrentAutoDownloadSkipAfterTwoFailuresToday(bool enabled) const;
   void setTorrentDownloadUseAnimeFolder(bool enabled) const;
   void setTorrentDownloadFallbackOnClientPath(bool enabled) const;
   void setTorrentDownloadCreateSubfolder(bool enabled) const;

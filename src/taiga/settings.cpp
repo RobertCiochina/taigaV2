@@ -421,6 +421,10 @@ std::string Settings::torrentFileSavePath() const {
   return value("torrent.paths.torrentFileSave").toString().toStdString();
 }
 
+bool Settings::torrentAutoDownloadSkipAfterTwoFailuresToday() const {
+  return value("torrent.autodownload.skipAfterTwoFailuresToday", true).toBool();
+}
+
 bool Settings::torrentDownloadUseAnimeFolder() const {
   return value("torrent.options.useAnimeFolder", true).toBool();
 }
@@ -794,6 +798,10 @@ void Settings::setTorrentClientDownloadPath(const std::string& path) const {
 
 void Settings::setTorrentFileSavePath(const std::string& path) const {
   setValue("torrent.paths.torrentFileSave", QString::fromStdString(path));
+}
+
+void Settings::setTorrentAutoDownloadSkipAfterTwoFailuresToday(const bool enabled) const {
+  setValue("torrent.autodownload.skipAfterTwoFailuresToday", enabled);
 }
 
 void Settings::setTorrentDownloadUseAnimeFolder(const bool enabled) const {

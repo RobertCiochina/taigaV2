@@ -1202,6 +1202,19 @@ void SettingsDialog::buildDownloadsPage() {
           [updateAppWidgets](bool) { updateAppWidgets(); });
   updateAppWidgets();
 
+  // ── Auto-download ────────────────────────────────────────────────────────
+  layout->addSpacing(8);
+  addSection(tr("Auto-download"));
+  m_dl_autodl_skip_failed_twice_today_ = new QCheckBox(
+      tr("Skip titles that failed twice today (auto-download only)"), page);
+  m_dl_autodl_skip_failed_twice_today_->setChecked(
+      taiga::settings.torrentAutoDownloadSkipAfterTwoFailuresToday());
+  m_dl_autodl_skip_failed_twice_today_->setToolTip(
+      tr("When enabled, if a Watching title fails to find torrents twice in a row in a day, it "
+         "will be skipped for the rest of that day during auto-download runs. Manual downloads are "
+         "not affected."));
+  layout->addWidget(m_dl_autodl_skip_failed_twice_today_);
+
   // ── qBittorrent Web API ─────────────────────────────────────────────────
   layout->addSpacing(8);
   addSection(tr("qBittorrent Web API (recommended for auto-downloads)"));
@@ -1276,6 +1289,10 @@ void SettingsDialog::saveDownloadsPage() {
   taiga::settings.setTorrentDownloadUseMagnet(m_dl_use_magnet_->isChecked());
   taiga::settings.setTorrentClientDownloadPath(m_dl_client_path_->text().trimmed().toStdString());
   taiga::settings.setTorrentFileSavePath(m_dl_file_save_path_->text().trimmed().toStdString());
+  if (m_dl_autodl_skip_failed_twice_today_) {
+    taiga::settings.setTorrentAutoDownloadSkipAfterTwoFailuresToday(
+        m_dl_autodl_skip_failed_twice_today_->isChecked());
+  }
   taiga::settings.setTorrentDownloadUseAnimeFolder(m_dl_use_anime_folder_->isChecked());
   taiga::settings.setTorrentDownloadFallbackOnClientPath(m_dl_fallback_client_->isChecked());
   taiga::settings.setTorrentDownloadCreateSubfolder(

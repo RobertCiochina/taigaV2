@@ -85,6 +85,7 @@ private:
   QRadioButton* m_dl_app_default_ = nullptr;
   QRadioButton* m_dl_app_custom_ = nullptr;
   QLineEdit* m_dl_app_exe_ = nullptr;
+  QCheckBox* m_dl_autodl_skip_failed_twice_today_ = nullptr;
   // qBittorrent Web API
   QCheckBox* m_dl_qbit_api_enabled_ = nullptr;
   QLineEdit* m_dl_qbit_api_url_ = nullptr;

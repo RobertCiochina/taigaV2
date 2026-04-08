@@ -375,6 +375,24 @@ LibraryScanSummary scanLibraryFolders(const std::vector<std::string>& folders,
       auto episode =
           recognition::parseFileInfo(fi, {}, taiga::settings.libraryScanLookupParentDirectories());
       const int aid = recognition::identify(episode);
+
+      // Targeted diagnostics (requested): help debug intermittent recognition of specific titles.
+      // Logged only when cache diagnostics are enabled.
+      const bool target_diag = diag && (fi.filePath().contains(QStringLiteral("Witch Hat Atelier"), Qt::CaseInsensitive) ||
+                                        fi.dir().dirName().contains(QStringLiteral("Witch Hat Atelier"), Qt::CaseInsensitive));
+      if (target_diag) {
+        const QString t = QString::fromStdString(episode.element(anitomy::ElementKind::Title, {}));
+        const QString s0 = QString::fromStdString(episode.element(anitomy::ElementKind::Season, {}));
+        const QString e0 = QString::fromStdString(episode.element(anitomy::ElementKind::Episode, {}));
+        logCacheEvent(QStringLiteral("scan: target: title='%1' S='%2' E='%3' parent='%4' file='%5'")
+                          .arg(t.left(120))
+                          .arg(s0)
+                          .arg(e0)
+                          .arg(fi.dir().dirName().left(120))
+                          .arg(fi.fileName().left(160)));
+        logCacheEvent(QStringLiteral("scan: target: %1").arg(recognition::debugIdentifySummary(episode).left(260)));
+      }
+
       if (aid != anime::kUnknownId) {
         ++s.recognized;
         const int ep = storageEpisodeNumber(aid, episode);
@@ -385,8 +403,26 @@ LibraryScanSummary scanLibraryFolders(const std::vector<std::string>& folders,
           // Treat as episode 1 so the entry appears in "Up next" and library lookups.
           local[aid].insert(1);
         }
+        if (target_diag) {
+          const Anime* item = anime::db.item(aid);
+          QString name = QStringLiteral("<unknown>");
+          if (item) {
+            if (!item->titles.english.empty()) {
+              name = QString::fromStdString(item->titles.english);
+            } else {
+              name = QString::fromStdString(item->titles.romaji);
+            }
+          }
+          logCacheEvent(QStringLiteral("scan: target: recognized aid=%1 '%2' storedEp=%3")
+                            .arg(aid)
+                            .arg(name.left(120))
+                            .arg(ep > 0 ? ep : 1));
+        }
       } else {
         ++unknown_files;
+        if (target_diag) {
+          logCacheEvent(QStringLiteral("scan: target: NOT recognized (aid=unknown)"));
+        }
         // For startup-pre-sync diagnostics: sample a few unknown matches so we can see what the
         // parser produced before the post-sync scan fixes them.
         if (diag && !allow_regress_apply && diag_unknown_logged < kDiagUnknownLimit) {

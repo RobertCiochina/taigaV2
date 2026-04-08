@@ -198,7 +198,17 @@ int identify(Episode& episode) {
     }
   }
 
-  std::ranges::sort(matches, std::ranges::greater{}, &Cache::Data::Match::weight);
+  // Deterministic and user-friendly ordering:
+  // - Prefer anime that is actually on the user's list (entry exists) when multiple ids share a title key.
+  // - Then prefer higher weight.
+  // - Then prefer smaller id for stability across runs (unordered_map iteration can otherwise shuffle ties).
+  std::ranges::sort(matches, [&](const Cache::Data::Match& a, const Cache::Data::Match& b) {
+    const bool a_on_list = anime::db.entry(a.id) != nullptr;
+    const bool b_on_list = anime::db.entry(b.id) != nullptr;
+    if (a_on_list != b_on_list) return a_on_list > b_on_list;
+    if (a.weight != b.weight) return a.weight > b.weight;
+    return a.id < b.id;
+  });
 
   for (const auto& match : matches) {
     if (isValidMatch(match.id, episode)) return match.id;
