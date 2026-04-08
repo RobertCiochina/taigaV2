@@ -174,6 +174,7 @@ void transliterate(QString& str) {
       case u'@': c = u'a'; break;  // e.g. "iDOLM@STER" (doesn't make a difference for "GJ-bu@" or "Sasami-san@Ganbaranai")
       case u'×': c = u'x'; break;  // multiplication sign (e.g. "Tasogare Otome x Amnesia")
       case u'꞉': c = u':'; break;  // modifier letter colon (e.g. "Nisekoi:")
+      case u'_': c = u' '; break;  // Windows folder names often use _ where titles use : or space
 
       // A few common always-equivalent romanizations
       case u'Ō': str.replace(i, 1, "ou"); break;  // latin capital letter o with macron

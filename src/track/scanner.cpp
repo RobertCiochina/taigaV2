@@ -25,6 +25,7 @@
 #include <optional>
 
 #include "media/anime.hpp"
+#include "media/anime_db.hpp"
 #include "media/anime_list.hpp"
 #include "taiga/settings.hpp"
 #include "track/episode.hpp"
@@ -37,6 +38,21 @@ namespace {
 std::unordered_map<int, std::unordered_set<int>> g_library_episodes;
 // Manual overrides from Library UI — not cleared by scanLibraryFolders.
 std::unordered_map<int, std::unordered_set<int>> g_manual_episodes;
+
+/// Map S00Exx-style absolute numbers onto 1..N for short specials when xx > N (common with TVDB-style
+/// numbering). Skips unknown or non-season-0 releases.
+int storageEpisodeNumber(const int anime_id, const track::Episode& episode) {
+  int ep = QString::fromStdString(episode.element(anitomy::ElementKind::Episode, {})).toInt();
+  if (ep < 1) return 0;
+  const std::string season_str = episode.element(anitomy::ElementKind::Season, {});
+  const bool is_s0 = season_str == "0" || season_str == "00";
+  const Anime* item = anime::db.item(anime_id);
+  if (!item || !is_s0 || item->episode_count < 1) return ep;
+  if (ep > item->episode_count && item->episode_count <= 12) {
+    return ((ep - 1) % item->episode_count) + 1;
+  }
+  return ep;
+}
 
 }  // namespace
 
@@ -113,8 +129,7 @@ LibraryScanSummary scanLibraryFolders(const std::vector<std::string>& folders,
       const int aid = recognition::identify(episode);
       if (aid != anime::kUnknownId) {
         ++s.recognized;
-        const int ep =
-            QString::fromStdString(episode.element(anitomy::ElementKind::Episode, {})).toInt();
+        const int ep = storageEpisodeNumber(aid, episode);
         if (ep > 0) {
           g_library_episodes[aid].insert(ep);
         } else {
@@ -144,12 +159,9 @@ std::optional<QString> findEpisode(const QString& path, const int anime_id,
     auto episode =
         recognition::parseFileInfo(info, {}, taiga::settings.libraryScanLookupParentDirectories());
 
-    if (QString::fromStdString(episode.element(anitomy::ElementKind::Episode)).toInt() !=
-        episode_number) {
-      continue;
-    }
+    if (recognition::identify(episode) != anime_id) continue;
 
-    if (track::recognition::identify(episode) != anime_id) continue;
+    if (storageEpisodeNumber(anime_id, episode) != episode_number) continue;
 
     return info.filePath();
   }

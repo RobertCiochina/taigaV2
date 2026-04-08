@@ -22,6 +22,7 @@
 #include <QFileInfo>
 #include <QRegularExpression>
 #include <QString>
+#include <QStringList>
 #include <algorithm>
 #include <anitomy.hpp>
 #include <format>
@@ -54,6 +55,41 @@ void stripIgnoredSubstrings(std::string& s) {
   s = qs.toStdString();
 }
 
+/// True when the folder name looks like a release pack (codec/resolution/group) rather than the
+/// anime library folder — in that case a grandparent directory is a better title hint for S00 files.
+/// Do not use path length alone: long official English titles are common and would false-positive.
+bool directoryLooksLikeTorrentReleasePack(const QString& name) {
+  const QString lower = name.toLower();
+  static const QStringList kMarkers{
+      QStringLiteral("1080p"), QStringLiteral("720p"),  QStringLiteral("480p"),
+      QStringLiteral("2160p"), QStringLiteral("1440p"), QStringLiteral("576p"),
+      QStringLiteral("webrip"), QStringLiteral("web-dl"), QStringLiteral("webdl"),
+      QStringLiteral("bluray"), QStringLiteral("bdrip"), QStringLiteral("dvdrip"),
+      QStringLiteral("hdtv"),   QStringLiteral("ntsc"),  QStringLiteral("pal"),
+      QStringLiteral("x264"),   QStringLiteral("x265"),  QStringLiteral("hevc"),
+      QStringLiteral("h.264"),  QStringLiteral("h264"),   QStringLiteral("av1"),
+      QStringLiteral("dual audio"), QStringLiteral("multi-audio"),
+      QStringLiteral("aac"),   QStringLiteral("flac"),   QStringLiteral("opus"),
+      QStringLiteral("10bit"),  QStringLiteral("8bit"),
+  };
+  for (const QString& m : kMarkers) {
+    if (lower.contains(m)) return true;
+  }
+  return false;
+}
+
+/// Some filenames only get season 0 from a literal `S00E##` token; ensure Season is set so folder
+/// title logic and `identify` treat them as specials.
+void inferSeasonZeroFromFilename(Episode& episode, const std::string& fileName) {
+  if (!episode.element(anitomy::ElementKind::Season).empty()) return;
+  const QString qfn = QString::fromStdString(fileName);
+  static const QRegularExpression kS00(QStringLiteral(R"(\bS00\s*E\d+)"),
+                                      QRegularExpression::CaseInsensitiveOption);
+  if (kS00.match(qfn).hasMatch()) {
+    episode.setElement(anitomy::ElementKind::Season, "0");
+  }
+}
+
 }  // namespace
 
 Episode parse(std::string_view input, const anitomy::Options options) {
@@ -72,6 +108,7 @@ Episode parseFileInfo(const QFileInfo& info, const anitomy::Options options,
   const auto fileName = info.fileName().toStdString();
 
   Episode episode = track::recognition::parse(fileName, options);
+  inferSeasonZeroFromFilename(episode, fileName);
 
   if (use_parent_directory_title_hint) {
     // Season 0 (S00Exx) marks specials/OVAs stored in their own named folder.
@@ -83,7 +120,21 @@ Episode parseFileInfo(const QFileInfo& info, const anitomy::Options options,
                            (season_str == "0" || season_str == "00");
 
     if (!episode.contains(anitomy::ElementKind::Title) || isSeason0) {
-      auto dirName = info.dir().dirName().toStdString();
+      std::string dirName;
+      if (isSeason0) {
+        QDir immediate = info.dir();
+        QString folderTitle = immediate.dirName();
+        QDir parentOfRelease = immediate;
+        if (parentOfRelease.cdUp()) {
+          const QString grand = parentOfRelease.dirName();
+          if (!grand.isEmpty() && directoryLooksLikeTorrentReleasePack(folderTitle)) {
+            folderTitle = grand;
+          }
+        }
+        dirName = folderTitle.toStdString();
+      } else {
+        dirName = info.dir().dirName().toStdString();
+      }
       stripIgnoredSubstrings(dirName);
       if (!dirName.empty()) {
         if (isSeason0) {
@@ -114,6 +165,16 @@ int identify(Episode& episode) {
   // Primary lookup by title alone.
   if (const auto data = cache()->find(normalizedTitle)) {
     matches.append_range(data->matches | std::views::values | std::ranges::to<std::vector>());
+  }
+
+  // Folder / filesystem names are sometimes truncated vs AniList (e.g. final "s" dropped on long paths).
+  if (matches.empty() && title.size() > 16) {
+    const QString qt = QString::fromStdString(title).trimmed();
+    if (!qt.endsWith(QLatin1Char('s'), Qt::CaseInsensitive)) {
+      if (const auto data = cache()->find(normalize(title + "s"))) {
+        matches.append_range(data->matches | std::views::values | std::ranges::to<std::vector>());
+      }
+    }
   }
 
   // Season-aware secondary lookup: "Title Season N" normalises to the same key as
@@ -163,6 +224,14 @@ bool isValidMatch(const int id, const Episode& episode) {
     }
 
     const int value = QString::fromStdString(number).toInt();
+    if (!number.empty() && value < 1) return false;
+
+    const auto season_str = episode.element(anitomy::ElementKind::Season);
+    const bool is_s0 = season_str == "0" || season_str == "00";
+    // Season 0 / specials: filenames often use global indices (e.g. S00E10) greater than the
+    // listed episode count (e.g. three OVAs). Still treat as a valid match for identification.
+    if (is_s0 && (item->episode_count < 1 || value > item->episode_count)) return true;
+
     if (value <= item->episode_count) return true;  // in range
 
     if (item->episode_count < 1) return true;  // episode count is unknown, so anything goes
