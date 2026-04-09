@@ -51,6 +51,9 @@ public:
   void applyToolbarTextFilter(const QString& text);
 
 private:
+  void applyDefaultSeasonYearIfNeeded();
+  void maybeAutoLoadDefaultSeason();
+  void syncSeasonYearCombosFromFilters();
   void setViewMode(ListViewMode mode);
   void initToolbar();
   void initSortMenu();
@@ -69,6 +72,8 @@ private:
   QMenu* m_sortMenu = nullptr;
   QMenu* m_viewMenu = nullptr;
   QMenu* m_moreMenu = nullptr;
+  bool m_applying_defaults_ = false;
+  bool m_did_first_show_sync_ = false;
 };
 
 }  // namespace gui

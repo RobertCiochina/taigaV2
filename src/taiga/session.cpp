@@ -160,6 +160,18 @@ gui::AnimeListProxyModelFilter Session::searchListFilters() const {
   // clang-format on
 }
 
+bool Session::searchListSeasonYearCustomized() const {
+  return value("searchList.seasonYearCustomized", false).toBool();
+}
+
+QString Session::searchListAutoLoadedSeasonKey() const {
+  return value("searchList.autoLoadedSeasonKey", QString{}).toString();
+}
+
+qint64 Session::searchListAutoLoadedSeasonAtSecs() const {
+  return value("searchList.autoLoadedSeasonAtSecs", static_cast<qint64>(0)).toLongLong();
+}
+
 int Session::searchListSortColumn() const {
   return value("searchList.sortColumn", gui::AnimeListModel::COLUMN_AVERAGE).toInt();
 }
@@ -255,6 +267,18 @@ void Session::setSearchListFilters(const gui::AnimeListProxyModelFilter& filters
   // clang-format on
   setValue("searchList.filters",
            QJsonDocument{object}.toJson(QJsonDocument::Compact).toBase64().toStdString());
+}
+
+void Session::setSearchListSeasonYearCustomized(const bool customized) const {
+  setValue("searchList.seasonYearCustomized", customized);
+}
+
+void Session::setSearchListAutoLoadedSeasonKey(const QString& key) const {
+  setValue("searchList.autoLoadedSeasonKey", key);
+}
+
+void Session::setSearchListAutoLoadedSeasonAtSecs(const qint64 secs) const {
+  setValue("searchList.autoLoadedSeasonAtSecs", secs);
 }
 
 void Session::setSearchListSortColumn(const int column) const {

@@ -98,4 +98,15 @@ std::optional<QString> findEpisode(const QString& path, const int anime_id,
                                    const int episode_number);
 std::optional<QString> findFolder(const QString& path, const int anime_id);
 
+/// Best-effort: remove empty directory levels within configured library roots.
+/// - If \p dir_or_file_path is a file path, its parent directory is used.
+/// - Only removes directories that are empty (ignoring common OS junk files like desktop.ini).
+/// - Never removes the library root itself.
+void cleanupEmptyLibraryDirectoriesFromPath(const QString& dir_or_file_path);
+
+/// Best-effort: find the library folder for \p anime_id (within each configured root),
+/// then remove it and any empty parent directories up to (but not including) the root.
+/// Safe: only deletes directories that are empty at the time of deletion.
+void cleanupEmptyLibraryDirectoriesForAnime(int anime_id);
+
 }  // namespace track

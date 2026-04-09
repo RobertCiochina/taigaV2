@@ -19,11 +19,22 @@
 #include "media/anime_list.hpp"
 #include "sync/service.hpp"
 #include "taiga/settings.hpp"
+#include "track/scanner.hpp"
 
 namespace gui {
 
 void commitListEntryLocalAndMaybeRemote(const ListEntry& entry, QWidget* context_widget) {
+  const auto* prev = anime::db.entry(entry.anime_id);
+  const auto prev_status = prev ? prev->status : anime::list::Status::NotInList;
+
   anime::db.updateEntry(entry);
+
+  // If the user (or auto-recognition) just marked a title Completed, try to clean up the now-empty
+  // library folder even if the last episode file was deleted earlier (or externally).
+  if (entry.anime_id > 0 && prev_status != anime::list::Status::Completed &&
+      entry.status == anime::list::Status::Completed) {
+    track::cleanupEmptyLibraryDirectoriesForAnime(entry.anime_id);
+  }
 
   if (!taiga::settings.listSynchronizationEnabled()) return;
   if (!sync::remoteListAccessConfigured()) return;

@@ -104,58 +104,30 @@ void NowPlayingWidget::reset() {
   if (m_update_committed_ && m_episode && !m_episode->filePath().empty() &&
       taiga::settings.recognitionDeleteAfterWatched()) {
     const QString path = QString::fromStdString(m_episode->filePath());
-    if (!QFile::remove(path)) {
-      // Non-fatal — file might already be gone or in use.
+    const bool existed_before = QFileInfo::exists(path);
+    const bool removed = existed_before ? QFile::remove(path) : true;
+    if (!removed) {
+      // Non-fatal — file might be in use.
       qWarning() << "Auto-delete: failed to remove watched file:" << path;
     } else {
-      qDebug() << "Auto-delete: removed watched file:" << path;
-
-      // Keep the in-memory library index consistent without waiting for a full rescan.
-      if (anime_id > 0) {
-        track::removeLibraryEpisode(anime_id, ep_no);
+      if (existed_before) {
+        qDebug() << "Auto-delete: removed watched file:" << path;
+      } else {
+        qDebug() << "Auto-delete: watched file already gone:" << path;
       }
+    }
 
-      // If the series was marked completed, also delete the now-empty folder(s) (safe, bounded).
-      // Guardrails:
-      // - only delete empty dirs
-      // - only within configured library roots
-      // - never delete a library root itself
-      if (anime_id > 0) {
-        const auto* entry = anime::db.entry(anime_id);
-        if (entry && entry->status == anime::list::Status::Completed) {
-          const QString file_dir = QFileInfo(path).absoluteDir().absolutePath();
-          QStringList roots;
-          for (const auto& r : taiga::settings.libraryFolders()) {
-            const QString rp = QDir(QString::fromStdString(r)).absolutePath();
-            if (!rp.isEmpty()) roots << QDir::cleanPath(rp);
-          }
-          const QString dir_clean = QDir::cleanPath(file_dir);
-          auto isUnderRoot = [](const QString& dir, const QString& root) {
-            const QString d = QDir::cleanPath(dir);
-            const QString r = QDir::cleanPath(root);
-            if (d.compare(r, Qt::CaseInsensitive) == 0) return true;
-            return d.startsWith(r + QDir::separator(), Qt::CaseInsensitive);
-          };
-          QString matched_root;
-          for (const QString& r : roots) {
-            if (isUnderRoot(dir_clean, r)) {
-              matched_root = r;
-              break;
-            }
-          }
-          if (!matched_root.isEmpty()) {
-            QString cur = dir_clean;
-            while (!cur.isEmpty() && cur.compare(matched_root, Qt::CaseInsensitive) != 0) {
-              QDir d(cur);
-              const QStringList entries =
-                  d.entryList(QDir::AllEntries | QDir::NoDotAndDotDot, QDir::Name);
-              if (!entries.isEmpty()) break;
-              const QString parent = QFileInfo(cur).absoluteDir().absolutePath();
-              if (!QDir().rmdir(cur)) break;
-              cur = parent;
-            }
-          }
-        }
+    // If the file is now gone, keep the in-memory library index consistent without waiting for a rescan.
+    if (anime_id > 0 && !QFileInfo::exists(path)) {
+      track::removeLibraryEpisode(anime_id, ep_no);
+    }
+
+    // Folder cleanup is not tied to whether *we* deleted the file: the user may have deleted it
+    // manually before marking the series Completed.
+    if (anime_id > 0) {
+      const auto* entry = anime::db.entry(anime_id);
+      if (entry && entry->status == anime::list::Status::Completed) {
+        track::cleanupEmptyLibraryDirectoriesFromPath(path);
       }
     }
   }

@@ -54,11 +54,18 @@ public:
   QByteArray mediaDialogGeometry() const;
   QByteArray mediaDialogSplitterState() const;
   gui::AnimeListProxyModelFilter searchListFilters() const;
+  /// True once the user explicitly interacted with the Search season/year filters (including clearing them).
+  /// When false, Search will default to the current year+season on open.
+  bool searchListSeasonYearCustomized() const;
   int searchListSortColumn() const;
   Qt::SortOrder searchListSortOrder() const;
   std::optional<int> searchListSortColumnSecondary() const;
   Qt::SortOrder searchListSortOrderSecondary() const;
   gui::ListViewMode searchListViewMode() const;
+  /// Last auto-loaded season key for Search default load (e.g. "2026:Spring").
+  QString searchListAutoLoadedSeasonKey() const;
+  /// Epoch seconds when the last auto-load ran (0 = never).
+  qint64 searchListAutoLoadedSeasonAtSecs() const;
   QString torrentPanelLastQuery() const;
   /// Substring filter on the Torrents RSS table (restored when reopening the app).
   QString torrentPanelResultFilter() const;
@@ -83,11 +90,14 @@ public:
   void setMediaDialogGeometry(const QByteArray& geometry) const;
   void setMediaDialogSplitterState(const QByteArray& state) const;
   void setSearchListFilters(const gui::AnimeListProxyModelFilter& filters) const;
+  void setSearchListSeasonYearCustomized(bool customized) const;
   void setSearchListSortColumn(const int column) const;
   void setSearchListSortOrder(const Qt::SortOrder order) const;
   void setSearchListSortColumnSecondary(std::optional<int> column) const;
   void setSearchListSortOrderSecondary(const Qt::SortOrder order) const;
   void setSearchListViewMode(const gui::ListViewMode mode) const;
+  void setSearchListAutoLoadedSeasonKey(const QString& key) const;
+  void setSearchListAutoLoadedSeasonAtSecs(qint64 secs) const;
   void setTorrentPanelLastQuery(const QString& query) const;
   void setTorrentPanelResultFilter(const QString& text) const;
   void setTorrentCatalogSeenFingerprints(const QStringList& keys) const;

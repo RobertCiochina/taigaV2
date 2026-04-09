@@ -150,6 +150,70 @@ int storageEpisodeNumber(const int anime_id, const track::Episode& episode) {
   return ep;
 }
 
+QStringList configuredLibraryRootsClean() {
+  QStringList roots;
+  roots.reserve(static_cast<int>(taiga::settings.libraryFolders().size()));
+  for (const auto& r : taiga::settings.libraryFolders()) {
+    const QString rp = QDir(QString::fromStdString(r)).absolutePath();
+    if (!rp.isEmpty()) roots << QDir::cleanPath(rp);
+  }
+  return roots;
+}
+
+bool isUnderRootPath(const QString& dir, const QString& root) {
+  const QString d = QDir::cleanPath(dir);
+  const QString r = QDir::cleanPath(root);
+  if (d.isEmpty() || r.isEmpty()) return false;
+  if (d.compare(r, Qt::CaseInsensitive) == 0) return true;
+  return d.startsWith(r + QDir::separator(), Qt::CaseInsensitive);
+}
+
+bool isIgnorableLibraryJunkEntry(const QString& name) {
+  // Common OS metadata files that can remain after deleting the last episode.
+  // We treat these as ignorable so "empty folder cleanup" still works.
+  static const QSet<QString> kExact{
+      QStringLiteral("desktop.ini"),
+      QStringLiteral("thumbs.db"),
+      QStringLiteral(".ds_store"),
+  };
+  const QString lower = name.trimmed().toLower();
+  if (lower.isEmpty()) return true;
+  if (kExact.contains(lower)) return true;
+  return false;
+}
+
+void removeEmptyDirsUpToRoot(QString start_dir, const QString& root) {
+  QString cur = QDir::cleanPath(start_dir);
+  const QString root_clean = QDir::cleanPath(root);
+  if (cur.isEmpty() || root_clean.isEmpty()) return;
+  if (!isUnderRootPath(cur, root_clean)) return;
+
+  // Never delete the root itself.
+  while (!cur.isEmpty() && cur.compare(root_clean, Qt::CaseInsensitive) != 0) {
+    QDir d(cur);
+    const QFileInfoList entries =
+        d.entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot, QDir::Name);
+    bool has_non_junk = false;
+    for (const QFileInfo& fi : entries) {
+      const QString name = fi.fileName();
+      // Only ignore known junk files; never ignore subdirectories.
+      if (fi.isDir()) {
+        has_non_junk = true;
+        break;
+      }
+      if (!isIgnorableLibraryJunkEntry(name)) {
+        has_non_junk = true;
+        break;
+      }
+    }
+    if (has_non_junk) break;
+
+    const QString parent = QFileInfo(cur).absoluteDir().absolutePath();
+    if (!QDir().rmdir(cur)) break;
+    cur = parent;
+  }
+}
+
 }  // namespace
 
 void appendLibraryEpisodeIndexCacheDebugLine(const QString& msg) {
@@ -544,6 +608,32 @@ std::optional<QString> findFolder(const QString& path, const int anime_id) {
   }
 
   return std::nullopt;
+}
+
+void cleanupEmptyLibraryDirectoriesFromPath(const QString& dir_or_file_path) {
+  if (dir_or_file_path.trimmed().isEmpty()) return;
+  const QFileInfo info(dir_or_file_path);
+  const QString start_dir = info.isDir() ? info.absoluteFilePath() : info.absoluteDir().absolutePath();
+  if (start_dir.isEmpty()) return;
+
+  const QString start_clean = QDir::cleanPath(start_dir);
+  const QStringList roots = configuredLibraryRootsClean();
+  for (const QString& root : roots) {
+    if (isUnderRootPath(start_clean, root)) {
+      removeEmptyDirsUpToRoot(start_clean, root);
+      break;
+    }
+  }
+}
+
+void cleanupEmptyLibraryDirectoriesForAnime(const int anime_id) {
+  if (anime_id <= 0) return;
+  const QStringList roots = configuredLibraryRootsClean();
+  for (const QString& root : roots) {
+    const auto folder = findFolder(root, anime_id);
+    if (!folder.has_value()) continue;
+    cleanupEmptyLibraryDirectoriesFromPath(*folder);
+  }
 }
 
 }  // namespace track

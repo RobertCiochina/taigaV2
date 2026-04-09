@@ -30,6 +30,7 @@
 #include <QPointer>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QTimer>
 #include <QStatusBar>
 #include <QToolBar>
 #include <QToolButton>
@@ -50,6 +51,20 @@
 #include "taiga/user_feedback.hpp"
 
 namespace gui {
+
+namespace {
+
+void setComboToData(QComboBox* combo, const int value) {
+  if (!combo) return;
+  for (int i = 0; i < combo->count(); ++i) {
+    if (combo->itemData(i).toInt() == value) {
+      combo->setCurrentIndex(i);
+      return;
+    }
+  }
+}
+
+}  // namespace
 
 SearchWidget::SearchWidget(QWidget* parent)
     : PageWidget(parent),
@@ -82,10 +97,13 @@ SearchWidget::SearchWidget(QWidget* parent)
       m_comboYear->addItem(QString::number(year), year);
     }
     if (m_proxyModel->filters().year) {
-      m_comboYear->setCurrentText(QString::number(*m_proxyModel->filters().year));
+      setComboToData(m_comboYear, *m_proxyModel->filters().year);
     }
     connect(m_comboYear, &QComboBox::currentIndexChanged, this,
-            [this](int index) { m_proxyModel->setYearFilter(filterValue(m_comboYear, index)); });
+            [this](int index) {
+              m_proxyModel->setYearFilter(filterValue(m_comboYear, index));
+              if (!m_applying_defaults_) taiga::session.setSearchListSeasonYearCustomized(true);
+            });
     filtersLayout->addWidget(m_comboYear);
   }
 
@@ -102,11 +120,11 @@ SearchWidget::SearchWidget(QWidget* parent)
       m_comboSeason->addItem(formatSeasonName(season), static_cast<int>(season));
     }
     if (m_proxyModel->filters().season) {
-      m_comboSeason->setCurrentText(
-          formatSeasonName(static_cast<anime::SeasonName>(*m_proxyModel->filters().season)));
+      setComboToData(m_comboSeason, *m_proxyModel->filters().season);
     }
     connect(m_comboSeason, &QComboBox::currentIndexChanged, this, [this](int index) {
       m_proxyModel->setSeasonFilter(filterValue(m_comboSeason, index));
+      if (!m_applying_defaults_) taiga::session.setSearchListSeasonYearCustomized(true);
     });
     filtersLayout->addWidget(m_comboSeason);
   }
@@ -118,8 +136,7 @@ SearchWidget::SearchWidget(QWidget* parent)
       m_comboType->addItem(formatType(type), static_cast<int>(type));
     }
     if (m_proxyModel->filters().type) {
-      m_comboType->setCurrentText(
-          formatType(static_cast<anime::Type>(*m_proxyModel->filters().type)));
+      setComboToData(m_comboType, *m_proxyModel->filters().type);
     }
     connect(m_comboType, &QComboBox::currentIndexChanged, this,
             [this](int index) { m_proxyModel->setTypeFilter(filterValue(m_comboType, index)); });
@@ -133,8 +150,7 @@ SearchWidget::SearchWidget(QWidget* parent)
       m_comboStatus->addItem(formatStatus(status), static_cast<int>(status));
     }
     if (m_proxyModel->filters().status) {
-      m_comboStatus->setCurrentText(
-          formatStatus(static_cast<anime::Status>(*m_proxyModel->filters().status)));
+      setComboToData(m_comboStatus, *m_proxyModel->filters().status);
     }
     connect(m_comboStatus, &QComboBox::currentIndexChanged, this, [this](int index) {
       m_proxyModel->setStatusFilter(filterValue(m_comboStatus, index));
@@ -197,6 +213,8 @@ SearchWidget::SearchWidget(QWidget* parent)
       m_proxyModel->setSeasonFilter(std::nullopt);
       m_proxyModel->setTypeFilter(std::nullopt);
       m_proxyModel->setStatusFilter(std::nullopt);
+      // Clearing season/year is an explicit user choice — don't re-apply defaults next time.
+      taiga::session.setSearchListSeasonYearCustomized(true);
       if (auto* mw = mainWindow()) {
         mw->statusBar()->showMessage(tr("Search filters cleared."), 3000);
       }
@@ -209,6 +227,127 @@ SearchWidget::SearchWidget(QWidget* parent)
   connect(m_viewMenu, &QMenu::aboutToShow, this, &SearchWidget::initViewMenu);
   connect(m_moreMenu, &QMenu::aboutToShow, this, &SearchWidget::initMoreMenu);
   setViewMode(taiga::session.searchListViewMode());
+
+  applyDefaultSeasonYearIfNeeded();
+
+  // Some Qt widget/layout initialization can reset combo selection back to -1 after we set it.
+  // Sync once on the next event-loop tick so the visible UI always matches active filters.
+  QTimer::singleShot(0, this, [this]() { syncSeasonYearCombosFromFilters(); });
+}
+
+void SearchWidget::syncSeasonYearCombosFromFilters() {
+  if (!m_comboYear || !m_comboSeason) return;
+  const auto f = m_proxyModel->filters();
+
+  m_applying_defaults_ = true;
+  const QSignalBlocker by(m_comboYear);
+  const QSignalBlocker bs(m_comboSeason);
+
+  if (f.year.has_value()) {
+    setComboToData(m_comboYear, *f.year);
+  }
+  if (f.season.has_value()) {
+    setComboToData(m_comboSeason, *f.season);
+  }
+
+  // If the filters are present but the combo still couldn't select (unexpected), fall back to "now".
+  if (m_comboYear->currentIndex() < 0 || m_comboSeason->currentIndex() < 0) {
+    const anime::Season cur{QDate::currentDate().toStdSysDays()};
+    const int year = static_cast<int>(cur.year);
+    const auto season = cur.name;
+    if (year > 0 && season != anime::SeasonName::Unknown) {
+      if (m_comboYear->currentIndex() < 0) setComboToData(m_comboYear, year);
+      if (m_comboSeason->currentIndex() < 0)
+        setComboToData(m_comboSeason, static_cast<int>(season));
+      m_proxyModel->setYearFilter(year);
+      m_proxyModel->setSeasonFilter(static_cast<int>(season));
+    }
+  }
+
+  m_applying_defaults_ = false;
+}
+
+void SearchWidget::applyDefaultSeasonYearIfNeeded() {
+  if (taiga::session.searchListSeasonYearCustomized()) return;
+
+  const anime::Season cur{QDate::currentDate().toStdSysDays()};
+  const int year = static_cast<int>(cur.year);
+  const auto season = cur.name;
+  if (year <= 0 || season == anime::SeasonName::Unknown) return;
+
+  // If the UI already has a selection, keep it (even if session filters are empty).
+  // This avoids fighting any future behavior that sets defaults earlier in the ctor.
+  const bool year_selected = m_comboYear && m_comboYear->currentIndex() >= 0;
+  const bool season_selected = m_comboSeason && m_comboSeason->currentIndex() >= 0;
+  if (year_selected && season_selected) {
+    maybeAutoLoadDefaultSeason();
+    return;
+  }
+
+  m_applying_defaults_ = true;
+  {
+    const QSignalBlocker by(m_comboYear);
+    const QSignalBlocker bs(m_comboSeason);
+
+    // Select by data (more robust than by text).
+    if (!year_selected) setComboToData(m_comboYear, year);
+    if (!season_selected) setComboToData(m_comboSeason, static_cast<int>(season));
+    m_proxyModel->setYearFilter(year);
+    m_proxyModel->setSeasonFilter(static_cast<int>(season));
+  }
+  m_applying_defaults_ = false;
+
+  // Pre-populate results by auto-loading the seasonal catalog once (best-effort).
+  maybeAutoLoadDefaultSeason();
+}
+
+void SearchWidget::maybeAutoLoadDefaultSeason() {
+  // Only when we have a valid selected season/year.
+  const auto f = m_proxyModel->filters();
+  if (!f.year.has_value() || !f.season.has_value()) return;
+
+  const int y = *f.year;
+  const auto season = static_cast<anime::SeasonName>(*f.season);
+  if (y <= 0 || season == anime::SeasonName::Unknown) return;
+
+  // If the current filters already yield results, assume the season is cached locally
+  // and avoid an external call.
+  if (m_proxyModel->rowCount() > 0) return;
+
+  // Avoid repeating the same auto-load too often.
+  const QString key = QStringLiteral("%1:%2").arg(y).arg(static_cast<int>(season));
+  const qint64 now = QDateTime::currentSecsSinceEpoch();
+  const qint64 last = taiga::session.searchListAutoLoadedSeasonAtSecs();
+  constexpr qint64 kMinIntervalSecs = 12 * 60 * 60;  // 12 hours
+  if (taiga::session.searchListAutoLoadedSeasonKey() == key && last > 0 &&
+      (now - last) < kMinIntervalSecs) {
+    return;
+  }
+
+  // If sync isn't configured, don't spam an error on every Search open.
+  if (sync::currentServiceId() == sync::ServiceId::Unknown) return;
+  if (!sync::remoteListAccessConfigured()) return;
+
+  taiga::session.setSearchListAutoLoadedSeasonKey(key);
+  taiga::session.setSearchListAutoLoadedSeasonAtSecs(now);
+
+  QPointer<SearchWidget> guard(this);
+  if (auto* mw = mainWindow()) {
+    mw->statusBar()->showMessage(tr("Loading seasonal catalog…"));
+  }
+  sync::fetchSeasonBrowse(season, y, [guard](const bool ok, const QString& msg) {
+    if (!guard) return;
+    if (auto* mw = mainWindow()) {
+      mw->statusBar()->clearMessage();
+      if (ok) {
+        guard->reloadAnimeList();
+        if (mw->navigation()) mw->navigation()->refresh();
+        mw->statusBar()->showMessage(msg.isEmpty() ? tr("Season loaded.") : msg, 6000);
+      } else {
+        taiga::userFeedback(msg.isEmpty() ? QStringLiteral("Season request failed.") : msg, true);
+      }
+    }
+  });
 }
 
 void SearchWidget::setViewMode(ListViewMode mode) {
