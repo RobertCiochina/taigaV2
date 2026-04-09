@@ -19,22 +19,22 @@
 #include "list_widget.hpp"
 
 #include <QAbstractItemView>
+#include <QAction>
 #include <QActionGroup>
 #include <QDateTime>
 #include <QFileDialog>
+#include <QFrame>
+#include <QHBoxLayout>
 #include <QHeaderView>
 #include <QItemSelectionModel>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
-#include <QAction>
-#include <QSignalBlocker>
-#include <QHBoxLayout>
 #include <QLabel>
 #include <QListView>
 #include <QMenu>
-#include <QFrame>
+#include <QSignalBlocker>
 #include <QSplitter>
 #include <QToolBar>
 #include <QToolButton>
@@ -44,6 +44,7 @@
 #include "base/string.hpp"
 #include "gui/common/anime_list_view.hpp"
 #include "gui/common/anime_list_view_cards.hpp"
+#include "gui/list/watch_next_dialog.hpp"
 #include "gui/main/main_window.hpp"
 #include "gui/main/navigation_item_delegate.hpp"
 #include "gui/main/navigation_widget.hpp"
@@ -54,7 +55,6 @@
 #include "media/anime_db.hpp"
 #include "media/anime_list.hpp"
 #include "media/anime_list_export.hpp"
-#include "gui/list/watch_next_dialog.hpp"
 #include "taiga/session.hpp"
 #include "taiga/user_feedback.hpp"
 
@@ -265,7 +265,8 @@ void ListWidget::initColorLegend() {
     auto* swatch = new QFrame(w);
     swatch->setFixedSize(10, 10);
     swatch->setFrameShape(QFrame::NoFrame);
-    swatch->setStyleSheet(QStringLiteral("QFrame{border-radius:2px; background:%1;}").arg(color.name()));
+    swatch->setStyleSheet(
+        QStringLiteral("QFrame{border-radius:2px; background:%1;}").arg(color.name()));
     swatch->setToolTip(tooltip);
 
     auto* label = new QLabel(text, w);

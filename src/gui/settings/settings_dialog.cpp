@@ -5,12 +5,11 @@
 
 #include "settings_dialog.hpp"
 
-#include <algorithm>
-#include <chrono>
-
 #include <QCheckBox>
+#include <QClipboard>
 #include <QComboBox>
 #include <QDesktopServices>
+#include <QDialogButtonBox>
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -22,14 +21,14 @@
 #include <QRadioButton>
 #include <QRegularExpression>
 #include <QScrollArea>
-#include <QTextEdit>
-#include <QDialogButtonBox>
 #include <QSpacerItem>
-#include <QClipboard>
 #include <QSystemTrayIcon>
+#include <QTextEdit>
 #include <QTreeWidgetItem>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <algorithm>
+#include <chrono>
 
 #include "base/string.hpp"
 #include "gui/main/main_window.hpp"
@@ -37,20 +36,20 @@
 #include "gui/settings/torrent_filters_dialog.hpp"
 #include "gui/utils/image_provider.hpp"
 #include "gui/utils/theme.hpp"
-#include "track/library_watcher.hpp"
-#include "track/media.hpp"
-#include "track/recognition_cache.hpp"
-#include "track/scanner.hpp"
-#include "track/streaming_sites.hpp"
+#include "media/anime.hpp"
 #include "sync/anilist_utils.hpp"
 #include "sync/service.hpp"
-#include "media/anime.hpp"
 #include "taiga/accounts.hpp"
 #include "taiga/list_row_action.hpp"
 #include "taiga/network.hpp"
 #include "taiga/path.hpp"
 #include "taiga/settings.hpp"
 #include "taiga/torrent_discovery.hpp"
+#include "track/library_watcher.hpp"
+#include "track/media.hpp"
+#include "track/recognition_cache.hpp"
+#include "track/scanner.hpp"
+#include "track/streaming_sites.hpp"
 #include "ui_settings_dialog.h"
 
 #ifdef Q_OS_WINDOWS
@@ -82,7 +81,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   // so the new stack index is available when the tree items are assigned.
   buildDownloadsPage();
 
-  // Hide all torrent-related widgets from the Library page — fully consolidated in Torrents → Downloads.
+  // Hide all torrent-related widgets from the Library page — fully consolidated in Torrents →
+  // Downloads.
   const std::initializer_list<QWidget*> libraryDownloadWidgets = {
       ui_->labelTorrentPathsHelp,
       ui_->labelTorrentClientDownload,
@@ -93,9 +93,11 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
       ui_->buttonBrowseTorrentFileSave,
       ui_->checkTorrentDownloadUseMagnet,
       ui_->groupTorrentHandling,
-      ui_->groupTorrentSearch,   // RSS / feed URLs, auto-check, sort — now on Torrents → Downloads
+      ui_->groupTorrentSearch,  // RSS / feed URLs, auto-check, sort — now on Torrents → Downloads
   };
-  for (auto* w : libraryDownloadWidgets) { if (w) w->hide(); }
+  for (auto* w : libraryDownloadWidgets) {
+    if (w) w->hide();
+  }
 
   ui_->treeWidget->setIndentation(22);
 
@@ -182,11 +184,13 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
              "<b>AniList token:</b> %3<br/>"
              "<b>MyAnimeList token:</b> %4<br/>"
              "<b>Kitsu credentials:</b> %5</p>"
-             "<p>Credentials are stored in <code>accounts.json</code> next to your data folder. Use the "
+             "<p>Credentials are stored in <code>accounts.json</code> next to your data folder. "
+             "Use the "
              "fields and buttons below — you do not need to edit the file by hand.</p>")
               .arg(svc.toHtmlEscaped())
               .arg(user.isEmpty() ? tr("(not set)").toHtmlEscaped() : user.toHtmlEscaped())
-              .arg(has_anilist_token ? tr("Present").toHtmlEscaped() : tr("Missing").toHtmlEscaped())
+              .arg(has_anilist_token ? tr("Present").toHtmlEscaped()
+                                     : tr("Missing").toHtmlEscaped())
               .arg(has_mal_token ? tr("Present").toHtmlEscaped() : tr("Missing").toHtmlEscaped())
               .arg(has_kitsu ? tr("Present").toHtmlEscaped() : tr("Missing").toHtmlEscaped()));
     };
@@ -215,10 +219,10 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
     mal_form->addRow(tr("Refresh token:"), m_mal_refresh_);
     ui_->verticalLayout_3->addWidget(mal_box);
 
-    auto* mal_btn = new QPushButton(tr("Open MyAnimeList API apps (create tokens)…"), ui_->accountsPage);
-    connect(mal_btn, &QPushButton::clicked, this, []() {
-      QDesktopServices::openUrl(QUrl("https://myanimelist.net/apiconfig"));
-    });
+    auto* mal_btn =
+        new QPushButton(tr("Open MyAnimeList API apps (create tokens)…"), ui_->accountsPage);
+    connect(mal_btn, &QPushButton::clicked, this,
+            []() { QDesktopServices::openUrl(QUrl("https://myanimelist.net/apiconfig")); });
     ui_->verticalLayout_3->addWidget(mal_btn);
 
     auto* kitsu_box = new QGroupBox(tr("Kitsu"), ui_->accountsPage);
@@ -236,9 +240,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
     ui_->verticalLayout_3->addWidget(kitsu_box);
 
     auto* kitsu_btn = new QPushButton(tr("Open Kitsu in browser…"), ui_->accountsPage);
-    connect(kitsu_btn, &QPushButton::clicked, this, []() {
-      QDesktopServices::openUrl(QUrl("https://kitsu.app/settings"));
-    });
+    connect(kitsu_btn, &QPushButton::clicked, this,
+            []() { QDesktopServices::openUrl(QUrl("https://kitsu.app/settings")); });
     ui_->verticalLayout_3->addWidget(kitsu_btn);
   }
 
@@ -303,7 +306,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
       QString::fromStdString(taiga::settings.mediaNotifyBalloonFormatUnrecognized()));
   ui_->checkBalloonUnrecognizedAppendHint->setChecked(
       taiga::settings.mediaNotifyBalloonUnrecognizedAppendHint());
-  ui_->spinDetectionInterval->setValue(static_cast<int>(taiga::settings.mediaDetectionInterval().count() / 1000));
+  ui_->spinDetectionInterval->setValue(
+      static_cast<int>(taiga::settings.mediaDetectionInterval().count() / 1000));
 #ifndef Q_OS_WINDOWS
   ui_->checkMediaDetection->setEnabled(false);
   ui_->checkMediaPlayerPolling->setEnabled(false);
@@ -355,7 +359,9 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   {
     auto* cb = new QCheckBox(tr("Delete local file after it is marked as watched"), this);
     cb->setChecked(taiga::settings.recognitionDeleteAfterWatched());
-    cb->setToolTip(tr("Permanently deletes the video file after the episode is marked as watched. Use with care."));
+    cb->setToolTip(
+        tr("Permanently deletes the video file after the episode is marked as watched. Use with "
+           "care."));
     connect(cb, &QCheckBox::checkStateChanged, this, [cb](Qt::CheckState) {
       taiga::settings.setRecognitionDeleteAfterWatched(cb->isChecked());
     });
@@ -363,8 +369,10 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
       auto* parent = ui_->checkAutoUpdateOutOfRange->parentWidget();
       if (auto* vl = qobject_cast<QVBoxLayout*>(parent->layout())) {
         const int idx = vl->indexOf(ui_->checkAutoUpdateOutOfRange);
-        if (idx >= 0) vl->insertWidget(idx + 1, cb);
-        else vl->addWidget(cb);
+        if (idx >= 0)
+          vl->insertWidget(idx + 1, cb);
+        else
+          vl->addWidget(cb);
       } else if (parent->layout()) {
         parent->layout()->addWidget(cb);
       }
@@ -382,9 +390,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
 #else
     const QString filter = tr("All files (*)");
 #endif
-    const QString path =
-        QFileDialog::getOpenFileName(this, tr("Media player"), ui_->lineMediaPlayerExecutable->text(),
-                                     filter);
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Media player"), ui_->lineMediaPlayerExecutable->text(), filter);
     if (!path.isEmpty()) ui_->lineMediaPlayerExecutable->setText(path);
   });
 
@@ -402,7 +409,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   ui_->lineProxyPassword->setText(QString::fromStdString(taiga::settings.proxyPassword()));
   ui_->checkNetworkRelaxedTls->setChecked(taiga::settings.networkRelaxedTls());
   ui_->checkNetworkRelaxedTls->setToolTip(
-      tr("Disables strict TLS certificate verification. Use only if you have proxy or certificate issues."));
+      tr("Disables strict TLS certificate verification. Use only if you have proxy or certificate "
+         "issues."));
   ui_->checkSyncOnFocus->setChecked(taiga::settings.syncOnWindowFocus());
   ui_->spinFocusMinutes->setValue(taiga::settings.syncOnWindowFocusMinutes());
 
@@ -452,7 +460,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   });
 
   ui_->checkTorrentAutocheckCatalog->setChecked(taiga::settings.torrentDiscoveryAutoCheckEnabled());
-  ui_->spinTorrentAutocheckMinutes->setValue(taiga::settings.torrentDiscoveryAutoCheckIntervalMinutes());
+  ui_->spinTorrentAutocheckMinutes->setValue(
+      taiga::settings.torrentDiscoveryAutoCheckIntervalMinutes());
   {
     QComboBox* const c = ui_->comboTorrentNewCatalogAction;
     if (c->count() == 0) {
@@ -508,7 +517,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
     const auto update_valid = [this, ok_btn]() {
       const auto lines = [](const QString& t) {
         QStringList out;
-        for (QString s : t.split(QRegularExpression(QStringLiteral("[\\r\\n]+")), Qt::SkipEmptyParts)) {
+        for (QString s :
+             t.split(QRegularExpression(QStringLiteral("[\\r\\n]+")), Qt::SkipEmptyParts)) {
           s = s.trimmed();
           if (!s.isEmpty()) out.push_back(s);
         }
@@ -522,7 +532,9 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
       bool valid = true;
 
       if (!inc.isEmpty() && exc_set.contains(QStringLiteral(".*"))) {
-        warning = tr("Your “Hide if matches” list contains <code>.*</code>, which hides everything, so no results can appear.");
+        warning =
+            tr("Your “Hide if matches” list contains <code>.*</code>, which hides everything, so "
+               "no results can appear.");
         valid = false;
       } else if (!inc.isEmpty()) {
         int covered = 0;
@@ -530,14 +542,17 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
           if (exc_set.contains(s)) ++covered;
         }
         if (covered == inc.size()) {
-          warning = tr("All “Show only if matches” rules are also present in “Hide if matches”, so no results can appear.");
+          warning =
+              tr("All “Show only if matches” rules are also present in “Hide if matches”, so no "
+                 "results can appear.");
           valid = false;
         }
       }
 
       if (ui_->labelTorrentFeedRegexWarning) {
         ui_->labelTorrentFeedRegexWarning->setText(
-            warning.isEmpty() ? QString{} : (u"<span style=\"color:#c33\"><b>%1</b></span>"_s.arg(warning)));
+            warning.isEmpty() ? QString{}
+                              : (u"<span style=\"color:#c33\"><b>%1</b></span>"_s.arg(warning)));
       }
       if (ok_btn) ok_btn->setEnabled(valid);
     };
@@ -560,10 +575,12 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
       edit->setPlainText(cur + QLatin1Char('\n'));
     };
 
-    connect(ui_->buttonTorrentPresetDiscardBadVideo, &QPushButton::clicked, this, [this, addLine]() {
-      // v1 preset: discard AVI, DIVX, LQ, RMVB, SD, WMV, XVID
-      addLine(ui_->plainTorrentFeedExcludeRegex, QStringLiteral("\\b(AVI|DIVX|LQ|RMVB|SD|WMV|XVID)\\b"));
-    });
+    connect(ui_->buttonTorrentPresetDiscardBadVideo, &QPushButton::clicked, this,
+            [this, addLine]() {
+              // v1 preset: discard AVI, DIVX, LQ, RMVB, SD, WMV, XVID
+              addLine(ui_->plainTorrentFeedExcludeRegex,
+                      QStringLiteral("\\b(AVI|DIVX|LQ|RMVB|SD|WMV|XVID)\\b"));
+            });
     connect(ui_->buttonTorrentPresetPrefer1080p, &QPushButton::clicked, this, [this, addLine]() {
       // v1 preset: prefer high-res
       addLine(ui_->plainTorrentFeedIncludeRegex, QStringLiteral("\\b1080p\\b"));
@@ -658,12 +675,10 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
       addLine(where == 1 ? ui_->plainTorrentFeedExcludeRegex : ui_->plainTorrentFeedIncludeRegex,
               line);
     });
-    connect(ui_->buttonTorrentRegexClearInclude, &QPushButton::clicked, this, [this]() {
-      ui_->plainTorrentFeedIncludeRegex->clear();
-    });
-    connect(ui_->buttonTorrentRegexClearExclude, &QPushButton::clicked, this, [this]() {
-      ui_->plainTorrentFeedExcludeRegex->clear();
-    });
+    connect(ui_->buttonTorrentRegexClearInclude, &QPushButton::clicked, this,
+            [this]() { ui_->plainTorrentFeedIncludeRegex->clear(); });
+    connect(ui_->buttonTorrentRegexClearExclude, &QPushButton::clicked, this,
+            [this]() { ui_->plainTorrentFeedExcludeRegex->clear(); });
   }
   {
     const auto upd_feed_cap = [this] {
@@ -678,7 +693,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   ui_->checkTorrentDownloadUseMagnet->setChecked(taiga::settings.torrentDownloadUseMagnet());
 
   ui_->checkTorrentUseAnimeFolder->setChecked(taiga::settings.torrentDownloadUseAnimeFolder());
-  ui_->checkTorrentFallbackClientPath->setChecked(taiga::settings.torrentDownloadFallbackOnClientPath());
+  ui_->checkTorrentFallbackClientPath->setChecked(
+      taiga::settings.torrentDownloadFallbackOnClientPath());
   ui_->checkTorrentCreateSubfolder->setChecked(taiga::settings.torrentDownloadCreateSubfolder());
   ui_->checkTorrentAppOpen->setChecked(taiga::settings.torrentAppOpen());
   if (taiga::settings.torrentAppMode() == 2) {
@@ -708,7 +724,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   ui_->checkTorrentCreateSubfolder->setEnabled(ui_->checkTorrentFallbackClientPath->isChecked());
   connect(ui_->checkTorrentFallbackClientPath, &QCheckBox::checkStateChanged, this,
           [this](Qt::CheckState) {
-            ui_->checkTorrentCreateSubfolder->setEnabled(ui_->checkTorrentFallbackClientPath->isChecked());
+            ui_->checkTorrentCreateSubfolder->setEnabled(
+                ui_->checkTorrentFallbackClientPath->isChecked());
             if (!ui_->checkTorrentFallbackClientPath->isChecked()) {
               ui_->checkTorrentCreateSubfolder->setChecked(false);
             }
@@ -719,9 +736,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
 #else
     const QString filter = tr("All files (*)");
 #endif
-    const QString path =
-        QFileDialog::getOpenFileName(this, tr("Torrent client application"),
-                                     ui_->lineTorrentAppExecutable->text(), filter);
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Torrent client application"), ui_->lineTorrentAppExecutable->text(), filter);
     if (!path.isEmpty()) ui_->lineTorrentAppExecutable->setText(path);
   });
 
@@ -772,10 +788,12 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
     }
   });
 
-  ui_->comboListService->addItem(sync::serviceName(sync::ServiceId::AniList), QStringLiteral("anilist"));
+  ui_->comboListService->addItem(sync::serviceName(sync::ServiceId::AniList),
+                                 QStringLiteral("anilist"));
   ui_->comboListService->addItem(sync::serviceName(sync::ServiceId::MyAnimeList),
                                  QStringLiteral("myanimelist"));
-  ui_->comboListService->addItem(sync::serviceName(sync::ServiceId::Kitsu), QStringLiteral("kitsu"));
+  ui_->comboListService->addItem(sync::serviceName(sync::ServiceId::Kitsu),
+                                 QStringLiteral("kitsu"));
   {
     const QString cur = QString::fromStdString(taiga::settings.service());
     int sidx = ui_->comboListService->findData(cur);
@@ -785,15 +803,19 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   ui_->checkListUpdatesEnabled->setChecked(taiga::settings.listSynchronizationEnabled());
   ui_->checkSyncPushAskConfirm->setChecked(taiga::settings.syncListPushAskConfirm());
   ui_->checkSyncPushAskConfirm->setToolTip(
-      tr("When off, list edits upload immediately without a confirmation prompt (subject to the debounce delay above)."));
+      tr("When off, list edits upload immediately without a confirmation prompt (subject to the "
+         "debounce delay above)."));
   ui_->spinListUpdateApiDelay->setValue(taiga::settings.syncListUpdateDelaySeconds());
   ui_->spinListUpdateApiDelay->setToolTip(
       tr("Seconds to wait after a local list change before syncing to the remote service. "
          "0 = immediate. Useful to reduce API calls when adjusting progress multiple times."));
 
-  ui_->comboListTitleLanguage->addItem(tr("Romaji"), static_cast<int>(anime::TitleLanguage::Romaji));
-  ui_->comboListTitleLanguage->addItem(tr("English"), static_cast<int>(anime::TitleLanguage::English));
-  ui_->comboListTitleLanguage->addItem(tr("Native title"), static_cast<int>(anime::TitleLanguage::Native));
+  ui_->comboListTitleLanguage->addItem(tr("Romaji"),
+                                       static_cast<int>(anime::TitleLanguage::Romaji));
+  ui_->comboListTitleLanguage->addItem(tr("English"),
+                                       static_cast<int>(anime::TitleLanguage::English));
+  ui_->comboListTitleLanguage->addItem(tr("Native title"),
+                                       static_cast<int>(anime::TitleLanguage::Native));
   ui_->comboListTitleLanguage->setToolTip(
       tr("Primary title shown in the anime list and search cards. Hover a row to see all title "
          "variants."));
@@ -856,7 +878,8 @@ void SettingsDialog::accept() {
   for (const auto& p : streaming_provider_checks_) {
     taiga::settings.setStreamProviderEnabled(p.first, p.second->isChecked());
   }
-  taiga::settings.setRecognitionIgnoredSubstrings(ui_->plainRecognitionIgnored->toPlainText().toStdString());
+  taiga::settings.setRecognitionIgnoredSubstrings(
+      ui_->plainRecognitionIgnored->toPlainText().toStdString());
   taiga::settings.setMediaNotifyRecognizedBalloon(ui_->checkNotifyMediaRecognized->isChecked());
   taiga::settings.setMediaNotifyUnrecognizedBalloon(ui_->checkNotifyMediaUnrecognized->isChecked());
   taiga::settings.setMediaNotifyBalloonFormatRecognized(
@@ -871,7 +894,8 @@ void SettingsDialog::accept() {
   taiga::settings.setRecognitionUpdateDelaySeconds(ui_->spinAutoUpdateDelay->value());
   taiga::settings.setRecognitionUpdateOutOfRange(ui_->checkAutoUpdateOutOfRange->isChecked());
   taiga::settings.setLibraryScanLookupParentDirectories(ui_->checkLibraryLookupParent->isChecked());
-  taiga::settings.setMediaPlayerExecutablePath(ui_->lineMediaPlayerExecutable->text().trimmed().toStdString());
+  taiga::settings.setMediaPlayerExecutablePath(
+      ui_->lineMediaPlayerExecutable->text().trimmed().toStdString());
   track::media::detection()->refreshPollingFromSettings();
 
   taiga::settings.setCheckForUpdatesOnStartup(ui_->checkUpdatesOnStartup->isChecked());
@@ -935,12 +959,12 @@ void SettingsDialog::accept() {
   taiga::settings.setListSynchronizationEnabled(ui_->checkListUpdatesEnabled->isChecked());
   taiga::settings.setSyncListPushAskConfirm(ui_->checkSyncPushAskConfirm->isChecked());
   taiga::settings.setSyncListUpdateDelaySeconds(ui_->spinListUpdateApiDelay->value());
-  taiga::settings.setListTitleLanguage(static_cast<anime::TitleLanguage>(
-      ui_->comboListTitleLanguage->currentData().toInt()));
-  taiga::settings.setListDoubleClickAction(static_cast<taiga::ListRowAction>(
-      ui_->comboListDoubleClick->currentData().toInt()));
-  taiga::settings.setListMiddleClickAction(static_cast<taiga::ListRowAction>(
-      ui_->comboListMiddleClick->currentData().toInt()));
+  taiga::settings.setListTitleLanguage(
+      static_cast<anime::TitleLanguage>(ui_->comboListTitleLanguage->currentData().toInt()));
+  taiga::settings.setListDoubleClickAction(
+      static_cast<taiga::ListRowAction>(ui_->comboListDoubleClick->currentData().toInt()));
+  taiga::settings.setListMiddleClickAction(
+      static_cast<taiga::ListRowAction>(ui_->comboListMiddleClick->currentData().toInt()));
   taiga::settings.setListProgressShowAired(ui_->checkListProgressShowAired->isChecked());
   taiga::settings.setListProgressShowAvailable(ui_->checkListProgressShowAvailable->isChecked());
   taiga::settings.setListHighlightNextEpisodeOnDisk(ui_->checkListHighlightNextOnDisk->isChecked());
@@ -1017,7 +1041,9 @@ void SettingsDialog::buildDownloadsPage() {
 
   // ── RSS sources ─────────────────────────────────────────────────────────
   addSection(tr("RSS sources"));
-  addHelp(tr("Search URL is used for in-app torrent search. Use <b>%title%</b> as the placeholder for the search term."));
+  addHelp(
+      tr("Search URL is used for in-app torrent search. Use <b>%title%</b> as the placeholder for "
+         "the search term."));
   {
     auto* row = new QHBoxLayout();
     row->addWidget(new QLabel(tr("Search URL:"), page));
@@ -1027,13 +1053,15 @@ void SettingsDialog::buildDownloadsPage() {
     row->addWidget(m_rss_search_url_);
     layout->addLayout(row);
   }
-  addHelp(tr("Catalog feed: optional RSS browsed on the Torrents page. Leave empty to use the default."));
+  addHelp(tr(
+      "Catalog feed: optional RSS browsed on the Torrents page. Leave empty to use the default."));
   {
     auto* row = new QHBoxLayout();
     row->addWidget(new QLabel(tr("Catalog feed URL:"), page));
     m_rss_feed_url_ = new QLineEdit(page);
     m_rss_feed_url_->setPlaceholderText(tr("Optional — leave empty for default"));
-    m_rss_feed_url_->setText(QString::fromStdString(taiga::settings.torrentDiscoveryFeedSourceUrl()));
+    m_rss_feed_url_->setText(
+        QString::fromStdString(taiga::settings.torrentDiscoveryFeedSourceUrl()));
     row->addWidget(m_rss_feed_url_);
     layout->addLayout(row);
   }
@@ -1062,14 +1090,20 @@ void SettingsDialog::buildDownloadsPage() {
     m_rss_sort_by_->addItem(tr("Published date"), QStringLiteral("release_date"));
     const QString curBy = QString::fromStdString(taiga::settings.torrentRssSortBy());
     for (int i = 0; i < m_rss_sort_by_->count(); ++i)
-      if (m_rss_sort_by_->itemData(i).toString() == curBy) { m_rss_sort_by_->setCurrentIndex(i); break; }
+      if (m_rss_sort_by_->itemData(i).toString() == curBy) {
+        m_rss_sort_by_->setCurrentIndex(i);
+        break;
+      }
     row->addWidget(m_rss_sort_by_);
     m_rss_sort_order_ = new QComboBox(page);
     m_rss_sort_order_->addItem(tr("Ascending"), QStringLiteral("ascending"));
     m_rss_sort_order_->addItem(tr("Descending"), QStringLiteral("descending"));
     const QString curOrd = QString::fromStdString(taiga::settings.torrentRssSortOrder());
     for (int i = 0; i < m_rss_sort_order_->count(); ++i)
-      if (m_rss_sort_order_->itemData(i).toString() == curOrd) { m_rss_sort_order_->setCurrentIndex(i); break; }
+      if (m_rss_sort_order_->itemData(i).toString() == curOrd) {
+        m_rss_sort_order_->setCurrentIndex(i);
+        break;
+      }
     row->addWidget(m_rss_sort_order_);
     row->addStretch();
     layout->addLayout(row);
@@ -1078,9 +1112,11 @@ void SettingsDialog::buildDownloadsPage() {
 
   // ── Torrent file preference ─────────────────────────────────────────────
   addSection(tr("Torrent file preference"));
-  m_dl_use_magnet_ = new QCheckBox(tr("Prefer magnet links when both a magnet and a .torrent URL are present"), page);
+  m_dl_use_magnet_ = new QCheckBox(
+      tr("Prefer magnet links when both a magnet and a .torrent URL are present"), page);
   m_dl_use_magnet_->setChecked(taiga::settings.torrentDownloadUseMagnet());
-  m_dl_use_magnet_->setToolTip(tr("When off, the .torrent file URL is used instead of the magnet link."));
+  m_dl_use_magnet_->setToolTip(
+      tr("When off, the .torrent file URL is used instead of the magnet link."));
   layout->addWidget(m_dl_use_magnet_);
 
   // ── Download paths ──────────────────────────────────────────────────────
@@ -1092,12 +1128,14 @@ void SettingsDialog::buildDownloadsPage() {
     auto* row = new QHBoxLayout();
     row->addWidget(new QLabel(tr("Torrent client download folder:"), page));
     m_dl_client_path_ = new QLineEdit(page);
-    m_dl_client_path_->setPlaceholderText(tr("Optional — default save path for your torrent client"));
+    m_dl_client_path_->setPlaceholderText(
+        tr("Optional — default save path for your torrent client"));
     m_dl_client_path_->setText(QString::fromStdString(taiga::settings.torrentClientDownloadPath()));
     row->addWidget(m_dl_client_path_);
     auto* browse = new QPushButton(tr("Browse…"), page);
     connect(browse, &QPushButton::clicked, page, [this]() {
-      const auto dir = QFileDialog::getExistingDirectory(this, tr("Client download folder"), m_dl_client_path_->text());
+      const auto dir = QFileDialog::getExistingDirectory(this, tr("Client download folder"),
+                                                         m_dl_client_path_->text());
       if (!dir.isEmpty()) m_dl_client_path_->setText(dir);
     });
     row->addWidget(browse);
@@ -1112,7 +1150,8 @@ void SettingsDialog::buildDownloadsPage() {
     row->addWidget(m_dl_file_save_path_);
     auto* browse = new QPushButton(tr("Browse…"), page);
     connect(browse, &QPushButton::clicked, page, [this]() {
-      const auto dir = QFileDialog::getExistingDirectory(this, tr(".torrent save folder"), m_dl_file_save_path_->text());
+      const auto dir = QFileDialog::getExistingDirectory(this, tr(".torrent save folder"),
+                                                         m_dl_file_save_path_->text());
       if (!dir.isEmpty()) m_dl_file_save_path_->setText(dir);
     });
     row->addWidget(browse);
@@ -1124,25 +1163,31 @@ void SettingsDialog::buildDownloadsPage() {
   addSection(tr("Torrent client & folder rules"));
   addHelp(tr("Controls where your torrent client saves downloaded files."));
 
-  m_dl_use_anime_folder_ = new QCheckBox(tr("Use anime library folder as download target when available"), page);
+  m_dl_use_anime_folder_ =
+      new QCheckBox(tr("Use anime library folder as download target when available"), page);
   m_dl_use_anime_folder_->setChecked(taiga::settings.torrentDownloadUseAnimeFolder());
-  m_dl_use_anime_folder_->setToolTip(tr("Saves the torrent directly into the matching anime library folder when found."));
+  m_dl_use_anime_folder_->setToolTip(
+      tr("Saves the torrent directly into the matching anime library folder when found."));
   layout->addWidget(m_dl_use_anime_folder_);
 
-  m_dl_fallback_client_ = new QCheckBox(tr("If no per-title folder, use \"Torrent client download folder\" above"), page);
+  m_dl_fallback_client_ = new QCheckBox(
+      tr("If no per-title folder, use \"Torrent client download folder\" above"), page);
   m_dl_fallback_client_->setChecked(taiga::settings.torrentDownloadFallbackOnClientPath());
-  m_dl_fallback_client_->setToolTip(tr("Falls back to the torrent client's default folder if no anime library folder matches."));
+  m_dl_fallback_client_->setToolTip(
+      tr("Falls back to the torrent client's default folder if no anime library folder matches."));
   layout->addWidget(m_dl_fallback_client_);
 
-  m_dl_create_subfolder_ = new QCheckBox(tr("Create a subfolder by anime title under that client download folder"), page);
+  m_dl_create_subfolder_ = new QCheckBox(
+      tr("Create a subfolder by anime title under that client download folder"), page);
   m_dl_create_subfolder_->setChecked(taiga::settings.torrentDownloadCreateSubfolder());
-  m_dl_create_subfolder_->setToolTip(tr("Creates a subfolder named after the anime title inside the client download folder."));
+  m_dl_create_subfolder_->setToolTip(
+      tr("Creates a subfolder named after the anime title inside the client download folder."));
   layout->addWidget(m_dl_create_subfolder_);
 
   const auto updateSubfolderEnabled = [this]() {
     if (m_dl_create_subfolder_) {
-      m_dl_create_subfolder_->setEnabled(
-          m_dl_fallback_client_ && m_dl_fallback_client_->isChecked());
+      m_dl_create_subfolder_->setEnabled(m_dl_fallback_client_ &&
+                                         m_dl_fallback_client_->isChecked());
     }
   };
   connect(m_dl_fallback_client_, &QCheckBox::checkStateChanged, page,
@@ -1153,14 +1198,17 @@ void SettingsDialog::buildDownloadsPage() {
   layout->addSpacing(8);
   addSection(tr("Torrent application"));
 
-  m_dl_app_open_ = new QCheckBox(tr("Open torrents with an application after download / on launch"), page);
+  m_dl_app_open_ =
+      new QCheckBox(tr("Open torrents with an application after download / on launch"), page);
   m_dl_app_open_->setChecked(taiga::settings.torrentAppOpen());
-  m_dl_app_open_->setToolTip(tr("Opens each torrent with the configured application after adding it to the queue."));
+  m_dl_app_open_->setToolTip(
+      tr("Opens each torrent with the configured application after adding it to the queue."));
   layout->addWidget(m_dl_app_open_);
 
   {
     auto* row = new QHBoxLayout();
-    m_dl_app_default_ = new QRadioButton(tr("Default application (.torrent / magnet handler)"), page);
+    m_dl_app_default_ =
+        new QRadioButton(tr("Default application (.torrent / magnet handler)"), page);
     m_dl_app_custom_ = new QRadioButton(tr("Custom executable"), page);
     const bool custom = taiga::settings.torrentAppMode() == 2;
     m_dl_app_default_->setChecked(!custom);
@@ -1183,7 +1231,8 @@ void SettingsDialog::buildDownloadsPage() {
 #else
       const QString filter = tr("All files (*)");
 #endif
-      const QString p = QFileDialog::getOpenFileName(this, tr("Torrent application"), m_dl_app_exe_->text(), filter);
+      const QString p = QFileDialog::getOpenFileName(this, tr("Torrent application"),
+                                                     m_dl_app_exe_->text(), filter);
       if (!p.isEmpty()) m_dl_app_exe_->setText(p);
     });
     row->addWidget(browse);
@@ -1194,7 +1243,8 @@ void SettingsDialog::buildDownloadsPage() {
     const bool on = m_dl_app_open_ && m_dl_app_open_->isChecked();
     if (m_dl_app_default_) m_dl_app_default_->setEnabled(on);
     if (m_dl_app_custom_) m_dl_app_custom_->setEnabled(on);
-    if (m_dl_app_exe_) m_dl_app_exe_->setEnabled(on && m_dl_app_custom_ && m_dl_app_custom_->isChecked());
+    if (m_dl_app_exe_)
+      m_dl_app_exe_->setEnabled(on && m_dl_app_custom_ && m_dl_app_custom_->isChecked());
   };
   connect(m_dl_app_open_, &QCheckBox::checkStateChanged, page,
           [updateAppWidgets](Qt::CheckState) { updateAppWidgets(); });
@@ -1205,8 +1255,8 @@ void SettingsDialog::buildDownloadsPage() {
   // ── Auto-download ────────────────────────────────────────────────────────
   layout->addSpacing(8);
   addSection(tr("Auto-download"));
-  m_dl_autodl_skip_failed_twice_today_ = new QCheckBox(
-      tr("Skip titles that failed twice today (auto-download only)"), page);
+  m_dl_autodl_skip_failed_twice_today_ =
+      new QCheckBox(tr("Skip titles that failed twice today (auto-download only)"), page);
   m_dl_autodl_skip_failed_twice_today_->setChecked(
       taiga::settings.torrentAutoDownloadSkipAfterTwoFailuresToday());
   m_dl_autodl_skip_failed_twice_today_->setToolTip(
@@ -1218,11 +1268,11 @@ void SettingsDialog::buildDownloadsPage() {
   // ── qBittorrent Web API ─────────────────────────────────────────────────
   layout->addSpacing(8);
   addSection(tr("qBittorrent Web API (recommended for auto-downloads)"));
-  addHelp(tr(
-      "When enabled, Taiga sends torrents directly to qBittorrent via its Web API and sets the "
-      "per-anime save path automatically — no .torrent file dialog needed. "
-      "Enable in qBittorrent: <b>Tools → Preferences → Web UI → Enable Web User Interface</b>. "
-      "Leave username/password blank if you have set no Web UI password."));
+  addHelp(
+      tr("When enabled, Taiga sends torrents directly to qBittorrent via its Web API and sets the "
+         "per-anime save path automatically — no .torrent file dialog needed. "
+         "Enable in qBittorrent: <b>Tools → Preferences → Web UI → Enable Web User Interface</b>. "
+         "Leave username/password blank if you have set no Web UI password."));
 
   m_dl_qbit_api_enabled_ = new QCheckBox(tr("Use qBittorrent Web API for all downloads"), page);
   m_dl_qbit_api_enabled_->setChecked(taiga::settings.torrentQBitApiEnabled());
@@ -1276,7 +1326,8 @@ void SettingsDialog::saveDownloadsPage() {
   if (m_rss_search_url_)
     taiga::settings.setTorrentDiscoverySearchUrl(m_rss_search_url_->text().trimmed().toStdString());
   if (m_rss_feed_url_)
-    taiga::settings.setTorrentDiscoveryFeedSourceUrl(m_rss_feed_url_->text().trimmed().toStdString());
+    taiga::settings.setTorrentDiscoveryFeedSourceUrl(
+        m_rss_feed_url_->text().trimmed().toStdString());
   if (m_rss_autocheck_)
     taiga::settings.setTorrentDiscoveryAutoCheckEnabled(m_rss_autocheck_->isChecked());
   if (m_rss_autocheck_mins_)
@@ -1284,7 +1335,8 @@ void SettingsDialog::saveDownloadsPage() {
   if (m_rss_sort_by_)
     taiga::settings.setTorrentRssSortBy(m_rss_sort_by_->currentData().toString().toStdString());
   if (m_rss_sort_order_)
-    taiga::settings.setTorrentRssSortOrder(m_rss_sort_order_->currentData().toString().toStdString());
+    taiga::settings.setTorrentRssSortOrder(
+        m_rss_sort_order_->currentData().toString().toStdString());
 
   taiga::settings.setTorrentDownloadUseMagnet(m_dl_use_magnet_->isChecked());
   taiga::settings.setTorrentClientDownloadPath(m_dl_client_path_->text().trimmed().toStdString());
@@ -1295,8 +1347,8 @@ void SettingsDialog::saveDownloadsPage() {
   }
   taiga::settings.setTorrentDownloadUseAnimeFolder(m_dl_use_anime_folder_->isChecked());
   taiga::settings.setTorrentDownloadFallbackOnClientPath(m_dl_fallback_client_->isChecked());
-  taiga::settings.setTorrentDownloadCreateSubfolder(
-      m_dl_fallback_client_->isChecked() && m_dl_create_subfolder_->isChecked());
+  taiga::settings.setTorrentDownloadCreateSubfolder(m_dl_fallback_client_->isChecked() &&
+                                                    m_dl_create_subfolder_->isChecked());
   taiga::settings.setTorrentAppOpen(m_dl_app_open_->isChecked());
   taiga::settings.setTorrentAppMode(m_dl_app_custom_->isChecked() ? 2 : 1);
   taiga::settings.setTorrentAppExecutablePath(m_dl_app_exe_->text().trimmed().toStdString());
@@ -1341,9 +1393,12 @@ void SettingsDialog::populatePlaceholderPage(const QString& parent, const QStrin
     // Single unified Recognition page.
     addHeading(tr("Media Players"));
     addParagraph(tr(
-        "Taiga polls running processes on Windows to detect the file currently open in a media player. "
-        "After identifying the filename, Taiga parses it with Anitomy to recognise the anime episode.<br><br>"
-        "Players are matched automatically via their window title — no manual configuration needed. "
+        "Taiga polls running processes on Windows to detect the file currently open in a media "
+        "player. "
+        "After identifying the filename, Taiga parses it with Anitomy to recognise the anime "
+        "episode.<br><br>"
+        "Players are matched automatically via their window title — no manual configuration "
+        "needed. "
         "Supported player families include:<br>"
         "&nbsp;&nbsp;• VLC media player<br>"
         "&nbsp;&nbsp;• MPC-HC / MPC-BE (Media Player Classic)<br>"
@@ -1368,14 +1423,14 @@ void SettingsDialog::populatePlaceholderPage(const QString& parent, const QStrin
       auto* cb = new QCheckBox(tr(e.label), page);
       const std::string slug(e.slug);
       cb->setChecked(taiga::settings.streamProviderEnabled(slug));
-      connect(cb, &QCheckBox::checkStateChanged, page,
-              [slug, cb](Qt::CheckState) {
-                taiga::settings.setStreamProviderEnabled(slug, cb->isChecked());
-              });
+      connect(cb, &QCheckBox::checkStateChanged, page, [slug, cb](Qt::CheckState) {
+        taiga::settings.setStreamProviderEnabled(slug, cb->isChecked());
+      });
       layout->addWidget(cb);
     }
-    addParagraph(tr("<br><i>Master toggle and detection interval are in "
-                    "<b>Application → Media recognition</b>.</i>"));
+    addParagraph(
+        tr("<br><i>Master toggle and detection interval are in "
+           "<b>Application → Media recognition</b>.</i>"));
   } else if (parent == u"Torrents" && child == u"Downloads") {
     // The dedicated Downloads page is a proper stackedWidget page — this
     // code path should not be reached since kStackTorrentsDownloads != kStackPlaceholder.
@@ -1393,17 +1448,14 @@ void SettingsDialog::populatePlaceholderPage(const QString& parent, const QStrin
     const int excCount = exc.isEmpty() ? 0 : exc.split(u'\n').size();
 
     QString summary;
-    summary += filterEnabled
-        ? tr("Feed archive limit: <b>enabled</b>")
-        : tr("Feed archive limit: <b>disabled</b>");
+    summary += filterEnabled ? tr("Feed archive limit: <b>enabled</b>")
+                             : tr("Feed archive limit: <b>disabled</b>");
     summary += u"<br>";
-    summary += incCount > 0
-        ? tr("Include filters: <b>%1 rule(s)</b>").arg(incCount)
-        : tr("Include filters: <i>none</i>");
+    summary += incCount > 0 ? tr("Include filters: <b>%1 rule(s)</b>").arg(incCount)
+                            : tr("Include filters: <i>none</i>");
     summary += u"<br>";
-    summary += excCount > 0
-        ? tr("Exclude filters: <b>%1 rule(s)</b>").arg(excCount)
-        : tr("Exclude filters: <i>none</i>");
+    summary += excCount > 0 ? tr("Exclude filters: <b>%1 rule(s)</b>").arg(excCount)
+                            : tr("Exclude filters: <i>none</i>");
     addParagraph(summary);
 
     addButton(tr("Manage filter rules…"), [this]() {
@@ -1420,16 +1472,15 @@ void SettingsDialog::populatePlaceholderPage(const QString& parent, const QStrin
       // Refresh summary after editing (whether saved or cancelled).
       populatePlaceholderPage(u"Torrents"_s, u"Filters"_s);
     });
-    addParagraph(tr(
-        "<br><i>List-based filters (hide watched, hide not on list, etc.) are shown "
-        "in the Torrents panel toolbar and persist in session settings.</i>"));
+    addParagraph(
+        tr("<br><i>List-based filters (hide watched, hide not on list, etc.) are shown "
+           "in the Torrents panel toolbar and persist in session settings.</i>"));
   } else if (parent == u"Advanced" && child == u"Cache") {
     addHeading(tr("Cache"));
 
     const QString dataPath =
         QDir::toNativeSeparators(QString::fromStdString(taiga::get_data_path()));
-    addParagraph(
-        tr("Data folder: <code>%1</code>").arg(dataPath.toHtmlEscaped()));
+    addParagraph(tr("Data folder: <code>%1</code>").arg(dataPath.toHtmlEscaped()));
     addButton(tr("Open data folder…"), [dataPath]() {
       const QUrl url = QUrl::fromLocalFile(
           dataPath.endsWith(u'\\') || dataPath.endsWith(u'/') ? dataPath : dataPath + u'/');
@@ -1439,24 +1490,26 @@ void SettingsDialog::populatePlaceholderPage(const QString& parent, const QStrin
     {
       int count = 0;
       const qint64 bytes = imageProvider.posterCacheSize(&count);
-      const QString sizeStr = bytes < 1024 * 1024
-          ? tr("%1 KB").arg(bytes / 1024)
-          : tr("%1 MB").arg(bytes / (1024 * 1024));
-      addParagraph(u"<br>"_s + tr("Poster image cache: <b>%1 file(s), %2</b>").arg(count).arg(sizeStr));
+      const QString sizeStr = bytes < 1024 * 1024 ? tr("%1 KB").arg(bytes / 1024)
+                                                  : tr("%1 MB").arg(bytes / (1024 * 1024));
+      addParagraph(u"<br>"_s +
+                   tr("Poster image cache: <b>%1 file(s), %2</b>").arg(count).arg(sizeStr));
     }
     addButton(tr("Clear poster image cache"), [this]() {
       imageProvider.clearPosterCache();
-      QMessageBox::information(this, tr("Taiga"),
-                               tr("Poster image cache cleared. Images will re-download on demand."));
+      QMessageBox::information(
+          this, tr("Taiga"), tr("Poster image cache cleared. Images will re-download on demand."));
       // Refresh size display.
       populatePlaceholderPage(u"Advanced"_s, u"Cache"_s);
     });
 
-    addParagraph(u"<br>"_s + tr("Recognition cache: in-memory, rebuilt automatically after each sync."));
+    addParagraph(u"<br>"_s +
+                 tr("Recognition cache: in-memory, rebuilt automatically after each sync."));
     addButton(tr("Clear recognition cache now"), [this]() {
       track::recognition::cache()->clear();
-      QMessageBox::information(this, tr("Taiga"),
-                               tr("Recognition cache cleared. It will be rebuilt on next library scan."));
+      QMessageBox::information(
+          this, tr("Taiga"),
+          tr("Recognition cache cleared. It will be rebuilt on next library scan."));
     });
 
     addParagraph(u"<br>"_s + tr("Cache diagnostics"));

@@ -39,7 +39,8 @@ class ListView final : public QTreeView {
   Q_DISABLE_COPY_MOVE(ListView)
 
 public:
-  ListView(QWidget* parent, AnimeListModel* model, AnimeListProxyModel* proxyModel);
+  ListView(QWidget* parent, AnimeListModel* model, AnimeListProxyModel* proxyModel,
+           bool enableSorting = true);
   ~ListView() = default;
 
   ListViewBase* baseView() {

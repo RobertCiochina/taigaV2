@@ -44,8 +44,10 @@
 #include "gui/utils/format.hpp"
 #include "gui/utils/theme.hpp"
 #include "media/anime.hpp"
+#include "media/anime_db.hpp"
 #include "media/anime_list_export.hpp"
 #include "media/anime_season.hpp"
+#include "sync/anilist.hpp"
 #include "sync/service.hpp"
 #include "taiga/session.hpp"
 #include "taiga/user_feedback.hpp"
@@ -77,9 +79,8 @@ SearchWidget::SearchWidget(QWidget* parent)
       m_sortMenu(new QMenu(this)),
       m_viewMenu(new QMenu(this)),
       m_moreMenu(new QMenu(this)) {
-  m_proxyModel->sort(taiga::session.searchListSortColumn(), taiga::session.searchListSortOrder());
-  m_proxyModel->setSecondarySort(taiga::session.searchListSortColumnSecondary(),
-                                 taiga::session.searchListSortOrderSecondary());
+  // Search should be fast and predictable: keep the natural database order (by anime id) and
+  // avoid proxy sorting costs on large result sets (e.g. after Reset filters).
   m_proxyModel->setFilters(taiga::session.searchListFilters());
 
   static const auto filterValue = [](QComboBox* combo, int index) {
@@ -159,10 +160,10 @@ SearchWidget::SearchWidget(QWidget* parent)
   }
 
   {
-    auto* load_season = new QPushButton(tr("Load season"), this);
-    load_season->setToolTip(
-        tr("Download this season’s catalog from the active service into the local database."));
-    connect(load_season, &QPushButton::clicked, this, [this]() {
+    auto* load_all = new QPushButton(tr("Load all"), this);
+    load_all->setToolTip(
+        tr("Download the full year+season catalog from the active service into the local database."));
+    connect(load_all, &QPushButton::clicked, this, [this]() {
       const int yi = m_comboYear->currentIndex();
       const int si = m_comboSeason->currentIndex();
       if (yi < 0 || si < 0) {
@@ -194,7 +195,99 @@ SearchWidget::SearchWidget(QWidget* parent)
         }
       });
     });
-    filtersLayout->addWidget(load_season);
+    filtersLayout->addWidget(load_all);
+
+    auto* load_my_list = new QPushButton(tr("Load my list"), this);
+    load_my_list->setToolTip(
+        tr("Refresh details for anime already on your list that match the selected year+season.\n"
+           "This avoids loading the full seasonal catalog."));
+    connect(load_my_list, &QPushButton::clicked, this, [this]() {
+      const int yi = m_comboYear->currentIndex();
+      const int si = m_comboSeason->currentIndex();
+      if (yi < 0 || si < 0) {
+        taiga::userFeedback(tr("Select a year and season first."), true);
+        return;
+      }
+      const int y = m_comboYear->itemData(yi).toInt();
+      const auto season = static_cast<anime::SeasonName>(m_comboSeason->itemData(si).toInt());
+      if (y <= 0 || season == anime::SeasonName::Unknown) {
+        taiga::userFeedback(tr("Select a valid year and season."), true);
+        return;
+      }
+
+      // Collect list anime ids that match the selected season/year.
+      QList<int> ids;
+      for (const auto& [id, entry] : anime::db.entries().asKeyValueRange()) {
+        (void)entry;
+        const auto* item = anime::db.item(id);
+        if (!item) continue;
+        if (item->date_started.year() != y) continue;
+        const anime::Season s{item->date_started};
+        if (static_cast<int>(s.name) != static_cast<int>(season)) continue;
+        ids.push_back(id);
+      }
+
+      if (ids.isEmpty()) {
+        taiga::userFeedback(tr("No anime on your list match that year+season."), false);
+        return;
+      }
+
+      if (auto* mw = mainWindow()) {
+        mw->statusBar()->showMessage(tr("Refreshing %1 list title(s)…").arg(ids.size()), 4000);
+      }
+
+      // Best-effort: queue per-anime refreshes. Only AniList exposes completion signals in this build.
+      if (sync::currentServiceId() == sync::ServiceId::AniList) {
+        auto* svc = sync::anilist::Service::instance();
+        const int total = ids.size();
+        auto remaining = std::make_shared<int>(total);
+        auto ok_count = std::make_shared<int>(0);
+        auto wanted = std::make_shared<QSet<int>>();
+        for (int id : ids) wanted->insert(id);
+
+        QPointer<SearchWidget> guard(this);
+        QMetaObject::Connection conn;
+        conn = connect(svc, &sync::anilist::Service::mediaFetchFinished, this,
+                       [guard, remaining, ok_count, wanted, total, &conn](int id, bool success) mutable {
+                         if (!guard) {
+                           disconnect(conn);
+                           return;
+                         }
+                         if (!wanted->contains(id)) return;
+                         wanted->remove(id);
+                         if (success) ++(*ok_count);
+                         if (*remaining > 0) --(*remaining);
+                         if (*remaining <= 0) {
+                           disconnect(conn);
+                           if (auto* mw = mainWindow()) {
+                             mw->statusBar()->showMessage(
+                                 tr("Refreshed %1/%2 title(s).").arg(*ok_count).arg(total),
+                                 6000);
+                           }
+                           guard->reloadAnimeList();
+                           if (auto* mw = mainWindow()) {
+                             if (mw->navigation()) mw->navigation()->refresh();
+                           }
+                         }
+                       });
+
+        for (int id : ids) {
+          sync::fetchAnime(id);
+        }
+      } else {
+        for (int id : ids) {
+          sync::fetchAnime(id);
+        }
+        // No completion tracking for MAL/Kitsu in this build; just refresh locally shortly after queueing.
+        QTimer::singleShot(1500, this, [this]() {
+          reloadAnimeList();
+          if (auto* mw = mainWindow()) {
+            if (mw->navigation()) mw->navigation()->refresh();
+          }
+        });
+      }
+    });
+    filtersLayout->addWidget(load_my_list);
 
     auto* reset_filters = new QPushButton(tr("Reset filters"), this);
     reset_filters->setToolTip(
@@ -209,10 +302,13 @@ SearchWidget::SearchWidget(QWidget* parent)
       m_comboSeason->setCurrentIndex(-1);
       m_comboType->setCurrentIndex(-1);
       m_comboStatus->setCurrentIndex(-1);
-      m_proxyModel->setYearFilter(std::nullopt);
-      m_proxyModel->setSeasonFilter(std::nullopt);
-      m_proxyModel->setTypeFilter(std::nullopt);
-      m_proxyModel->setStatusFilter(std::nullopt);
+      // Batch structured-filter clear into a single proxy invalidation (performance).
+      auto f = m_proxyModel->filters();
+      f.year.reset();
+      f.season.reset();
+      f.type.reset();
+      f.status.reset();
+      m_proxyModel->setFilters(f);
       // Clearing season/year is an explicit user choice — don't re-apply defaults next time.
       taiga::session.setSearchListSeasonYearCustomized(true);
       if (auto* mw = mainWindow()) {
@@ -223,7 +319,6 @@ SearchWidget::SearchWidget(QWidget* parent)
   }
 
   initToolbar();
-  connect(m_sortMenu, &QMenu::aboutToShow, this, &SearchWidget::initSortMenu);
   connect(m_viewMenu, &QMenu::aboutToShow, this, &SearchWidget::initViewMenu);
   connect(m_moreMenu, &QMenu::aboutToShow, this, &SearchWidget::initMoreMenu);
   setViewMode(taiga::session.searchListViewMode());
@@ -366,7 +461,8 @@ void SearchWidget::setViewMode(ListViewMode mode) {
 
   switch (mode) {
     case ListViewMode::List:
-      m_listView = new ListView(this, m_model, m_proxyModel);
+      // Disable interactive sorting on Search to keep resets/snappy filters fast.
+      m_listView = new ListView(this, m_model, m_proxyModel, /*enableSorting=*/false);
       layout()->addWidget(m_listView);
       m_listView->show();
       break;
@@ -380,17 +476,11 @@ void SearchWidget::setViewMode(ListViewMode mode) {
 }
 
 void SearchWidget::initToolbar() {
-  const auto actionSort = new QAction(theme.getIcon("sort"), tr("Sort"), this);
   const auto actionView = new QAction(theme.getIcon("grid_view"), tr("View"), this);
   const auto actionMore = new QAction(theme.getIcon("more_horiz"), tr("More"), this);
 
-  m_toolbar->addAction(actionSort);
   m_toolbar->addAction(actionView);
   m_toolbar->addAction(actionMore);
-
-  const auto sortButton = static_cast<QToolButton*>(m_toolbar->widgetForAction(actionSort));
-  sortButton->setPopupMode(QToolButton::InstantPopup);
-  sortButton->setMenu(m_sortMenu);
 
   const auto viewButton = static_cast<QToolButton*>(m_toolbar->widgetForAction(actionView));
   viewButton->setPopupMode(QToolButton::InstantPopup);
@@ -401,74 +491,8 @@ void SearchWidget::initToolbar() {
   moreButton->setMenu(m_moreMenu);
 }
 
-void SearchWidget::initSortMenu() {
-  using Qt::SortOrder::AscendingOrder;
-  using Qt::SortOrder::DescendingOrder;
-
-  static const QList<QPair<AnimeListModel::Column, Qt::SortOrder>> items{
-      {AnimeListModel::COLUMN_TITLE, AscendingOrder},
-      {AnimeListModel::COLUMN_PROGRESS, DescendingOrder},
-      {AnimeListModel::COLUMN_DURATION, DescendingOrder},
-      {AnimeListModel::COLUMN_REWATCHES, DescendingOrder},
-      {AnimeListModel::COLUMN_SCORE, DescendingOrder},
-      {AnimeListModel::COLUMN_AVERAGE, DescendingOrder},
-      {AnimeListModel::COLUMN_TYPE, AscendingOrder},
-      {AnimeListModel::COLUMN_SEASON, DescendingOrder},
-      {AnimeListModel::COLUMN_STARTED, DescendingOrder},
-      {AnimeListModel::COLUMN_COMPLETED, DescendingOrder},
-      {AnimeListModel::COLUMN_LAST_UPDATED, DescendingOrder},
-      {AnimeListModel::COLUMN_NOTES, AscendingOrder},
-      {AnimeListModel::COLUMN_WATCH_ORDER_GUIDE, AscendingOrder},
-  };
-
-  const auto actionGroup = new QActionGroup(this);
-  const auto secondaryGroup = new QActionGroup(this);
-
-  m_sortMenu->clear();
-
-  for (const auto& [column, order] : items) {
-    const auto headerData =
-        m_model->headerData(column, Qt::Orientation::Horizontal, Qt::DisplayRole);
-
-    const auto action = m_sortMenu->addAction(headerData.toString(), this, [this, column, order]() {
-      if (m_listView) {
-        m_listView->sortByColumn(column, order);
-      } else {
-        m_proxyModel->sort(column, order);
-      }
-    });
-
-    action->setCheckable(true);
-    action->setChecked(column == m_proxyModel->sortColumn() && order == m_proxyModel->sortOrder());
-    actionGroup->addAction(action);
-  }
-
-  m_sortMenu->addSeparator();
-  auto* secondaryMenu = m_sortMenu->addMenu(tr("Secondary sort"));
-
-  const auto secondaryNone = secondaryMenu->addAction(tr("None"), this, [this]() {
-    m_proxyModel->setSecondarySort(std::nullopt, Qt::AscendingOrder);
-  });
-  secondaryNone->setCheckable(true);
-  secondaryNone->setChecked(!m_proxyModel->secondarySortColumn().has_value());
-  secondaryGroup->addAction(secondaryNone);
-
-  secondaryMenu->addSeparator();
-
-  for (const auto& [column, order] : items) {
-    const auto headerData =
-        m_model->headerData(column, Qt::Orientation::Horizontal, Qt::DisplayRole);
-
-    const auto action =
-        secondaryMenu->addAction(headerData.toString(), this, [this, column, order]() {
-          m_proxyModel->setSecondarySort(column, order);
-        });
-    action->setCheckable(true);
-    action->setChecked(m_proxyModel->secondarySortColumn().value_or(-1) == column &&
-                       m_proxyModel->secondarySortOrder() == order);
-    secondaryGroup->addAction(action);
-  }
-}
+// Sorting is intentionally disabled on the Search page to keep large-result-set operations (like
+// Reset filters) responsive. The Anime List page remains fully sortable.
 
 void SearchWidget::initViewMenu() {
   static const QList<QPair<QString, ListViewMode>> items{
@@ -521,10 +545,6 @@ void SearchWidget::initMoreMenu() {
 
 void SearchWidget::saveState() {
   taiga::session.setSearchListFilters(m_proxyModel->filters());
-  taiga::session.setSearchListSortColumn(m_proxyModel->sortColumn());
-  taiga::session.setSearchListSortOrder(m_proxyModel->sortOrder());
-  taiga::session.setSearchListSortColumnSecondary(m_proxyModel->secondarySortColumn());
-  taiga::session.setSearchListSortOrderSecondary(m_proxyModel->secondarySortOrder());
   taiga::session.setSearchListViewMode(m_viewMode);
 }
 

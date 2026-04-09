@@ -72,6 +72,12 @@ void saveLibraryEpisodeIndexCacheAfterScan(const QString& source, bool allow_reg
 
 bool libraryHasLocalEpisode(int anime_id, int episode_number);
 
+/// Best-effort: return an absolute file path for an episode if known from the last library scan.
+std::optional<QString> libraryEpisodePath(int anime_id, int episode_number);
+
+/// Remove a cached episode file path (best-effort).
+void removeLibraryEpisodePath(int anime_id, int episode_number);
+
 /// Remove an episode from the on-disk availability index (best-effort).
 /// Used when Taiga deletes a watched file so UI (Home "Up next", auto-download) updates immediately
 /// without requiring a full rescan.
@@ -85,14 +91,15 @@ void addManualLibraryEpisode(int anime_id, int episode);
 void removeManualLibraryEpisode(int anime_id);
 
 /// True when episode (watched + 1) exists in the library scan index.
-bool nextEpisodeIsOnDisk(int anime_id, const anime::Details* anime, const anime::list::Entry* entry);
+bool nextEpisodeIsOnDisk(int anime_id, const anime::Details* anime,
+                         const anime::list::Entry* entry);
 
-/// Walks configured library folders, parses filenames, and counts how many match the recognition DB.
-/// Stops after \a max_entries filesystem entries (files only) to keep the UI responsive.
-/// If \a allow_regress_apply is false, a smaller scan result will not overwrite an already-loaded
-/// index (used for the startup-pre-sync scan so Home stays populated from cache until post-sync).
+/// Walks configured library folders, parses filenames, and counts how many match the recognition
+/// DB. Stops after \a max_entries filesystem entries (files only) to keep the UI responsive. If \a
+/// allow_regress_apply is false, a smaller scan result will not overwrite an already-loaded index
+/// (used for the startup-pre-sync scan so Home stays populated from cache until post-sync).
 LibraryScanSummary scanLibraryFolders(const std::vector<std::string>& folders, int max_entries,
-                                     bool allow_regress_apply = true);
+                                      bool allow_regress_apply = true);
 
 std::optional<QString> findEpisode(const QString& path, const int anime_id,
                                    const int episode_number);

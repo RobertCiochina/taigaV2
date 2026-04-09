@@ -50,7 +50,8 @@ void applyAnimeListHorizontalStretch(QHeaderView* header) {
   header->setSectionResizeMode(AnimeListModel::COLUMN_WATCH_ORDER_GUIDE, QHeaderView::Fixed);
 }
 
-ListView::ListView(QWidget* parent, AnimeListModel* model, AnimeListProxyModel* proxyModel)
+ListView::ListView(QWidget* parent, AnimeListModel* model, AnimeListProxyModel* proxyModel,
+                   const bool enableSorting)
     : m_base(new ListViewBase(parent, this, model, proxyModel)) {
   setObjectName("animeList");
 
@@ -91,10 +92,14 @@ ListView::ListView(QWidget* parent, AnimeListModel* model, AnimeListProxyModel* 
   positionAnimeListGuideColumnAfterTitle(header());
   applyAnimeListHorizontalStretch(header());
 
-  // `sortByColumn` needs to be called before `setSortingEnabled`.
-  // Otherwise the sort column is set to `0`.
-  sortByColumn(proxyModel->sortColumn(), proxyModel->sortOrder());
-  setSortingEnabled(true);
+  if (enableSorting) {
+    // `sortByColumn` needs to be called before `setSortingEnabled`.
+    // Otherwise the sort column is set to `0`.
+    sortByColumn(proxyModel->sortColumn(), proxyModel->sortOrder());
+    setSortingEnabled(true);
+  } else {
+    setSortingEnabled(false);
+  }
 
   connect(this, &QAbstractItemView::clicked, this,
           qOverload<const QModelIndex&>(&QAbstractItemView::edit));

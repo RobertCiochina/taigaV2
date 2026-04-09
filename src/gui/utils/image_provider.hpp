@@ -21,6 +21,7 @@
 #include <QMap>
 #include <QObject>
 #include <QPixmap>
+#include <QSet>
 #include <QString>
 
 namespace gui {
@@ -49,6 +50,8 @@ private:
   QString findCachedFileName(const int id) const;
 
   QMap<int, QPixmap> m_pixmaps;
+  QSet<int> m_loading;
+  quint64 m_generation = 0;
 };
 
 inline ImageProvider imageProvider;

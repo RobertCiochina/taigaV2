@@ -23,8 +23,11 @@
 #include <QFileInfo>
 #include <QImage>
 #include <QImageReader>
+#include <QMetaObject>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QRunnable>
+#include <QThreadPool>
 #include <QUrl>
 #include <QVariant>
 
@@ -94,31 +97,78 @@ const QPixmap* ImageProvider::loadPoster(const int id) {
   }
 
   const QString cached = findCachedFileName(id);
-  QImage image;
-  if (!cached.isEmpty()) {
-    QFile f(cached);
-    if (f.open(QIODevice::ReadOnly)) {
-      QImageReader reader(&f);
-      reader.setAutoDetectImageFormat(true);
-      image = reader.read();
-    }
+  if (cached.isEmpty()) {
+    // Nothing on disk yet — return empty and trigger async fetch.
+    m_pixmaps[id] = QPixmap{};
+    fetchPoster(id);
+    return &m_pixmaps[id];
   }
 
-  m_pixmaps[id] = !image.isNull() ? QPixmap::fromImage(image) : QPixmap{};
+  // Cached on disk. Decoding can be expensive when a large result set is first shown (e.g. Search
+  // Reset filters expanding to "all"). Decode in the background and update the view when ready.
+  m_pixmaps[id] = QPixmap{};  // placeholder
+  if (!m_loading.contains(id)) {
+    m_loading.insert(id);
+    const quint64 gen = m_generation;
 
-  if (image.isNull()) fetchPoster(id);
+    struct DecodeJob final : public QRunnable {
+      QPointer<ImageProvider> provider;
+      int id = 0;
+      QString path;
+      quint64 gen = 0;
+      void run() override {
+        QImage image;
+        QFile f(path);
+        if (f.open(QIODevice::ReadOnly)) {
+          QImageReader reader(&f);
+          reader.setAutoDetectImageFormat(true);
+          image = reader.read();
+        }
+        const QPixmap pix = !image.isNull() ? QPixmap::fromImage(image) : QPixmap{};
+        if (!provider) return;
+        QMetaObject::invokeMethod(
+            provider.data(),
+            [p = provider, id = id, pix = pix, gen = gen]() {
+              if (!p) return;
+              // If cache was cleared/reloaded since the job started, ignore.
+              if (p->m_generation != gen) return;
+              p->m_loading.remove(id);
+              if (!pix.isNull()) {
+                p->m_pixmaps[id] = pix;
+              } else {
+                // If decode failed, fall back to network fetch.
+                p->m_pixmaps[id] = QPixmap{};
+                p->fetchPoster(id);
+              }
+              emit p->posterChanged(id);
+            },
+            Qt::QueuedConnection);
+      }
+    };
+
+    auto* job = new DecodeJob();
+    job->setAutoDelete(true);
+    job->provider = this;
+    job->id = id;
+    job->path = cached;
+    job->gen = gen;
+    QThreadPool::globalInstance()->start(job);
+  }
 
   return &m_pixmaps[id];
 }
 
 void ImageProvider::reloadPoster(const int id) {
   m_pixmaps.remove(id);
+  m_loading.remove(id);
   loadPoster(id);
   emit posterChanged(id);
 }
 
 void ImageProvider::clearPosterCache() {
   m_pixmaps.clear();
+  m_loading.clear();
+  ++m_generation;
   QDir dir(cacheDir());
   if (!dir.exists()) return;
   for (const auto& info : dir.entryInfoList(QDir::Files | QDir::NoDotAndDotDot)) {

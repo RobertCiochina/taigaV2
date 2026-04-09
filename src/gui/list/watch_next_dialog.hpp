@@ -29,7 +29,6 @@
 #include "media/anime.hpp"
 #include "media/anime_list.hpp"
 
-
 class QCloseEvent;
 class QComboBox;
 class QFrame;
@@ -61,7 +60,8 @@ public:
   void presentModelessGuideForAnime(int anime_id);
 
   /// Embedded panel below the anime list: same graph as the modeless guide, no window frame, no
-  /// toolbar (Randomize / add-all / Planning combo) or AniList fetch strip — compact legend + cards.
+  /// toolbar (Randomize / add-all / Planning combo) or AniList fetch strip — compact legend +
+  /// cards.
   void presentEmbeddedGuideForAnime(int anime_id);
 
   /// Select a new random seed from Planning-only entries and (re)load relations.

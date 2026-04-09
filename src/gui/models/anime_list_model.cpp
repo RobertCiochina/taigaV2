@@ -21,9 +21,9 @@
 #include <QApplication>
 #include <QColor>
 #include <QCoreApplication>
-#include <QList>
 #include <QDateTime>
 #include <QFont>
+#include <QList>
 #include <QPalette>
 #include <QSize>
 #include <ctime>
@@ -92,8 +92,8 @@ QVariant AnimeListModel::data(const QModelIndex& index, int role) const {
     case Qt::DisplayRole:
       switch (index.column()) {
         case COLUMN_TITLE:
-          return QString::fromStdString(anime::preferredListTitleString(
-              *anime, taiga::settings.listTitleLanguage()));
+          return QString::fromStdString(
+              anime::preferredListTitleString(*anime, taiga::settings.listTitleLanguage()));
         case COLUMN_DURATION:
           return formatEpisodeLength(anime->episode_length);
         case COLUMN_REWATCHES:
@@ -152,7 +152,8 @@ QVariant AnimeListModel::data(const QModelIndex& index, int role) const {
           if (entry) return QString::fromStdString(entry->notes);
           break;
         case COLUMN_WATCH_ORDER_GUIDE:
-          return QCoreApplication::translate("AnimeListModel", "Open the watch order guide for this title");
+          return QCoreApplication::translate("AnimeListModel",
+                                             "Open the watch order guide for this title");
       }
       break;
 
@@ -245,8 +246,8 @@ QVariant AnimeListModel::data(const QModelIndex& index, int role) const {
       return QVariant::fromValue(entry);
     }
     case static_cast<int>(AnimeListItemDataRole::Poster): {
-      // Pass QPixmap by value — `const QPixmap*` in QVariant is not reliably registered, so delegates
-      // often got nullptr and drew no poster (Cards view). QPixmap is implicitly shared.
+      // Pass QPixmap by value — `const QPixmap*` in QVariant is not reliably registered, so
+      // delegates often got nullptr and drew no poster (Cards view). QPixmap is implicitly shared.
       return QVariant::fromValue(*imageProvider.loadPoster(anime->id));
     }
   }

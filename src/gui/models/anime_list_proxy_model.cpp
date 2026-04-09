@@ -18,9 +18,6 @@
 
 #include "anime_list_proxy_model.hpp"
 
-#include "taiga/settings.hpp"
-#include "track/scanner.hpp"
-
 #include <ranges>
 #include <string>
 
@@ -32,6 +29,8 @@
 #include "media/anime_list_utils.hpp"
 #include "media/anime_season.hpp"
 #include "media/anime_utils.hpp"
+#include "taiga/settings.hpp"
+#include "track/scanner.hpp"
 
 namespace {
 
@@ -57,8 +56,33 @@ AnimeListProxyModel::AnimeListProxyModel(QObject* parent) : QSortFilterProxyMode
   setSortRole(Qt::UserRole);
 
   // List entry / anime metadata edits can change filter (e.g. status) and sort order.
-  connect(&anime::db, &anime::Database::entryUpdated, this, [this](int) { invalidate(); });
-  connect(&anime::db, &anime::Database::itemUpdated, this, [this](int) { invalidate(); });
+  connect(&anime::db, &anime::Database::entryUpdated, this, [this](int) {
+    m_cachedPreferredTitleLower.clear();
+    invalidate();
+  });
+  connect(&anime::db, &anime::Database::itemUpdated, this, [this](int) {
+    m_cachedPreferredTitleLower.clear();
+    invalidate();
+  });
+}
+
+QString AnimeListProxyModel::cachedPreferredTitleLower(const int anime_id,
+                                                       const Anime* anime) const {
+  const auto lang = taiga::settings.listTitleLanguage();
+  const int lang_i = static_cast<int>(lang);
+  if (m_cachedPreferredTitleLang != lang_i) {
+    m_cachedPreferredTitleLang = lang_i;
+    m_cachedPreferredTitleLower.clear();
+  }
+  if (!anime) return {};
+  if (const auto it = m_cachedPreferredTitleLower.find(anime_id);
+      it != m_cachedPreferredTitleLower.end()) {
+    return it.value();
+  }
+  const std::string s = anime::preferredListTitleString(*anime, lang);
+  const QString q = QString::fromStdString(s).toLower();
+  m_cachedPreferredTitleLower.insert(anime_id, q);
+  return q;
 }
 
 std::optional<int> AnimeListProxyModel::secondarySortColumn() const {
@@ -186,10 +210,9 @@ bool AnimeListProxyModel::lessThan(const QModelIndex& lhs, const QModelIndex& rh
   const auto rhs_entry = getListEntry(rhs);
 
   const auto cmp_title = [&] {
-    const auto lang = taiga::settings.listTitleLanguage();
-    const std::string l = anime::preferredListTitleString(*lhs_anime, lang);
-    const std::string r = anime::preferredListTitleString(*rhs_anime, lang);
-    const int c = compareStrings(l, r, Qt::CaseInsensitive);
+    const QString l = cachedPreferredTitleLower(lhs_anime->id, lhs_anime);
+    const QString r = cachedPreferredTitleLower(rhs_anime->id, rhs_anime);
+    const int c = QString::compare(l, r, Qt::CaseInsensitive);
     if (c != 0) return c;
     // Stable tie-breaker: keep strict weak ordering even when titles match.
     return lhs_anime->id < rhs_anime->id ? -1 : (lhs_anime->id > rhs_anime->id ? 1 : 0);
@@ -207,7 +230,8 @@ bool AnimeListProxyModel::lessThan(const QModelIndex& lhs, const QModelIndex& rh
         return 0;
 
       case AnimeListModel::COLUMN_AVERAGE:
-        if (lhs_anime->score != rhs_anime->score) return lhs_anime->score < rhs_anime->score ? -1 : 1;
+        if (lhs_anime->score != rhs_anime->score)
+          return lhs_anime->score < rhs_anime->score ? -1 : 1;
         return 0;
 
       case AnimeListModel::COLUMN_TYPE:
@@ -278,13 +302,14 @@ bool AnimeListProxyModel::lessThan(const QModelIndex& lhs, const QModelIndex& rh
     return 0;
   };
 
-  if (taiga::settings.listHighlightNextEpisodeOnDisk() && taiga::settings.listHighlightAvailableOnTop()) {
+  if (taiga::settings.listHighlightNextEpisodeOnDisk() &&
+      taiga::settings.listHighlightAvailableOnTop()) {
     const int rank_lhs = track::nextEpisodeIsOnDisk(lhs_anime->id, lhs_anime, lhs_entry) ? 0 : 1;
     const int rank_rhs = track::nextEpisodeIsOnDisk(rhs_anime->id, rhs_anime, rhs_entry) ? 0 : 1;
     if (rank_lhs != rank_rhs) {
       // Keep "next episode on disk" items on top regardless of sort order.
       return sortOrder() == Qt::SortOrder::DescendingOrder ? (rank_lhs > rank_rhs)
-                                                          : (rank_lhs < rank_rhs);
+                                                           : (rank_lhs < rank_rhs);
     }
   }
 
@@ -304,10 +329,9 @@ bool AnimeListProxyModel::lessThan(const QModelIndex& lhs, const QModelIndex& rh
       const auto cmp_col2 = [&](const int col) -> int {
         switch (col) {
           case AnimeListModel::COLUMN_TITLE: {
-            const auto lang = taiga::settings.listTitleLanguage();
-            const std::string l = anime::preferredListTitleString(*lhs2_anime, lang);
-            const std::string r = anime::preferredListTitleString(*rhs2_anime, lang);
-            const int cc = compareStrings(l, r, Qt::CaseInsensitive);
+            const QString l = cachedPreferredTitleLower(lhs2_anime->id, lhs2_anime);
+            const QString r = cachedPreferredTitleLower(rhs2_anime->id, rhs2_anime);
+            const int cc = QString::compare(l, r, Qt::CaseInsensitive);
             if (cc != 0) return cc;
             return lhs2_anime->id < rhs2_anime->id ? -1 : (lhs2_anime->id > rhs2_anime->id ? 1 : 0);
           }
@@ -317,10 +341,12 @@ bool AnimeListProxyModel::lessThan(const QModelIndex& lhs, const QModelIndex& rh
             }
             return 0;
           case AnimeListModel::COLUMN_AVERAGE:
-            if (lhs2_anime->score != rhs2_anime->score) return lhs2_anime->score < rhs2_anime->score ? -1 : 1;
+            if (lhs2_anime->score != rhs2_anime->score)
+              return lhs2_anime->score < rhs2_anime->score ? -1 : 1;
             return 0;
           case AnimeListModel::COLUMN_TYPE:
-            if (lhs2_anime->type != rhs2_anime->type) return lhs2_anime->type < rhs2_anime->type ? -1 : 1;
+            if (lhs2_anime->type != rhs2_anime->type)
+              return lhs2_anime->type < rhs2_anime->type ? -1 : 1;
             return 0;
           case AnimeListModel::COLUMN_PROGRESS: {
             const auto lhs_ratio = anime::list::getProgressRatio(lhs2_anime, lhs2_entry);

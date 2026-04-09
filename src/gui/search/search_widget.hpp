@@ -56,7 +56,6 @@ private:
   void syncSeasonYearCombosFromFilters();
   void setViewMode(ListViewMode mode);
   void initToolbar();
-  void initSortMenu();
   void initViewMenu();
   void initMoreMenu();
 

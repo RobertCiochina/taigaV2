@@ -19,6 +19,7 @@
 #include "play.hpp"
 
 #include <QDesktopServices>
+#include <QElapsedTimer>
 #include <QFileInfo>
 #include <QProcess>
 #include <QUrl>
@@ -31,12 +32,31 @@
 namespace track {
 
 bool playEpisode(int animeId, int number) {
+  QElapsedTimer t;
+  t.start();
+  const bool diag = taiga::settings.cacheDiagnosticsEnabled();
+
+  // Fast path: use the library scan index (episode -> file path) if available.
+  if (const auto cached = libraryEpisodePath(animeId, number)) {
+    if (QFileInfo::exists(*cached)) {
+      if (diag) qDebug() << "playEpisode: cached path hit in" << t.elapsed() << "ms:" << *cached;
+      const QString exe =
+          QString::fromStdString(taiga::settings.mediaPlayerExecutablePath()).trimmed();
+      if (!exe.isEmpty() && QFileInfo::exists(exe)) {
+        return QProcess::startDetached(exe, QStringList{*cached});
+      }
+      return QDesktopServices::openUrl(QUrl::fromLocalFile(*cached));
+    }
+    // Stale cache entry (file moved/deleted). Drop it so next attempt can fall back.
+    removeLibraryEpisodePath(animeId, number);
+  }
+
   const auto libraryFolders = taiga::settings.libraryFolders();
 
   for (const auto& folder : libraryFolders) {
     const auto episodePath = findEpisode(QString::fromStdString(folder), animeId, number);
     if (episodePath) {
-      qDebug() << "Found file:" << *episodePath;
+      if (diag) qDebug() << "playEpisode: found by scan in" << t.elapsed() << "ms:" << *episodePath;
       const QString exe = QString::fromStdString(taiga::settings.mediaPlayerExecutablePath()).trimmed();
       if (!exe.isEmpty() && QFileInfo::exists(exe)) {
         return QProcess::startDetached(exe, QStringList{*episodePath});
@@ -45,10 +65,17 @@ bool playEpisode(int animeId, int number) {
     }
   }
 
+  if (diag) {
+    qDebug() << "playEpisode: not found after" << t.elapsed() << "ms (animeId=" << animeId
+             << "ep=" << number << ")";
+  }
   return false;
 }
 
 bool playNextEpisode(int animeId) {
+  QElapsedTimer t;
+  t.start();
+  const bool diag = taiga::settings.cacheDiagnosticsEnabled();
   const auto item = anime::db.item(animeId);
 
   if (!item) return false;
@@ -59,7 +86,12 @@ bool playNextEpisode(int animeId) {
   const int last_episode = entry ? std::min(entry->watched_episodes, total_episodes) : 0;
   const int next_episode = last_episode + 1;
 
-  return playEpisode(animeId, next_episode);
+  const bool ok = playEpisode(animeId, next_episode);
+  if (diag) {
+    qDebug() << "playNextEpisode:" << (ok ? "ok" : "fail") << "in" << t.elapsed() << "ms (animeId="
+             << animeId << "next=" << next_episode << ")";
+  }
+  return ok;
 }
 
 bool playRandomFromListing() {

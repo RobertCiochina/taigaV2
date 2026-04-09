@@ -18,8 +18,12 @@
 
 #pragma once
 
+#include <QHash>
 #include <QSortFilterProxyModel>
 #include <optional>
+
+#include "media/anime.hpp"
+
 
 namespace gui {
 
@@ -64,9 +68,17 @@ protected:
   bool lessThan(const QModelIndex& lhs, const QModelIndex& rhs) const override;
 
 private:
+  QString cachedPreferredTitleLower(int anime_id, const Anime* anime) const;
+
   AnimeListProxyModelFilter m_filter;
   std::optional<int> m_secondarySortColumn;
   Qt::SortOrder m_secondarySortOrder = Qt::AscendingOrder;
+
+  // Cache to avoid recomputing preferred titles during heavy sorts (e.g. Search reset expanding
+  // result set). Keyed by anime id; values are lowercased for case-insensitive compare.
+  mutable QHash<int, QString> m_cachedPreferredTitleLower;
+  // Stored as int to avoid including settings types in the header.
+  mutable int m_cachedPreferredTitleLang = -1;
 };
 
 }  // namespace gui

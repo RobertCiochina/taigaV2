@@ -54,7 +54,6 @@
 #include "sync/anilist.hpp"
 #include "sync/service.hpp"
 
-
 namespace {
 
 QString relationTypeLabel(const anime::RelationType t) {
@@ -338,7 +337,8 @@ WatchNextDialog::WatchNextDialog(QWidget* parent) : QDialog(parent) {
   root->addWidget(m_header);
 
   m_subHeader = new QLabel(this);
-  m_subHeader->setStyleSheet(QStringLiteral("QLabel{color: palette(placeholderText); font-size:12px;}"));
+  m_subHeader->setStyleSheet(
+      QStringLiteral("QLabel{color: palette(placeholderText); font-size:12px;}"));
   m_subHeader->setWordWrap(true);
   m_subHeader->setMaximumHeight(m_subHeader->fontMetrics().lineSpacing() * 2 + 6);
   m_subHeader->setText(
@@ -360,7 +360,8 @@ WatchNextDialog::WatchNextDialog(QWidget* parent) : QDialog(parent) {
   m_randomBtn->setToolTip(tr("Pick another random title from Planning."));
   m_addAllWatchingBtn = new QPushButton(theme.getIcon("lists"), tr("Add all to Watching"), this);
   m_addAllPlanningBtn = new QPushButton(theme.getIcon("add_box"), tr("Add all to Planning"), this);
-  m_addAllPlanningBtn->setToolTip(tr("Put every related title on Planning (skips titles already on Planning)."));
+  m_addAllPlanningBtn->setToolTip(
+      tr("Put every related title on Planning (skips titles already on Planning)."));
   m_closeBtn = new QPushButton(tr("Close"), this);
   m_closeBtn->setDefault(true);
   primaryRow->addWidget(m_randomBtn);
@@ -406,12 +407,10 @@ WatchNextDialog::WatchNextDialog(QWidget* parent) : QDialog(parent) {
   legHeading->setStyleSheet(
       QStringLiteral("QLabel{font-weight:600; font-size:11px; color: palette(placeholderText);}"));
   legOuter->addWidget(legHeading);
-  legOuter->addWidget(
-      makeLegendItem(m_buttonLegendHost, theme.getIcon("skip_next"),
-                     tr("Watching — start or continue this title.")));
-  legOuter->addWidget(
-      makeLegendItem(m_buttonLegendHost, theme.getIcon("history"),
-                     tr("Rewatch — reset progress (completed titles).")));
+  legOuter->addWidget(makeLegendItem(m_buttonLegendHost, theme.getIcon("skip_next"),
+                                     tr("Watching — start or continue this title.")));
+  legOuter->addWidget(makeLegendItem(m_buttonLegendHost, theme.getIcon("history"),
+                                     tr("Rewatch — reset progress (completed titles).")));
   legOuter->addWidget(makeLegendItem(m_buttonLegendHost, theme.getIcon("add_box"),
                                      tr("Planning — add a related title to Planning.")));
   root->addWidget(m_buttonLegendHost);
@@ -546,9 +545,9 @@ void WatchNextDialog::applyEmbeddedPanelChrome() {
   if (m_subHeader) {
     m_subHeader->setMaximumHeight(QWIDGETSIZE_MAX);
     m_subHeader->setWordWrap(true);
-    m_subHeader->setText(tr(
-        "Franchise watch order for the pinned list entry. Related seasons appear below in "
-        "suggested order."));
+    m_subHeader->setText(
+        tr("Franchise watch order for the pinned list entry. Related seasons appear below in "
+           "suggested order."));
   }
 
   auto* root = qobject_cast<QVBoxLayout*>(layout());
@@ -890,7 +889,8 @@ void WatchNextDialog::setSeed(const int id) {
 
   if (const Anime* a = anime::db.item(m_seedId)) {
     const QString title = animeDisplayTitle(a, m_seedId);
-    if (m_sessionKind == SessionKind::ModelessGuide || m_sessionKind == SessionKind::EmbeddedGuide) {
+    if (m_sessionKind == SessionKind::ModelessGuide ||
+        m_sessionKind == SessionKind::EmbeddedGuide) {
       m_header->setText(tr("<b>Watch order:</b> %1").arg(title.toHtmlEscaped()));
     } else {
       m_header->setText(tr("<b>Recommended:</b> %1").arg(title.toHtmlEscaped()));
@@ -1007,10 +1007,10 @@ void WatchNextDialog::rebuildCards() {
     m_alternativesOpenForId = 0;
   }
 
-  const QString seedFlowBadge = (m_sessionKind == SessionKind::ModelessGuide ||
-                                 m_sessionKind == SessionKind::EmbeddedGuide)
-      ? tr("Starting point")
-      : tr("Picked from Planning");
+  const QString seedFlowBadge =
+      (m_sessionKind == SessionKind::ModelessGuide || m_sessionKind == SessionKind::EmbeddedGuide)
+          ? tr("Starting point")
+          : tr("Picked from Planning");
   const auto badgeForSpine = [&](int mid) -> QString {
     if (mid == m_seedId) return seedFlowBadge;
     const int si = flow.indexOf(m_seedId);
@@ -1061,14 +1061,14 @@ void WatchNextDialog::updateSubHeaderHint() {
     }
   } else {
     if (m_sessionKind == SessionKind::ModelessGuide) {
-      m_subHeader->setText(tr(
-          "Suggested order uses AniList prequel/sequel links and start dates. "
-          "Use Start from Planning below to switch the starting title, or Randomize for another "
-          "pick."));
+      m_subHeader->setText(
+          tr("Suggested order uses AniList prequel/sequel links and start dates. "
+             "Use Start from Planning below to switch the starting title, or Randomize for another "
+             "pick."));
     } else if (m_sessionKind == SessionKind::EmbeddedGuide) {
-      m_subHeader->setText(tr(
-          "Suggested order uses AniList prequel/sequel links and start dates. "
-          "Pin another title from the anime list to change the starting entry."));
+      m_subHeader->setText(
+          tr("Suggested order uses AniList prequel/sequel links and start dates. "
+             "Pin another title from the anime list to change the starting entry."));
     } else {
       m_subHeader->setText(
           tr("Pick a random title from Planning, then review all related seasons/releases."));
