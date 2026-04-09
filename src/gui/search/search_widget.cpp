@@ -492,7 +492,7 @@ void SearchWidget::initToolbar() {
 }
 
 // Sorting is intentionally disabled on the Search page to keep large-result-set operations (like
-// Reset filters) responsive. The Anime List page remains fully sortable.
+// Reset filters) responsive. The Anime List page uses a fixed last-updated order (no sort UI).
 
 void SearchWidget::initViewMenu() {
   static const QList<QPair<QString, ListViewMode>> items{

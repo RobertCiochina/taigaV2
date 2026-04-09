@@ -32,6 +32,14 @@ enum class AnimeListItemDataRole {
   Poster,
 };
 
+/// How `AnimeListModel` builds its backing id list.
+enum class AnimeListModelSource {
+  /// All catalog items (Search page; natural DB key order).
+  AllCatalogItems,
+  /// List entries that have catalog metadata, ordered by `ListEntry::last_updated` (newest first).
+  ListEntriesByLastUpdated,
+};
+
 class AnimeListModel final : public QAbstractListModel {
   Q_OBJECT
   Q_DISABLE_COPY_MOVE(AnimeListModel)
@@ -54,7 +62,8 @@ public:
     NUM_COLUMNS
   };
 
-  AnimeListModel(QObject* parent);
+  explicit AnimeListModel(QObject* parent,
+                          AnimeListModelSource source = AnimeListModelSource::AllCatalogItems);
   ~AnimeListModel() = default;
 
   int rowCount(const QModelIndex& parent = {}) const override;
@@ -76,6 +85,9 @@ public:
   void emitNewEpisodeHighlightDataChanged();
 
 private:
+  void rebuildIdList();
+
+  AnimeListModelSource m_source = AnimeListModelSource::AllCatalogItems;
   QList<int> m_ids;
 };
 

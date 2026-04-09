@@ -88,20 +88,17 @@ namespace gui {
 
 ListWidget::ListWidget(QWidget* parent)
     : PageWidget(parent),
-      m_model(new AnimeListModel(this)),
+      m_model(new AnimeListModel(this, AnimeListModelSource::ListEntriesByLastUpdated)),
       m_proxyModel(new AnimeListProxyModel(this)),
-      m_sortMenu(new QMenu(this)),
       m_viewMenu(new QMenu(this)),
       m_moreMenu(new QMenu(this)) {
-  m_proxyModel->sort(taiga::session.animeListSortColumn(), taiga::session.animeListSortOrder());
-  m_proxyModel->setSecondarySort(taiga::session.animeListSortColumnSecondary(),
-                                 taiga::session.animeListSortOrderSecondary());
+  // Anime List uses fixed source order (last updated, newest first); avoid proxy re-sort on filter.
+  m_proxyModel->setDynamicSortFilter(false);
 
   initToolbar();
   initColorLegend();
   setViewMode(taiga::session.animeListViewMode());
 
-  connect(m_sortMenu, &QMenu::aboutToShow, this, &ListWidget::initSortMenu);
   connect(m_viewMenu, &QMenu::aboutToShow, this, &ListWidget::initViewMenu);
   connect(m_moreMenu, &QMenu::aboutToShow, this, &ListWidget::initMoreMenu);
 
@@ -146,7 +143,7 @@ void ListWidget::setViewMode(ListViewMode mode) {
   QWidget* center = nullptr;
   switch (mode) {
     case ListViewMode::List: {
-      auto* v = new ListView(this, m_model, m_proxyModel);
+      auto* v = new ListView(this, m_model, m_proxyModel, /*enableSorting=*/false);
       if (const QByteArray header_state = taiga::session.animeListHeaderState();
           !header_state.isEmpty()) {
         v->header()->restoreState(header_state);
@@ -205,10 +202,6 @@ void ListWidget::setViewMode(ListViewMode mode) {
 }
 
 void ListWidget::saveState() {
-  taiga::session.setAnimeListSortColumn(m_proxyModel->sortColumn());
-  taiga::session.setAnimeListSortOrder(m_proxyModel->sortOrder());
-  taiga::session.setAnimeListSortColumnSecondary(m_proxyModel->secondarySortColumn());
-  taiga::session.setAnimeListSortOrderSecondary(m_proxyModel->secondarySortOrder());
   taiga::session.setAnimeListViewMode(m_viewMode);
   if (m_listView) {
     taiga::session.setAnimeListHeaderState(m_listView->header()->saveState());
@@ -296,7 +289,6 @@ void ListWidget::initColorLegend() {
 }
 
 void ListWidget::initToolbar() {
-  const auto actionSort = new QAction(theme.getIcon("sort"), tr("Sort"), this);
   const auto actionView = new QAction(theme.getIcon("grid_view"), tr("View"), this);
   const auto actionMore = new QAction(theme.getIcon("more_horiz"), tr("More"), this);
 
@@ -316,16 +308,11 @@ void ListWidget::initToolbar() {
   connect(m_pinWatchOrderAction, &QAction::triggered, this,
           &ListWidget::pinSelectedForWatchOrderPanel);
 
-  m_toolbar->addAction(actionSort);
   m_toolbar->addAction(actionView);
   m_toolbar->addAction(actionMore);
   m_toolbar->addSeparator();
   m_toolbar->addAction(m_showWatchOrderPanelAction);
   m_toolbar->addAction(m_pinWatchOrderAction);
-
-  const auto sortButton = static_cast<QToolButton*>(m_toolbar->widgetForAction(actionSort));
-  sortButton->setPopupMode(QToolButton::InstantPopup);
-  sortButton->setMenu(m_sortMenu);
 
   const auto viewButton = static_cast<QToolButton*>(m_toolbar->widgetForAction(actionView));
   viewButton->setPopupMode(QToolButton::InstantPopup);
@@ -334,75 +321,6 @@ void ListWidget::initToolbar() {
   const auto moreButton = static_cast<QToolButton*>(m_toolbar->widgetForAction(actionMore));
   moreButton->setPopupMode(QToolButton::InstantPopup);
   moreButton->setMenu(m_moreMenu);
-}
-
-void ListWidget::initSortMenu() {
-  using Qt::SortOrder::AscendingOrder;
-  using Qt::SortOrder::DescendingOrder;
-
-  static const QList<QPair<AnimeListModel::Column, Qt::SortOrder>> items{
-      {AnimeListModel::COLUMN_TITLE, AscendingOrder},
-      {AnimeListModel::COLUMN_PROGRESS, DescendingOrder},
-      {AnimeListModel::COLUMN_DURATION, DescendingOrder},
-      {AnimeListModel::COLUMN_REWATCHES, DescendingOrder},
-      {AnimeListModel::COLUMN_SCORE, DescendingOrder},
-      {AnimeListModel::COLUMN_AVERAGE, DescendingOrder},
-      {AnimeListModel::COLUMN_TYPE, AscendingOrder},
-      {AnimeListModel::COLUMN_SEASON, DescendingOrder},
-      {AnimeListModel::COLUMN_STARTED, DescendingOrder},
-      {AnimeListModel::COLUMN_COMPLETED, DescendingOrder},
-      {AnimeListModel::COLUMN_LAST_UPDATED, DescendingOrder},
-      {AnimeListModel::COLUMN_NOTES, AscendingOrder},
-      {AnimeListModel::COLUMN_WATCH_ORDER_GUIDE, AscendingOrder},
-  };
-
-  const auto actionGroup = new QActionGroup(this);
-  const auto secondaryGroup = new QActionGroup(this);
-
-  m_sortMenu->clear();
-
-  for (const auto& [column, order] : items) {
-    const auto headerData =
-        m_model->headerData(column, Qt::Orientation::Horizontal, Qt::DisplayRole);
-
-    const auto action = m_sortMenu->addAction(headerData.toString(), this, [this, column, order]() {
-      if (m_listView) {
-        // Sorting the proxy model doesn't update the sort indicator on the header.
-        m_listView->sortByColumn(column, order);
-      } else {
-        m_proxyModel->sort(column, order);
-      }
-    });
-
-    action->setCheckable(true);
-    action->setChecked(column == m_proxyModel->sortColumn() && order == m_proxyModel->sortOrder());
-    actionGroup->addAction(action);
-  }
-
-  m_sortMenu->addSeparator();
-  auto* secondaryMenu = m_sortMenu->addMenu(tr("Secondary sort"));
-
-  const auto secondaryNone = secondaryMenu->addAction(tr("None"), this, [this]() {
-    m_proxyModel->setSecondarySort(std::nullopt, Qt::AscendingOrder);
-  });
-  secondaryNone->setCheckable(true);
-  secondaryNone->setChecked(!m_proxyModel->secondarySortColumn().has_value());
-  secondaryGroup->addAction(secondaryNone);
-
-  secondaryMenu->addSeparator();
-
-  for (const auto& [column, order] : items) {
-    const auto headerData =
-        m_model->headerData(column, Qt::Orientation::Horizontal, Qt::DisplayRole);
-
-    const auto action = secondaryMenu->addAction(
-        headerData.toString(), this,
-        [this, column, order]() { m_proxyModel->setSecondarySort(column, order); });
-    action->setCheckable(true);
-    action->setChecked(m_proxyModel->secondarySortColumn().value_or(-1) == column &&
-                       m_proxyModel->secondarySortOrder() == order);
-    secondaryGroup->addAction(action);
-  }
 }
 
 void ListWidget::initViewMenu() {

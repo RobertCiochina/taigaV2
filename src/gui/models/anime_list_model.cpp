@@ -18,6 +18,10 @@
 
 #include "anime_list_model.hpp"
 
+#include <algorithm>
+#include <cstdint>
+#include <vector>
+
 #include <QApplication>
 #include <QColor>
 #include <QCoreApplication>
@@ -47,10 +51,39 @@ void commitListEntry(const ListEntry& entry) {
 
 }  // namespace
 
-AnimeListModel::AnimeListModel(QObject* parent) : QAbstractListModel(parent) {
-  beginInsertRows({}, 0, anime::db.items().size());
-  m_ids = anime::db.items().keys();
-  endInsertRows();
+void AnimeListModel::rebuildIdList() {
+  if (m_source == AnimeListModelSource::ListEntriesByLastUpdated) {
+    std::vector<int> ids;
+    ids.reserve(static_cast<size_t>(anime::db.entries().size()));
+    for (auto it = anime::db.entries().cbegin(); it != anime::db.entries().cend(); ++it) {
+      const int id = it.key();
+      if (!anime::db.item(id)) continue;
+      ids.push_back(id);
+    }
+    std::sort(ids.begin(), ids.end(), [](int a, int b) {
+      const auto* ea = anime::db.entry(a);
+      const auto* eb = anime::db.entry(b);
+      const auto la = static_cast<int64_t>(ea ? ea->last_updated : 0);
+      const auto lb = static_cast<int64_t>(eb ? eb->last_updated : 0);
+      if (la != lb) return la > lb;
+      return a < b;
+    });
+    m_ids.clear();
+    for (const int id : ids) {
+      m_ids.append(id);
+    }
+  } else {
+    m_ids = anime::db.items().keys();
+  }
+}
+
+AnimeListModel::AnimeListModel(QObject* parent, const AnimeListModelSource source)
+    : QAbstractListModel(parent), m_source(source) {
+  rebuildIdList();
+  if (!m_ids.isEmpty()) {
+    beginInsertRows({}, 0, m_ids.size() - 1);
+    endInsertRows();
+  }
 
   connect(&imageProvider, &ImageProvider::posterChanged, this, [this](int id) {
     if (const auto row = m_ids.indexOf(id); row > -1) {
@@ -58,7 +91,7 @@ AnimeListModel::AnimeListModel(QObject* parent) : QAbstractListModel(parent) {
     }
   });
 
-  const auto emitRowOrReload = [this](int id) {
+  const auto emitRowOrReloadCatalog = [this](int id) {
     const int row = m_ids.indexOf(id);
     if (row < 0) {
       reloadFromDatabase();
@@ -68,8 +101,26 @@ AnimeListModel::AnimeListModel(QObject* parent) : QAbstractListModel(parent) {
     const QModelIndex bottomRight = index(row, columnCount() - 1);
     emit dataChanged(topLeft, bottomRight, QList<int>{});
   };
-  connect(&anime::db, &anime::Database::entryUpdated, this, emitRowOrReload);
-  connect(&anime::db, &anime::Database::itemUpdated, this, emitRowOrReload);
+
+  connect(&anime::db, &anime::Database::entryUpdated, this,
+          [this, emitRowOrReloadCatalog](int id) {
+            if (m_source == AnimeListModelSource::ListEntriesByLastUpdated) {
+              reloadFromDatabase();
+              return;
+            }
+            emitRowOrReloadCatalog(id);
+          });
+  connect(&anime::db, &anime::Database::itemUpdated, this, [this, emitRowOrReloadCatalog](int id) {
+    if (m_source == AnimeListModelSource::ListEntriesByLastUpdated) {
+      if (m_ids.indexOf(id) < 0) {
+        reloadFromDatabase();
+        return;
+      }
+      emitRowOrReloadCatalog(id);
+      return;
+    }
+    emitRowOrReloadCatalog(id);
+  });
 }
 
 int AnimeListModel::rowCount(const QModelIndex&) const {
@@ -274,7 +325,7 @@ bool AnimeListModel::setData(const QModelIndex& index, const QVariant& value, in
 
 void AnimeListModel::reloadFromDatabase() {
   beginResetModel();
-  m_ids = anime::db.items().keys();
+  rebuildIdList();
   endResetModel();
 }
 

@@ -1541,7 +1541,8 @@ void MainWindow::refreshHomeQBitPlayButtons() {
 
   const QString base_url = QString::fromStdString(taiga::settings.torrentQBitApiUrl()).trimmed();
   if (base_url.isEmpty()) return;
-  const QString username = QString::fromStdString(taiga::settings.torrentQBitApiUsername()).trimmed();
+  const QString username =
+      QString::fromStdString(taiga::settings.torrentQBitApiUsername()).trimmed();
   const QString password = QString::fromStdString(taiga::settings.torrentQBitApiPassword());
 
   const auto applyEnabled = [playButtons](const QSet<QString>& downloading_paths) {
@@ -1604,7 +1605,8 @@ void MainWindow::refreshHomeQBitPlayButtons() {
       if (cv.isValid()) {
         for (const QNetworkCookie& c : cv.value<QList<QNetworkCookie>>()) {
           if (!cookie_str.isEmpty()) cookie_str += QStringLiteral("; ");
-          cookie_str += QString::fromUtf8(c.name()) + QStringLiteral("=") + QString::fromUtf8(c.value());
+          cookie_str +=
+              QString::fromUtf8(c.name()) + QStringLiteral("=") + QString::fromUtf8(c.value());
         }
       }
       fetchInfo(cookie_str);
@@ -1651,7 +1653,8 @@ void MainWindow::runAutoDownload(const bool silent) {
         last_aired = entry.watched_episodes;
       } else {
         // Fallback for titles without schedule metadata (or where next_episode_time is unset/0):
-        // use episode_count as an upper bound, which is best-effort (may overestimate for unreleased shows).
+        // use episode_count as an upper bound, which is best-effort (may overestimate for
+        // unreleased shows).
         last_aired = item->episode_count;
       }
     }
@@ -1686,12 +1689,15 @@ void MainWindow::runAutoDownload(const bool silent) {
 
   if (candidates.isEmpty()) {
     if (!silent) {
-      QString msg = tr("No anime require episode downloads right now.\n"
-                       "All watching entries are either caught up or the next episode is already on disk.");
+      QString msg =
+          tr("No anime require episode downloads right now.\n"
+             "All watching entries are either caught up or the next episode is already on disk.");
       if (skip_failed && !skipped_twice_today_labels.isEmpty()) {
         skipped_twice_today_labels.removeDuplicates();
         std::sort(skipped_twice_today_labels.begin(), skipped_twice_today_labels.end(),
-                  [](const QString& a, const QString& b) { return a.compare(b, Qt::CaseInsensitive) < 0; });
+                  [](const QString& a, const QString& b) {
+                    return a.compare(b, Qt::CaseInsensitive) < 0;
+                  });
         constexpr int kMaxShown = 10;
         const int total = skipped_twice_today_labels.size();
         if (skipped_twice_today_labels.size() > kMaxShown) {
@@ -1979,9 +1985,8 @@ void MainWindow::refreshHomeDashboard() {
       if (!m_home_qbit_poll_timer_) {
         m_home_qbit_poll_timer_ = new QTimer(this);
         m_home_qbit_poll_timer_->setInterval(8000);
-        connect(m_home_qbit_poll_timer_, &QTimer::timeout, this, [this]() {
-          refreshHomeQBitPlayButtons();
-        });
+        connect(m_home_qbit_poll_timer_, &QTimer::timeout, this,
+                [this]() { refreshHomeQBitPlayButtons(); });
       }
       if (!m_home_qbit_poll_timer_->isActive()) m_home_qbit_poll_timer_->start();
     } else {

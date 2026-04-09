@@ -143,7 +143,8 @@ bool Settings::networkRelaxedTls() const {
 }
 
 bool Settings::syncAutoOnStart() const {
-  // v2 key; fallback matches legacy v1 flat key name (account/myanimelist/login was reused for this bool).
+  // v2 key; fallback matches legacy v1 flat key name (account/myanimelist/login was reused for this
+  // bool).
   return value("sync.autoOnStart", value("account/myanimelist/login", false)).toBool();
 }
 
@@ -241,8 +242,7 @@ bool Settings::mediaNotifyUnrecognizedBalloon() const {
 }
 
 std::string Settings::mediaNotifyBalloonFormatRecognized() const {
-  static const QString kDefault =
-      QStringLiteral("%title%\nEpisode %episode% / %total%");
+  static const QString kDefault = QStringLiteral("%title%\nEpisode %episode% / %total%");
   const QString v = value("track.notifications.balloonFormatRecognized", kDefault).toString();
   const QString trimmed = v.trimmed();
   return (trimmed.isEmpty() ? kDefault : trimmed).toStdString();
@@ -292,7 +292,8 @@ anime::TitleLanguage Settings::listTitleLanguage() const {
 }
 
 ListRowAction Settings::listDoubleClickAction() const {
-  const int v = value("list.action.doubleClick", static_cast<int>(ListRowAction::ShowDetails)).toInt();
+  const int v =
+      value("list.action.doubleClick", static_cast<int>(ListRowAction::ShowDetails)).toInt();
   return static_cast<ListRowAction>(std::clamp(v, 0, 5));
 }
 
@@ -461,7 +462,9 @@ bool Settings::torrentQBitApiEnabled() const {
   return value("torrent.qbit.apiEnabled", true).toBool();
 }
 std::string Settings::torrentQBitApiUrl() const {
-  return value("torrent.qbit.apiUrl", QStringLiteral("http://localhost:8080")).toString().toStdString();
+  return value("torrent.qbit.apiUrl", QStringLiteral("http://localhost:8080"))
+      .toString()
+      .toStdString();
 }
 std::string Settings::torrentQBitApiUsername() const {
   return value("torrent.qbit.apiUsername", QStringLiteral("admin")).toString().toStdString();
@@ -713,7 +716,8 @@ void Settings::setTorrentDiscoveryAutoCheckIntervalMinutes(const int minutes) co
   setValue("torrent.discovery.autoCheckIntervalMinutes", std::clamp(minutes, 5, 24 * 60));
 }
 
-void Settings::setTorrentDiscoveryNewCatalogAction(const TorrentDiscoveryNewCatalogAction action) const {
+void Settings::setTorrentDiscoveryNewCatalogAction(
+    const TorrentDiscoveryNewCatalogAction action) const {
   const int v = action == TorrentDiscoveryNewCatalogAction::Download
                     ? static_cast<int>(TorrentDiscoveryNewCatalogAction::Download)
                     : static_cast<int>(TorrentDiscoveryNewCatalogAction::Notify);
@@ -785,7 +789,8 @@ void Settings::setTorrentFeedDiscardedTitleArchive(const QStringList& titles) co
   }
   QJsonArray arr;
   for (const QString& s : t) arr.push_back(s);
-  setValue("torrent.feed.discardedTitleArchive", QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact)));
+  setValue("torrent.feed.discardedTitleArchive",
+           QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact)));
 }
 
 void Settings::setTorrentDownloadUseMagnet(const bool enabled) const {

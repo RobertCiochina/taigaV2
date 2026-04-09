@@ -64,7 +64,6 @@ public:
 
 private:
   void initToolbar();
-  void initSortMenu();
   void initViewMenu();
   void initMoreMenu();
   void initColorLegend();
@@ -82,7 +81,6 @@ private:
   QAction* m_showWatchOrderPanelAction = nullptr;
   QAction* m_pinWatchOrderAction = nullptr;
   ListViewMode m_viewMode = ListViewMode::List;
-  QMenu* m_sortMenu = nullptr;
   QMenu* m_viewMenu = nullptr;
   QMenu* m_moreMenu = nullptr;
   QWidget* m_colorLegend = nullptr;
