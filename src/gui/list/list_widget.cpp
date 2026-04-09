@@ -150,6 +150,9 @@ void ListWidget::setViewMode(ListViewMode mode) {
       } else {
         applyPendingV1ListColumnLayout(v);
       }
+      // Saved header state can restore sort arrows / clickable sections; list order is fixed.
+      v->setSortingEnabled(false);
+      v->header()->setSortIndicatorShown(false);
       positionAnimeListGuideColumnAfterTitle(v->header());
       applyAnimeListHorizontalStretch(v->header());
       m_listView = v;
@@ -386,7 +389,7 @@ void ListWidget::refreshProgressColumnDisplay() {
 }
 
 void ListWidget::refreshNewEpisodeHighlightDisplay() {
-  m_model->emitNewEpisodeHighlightDataChanged();
+  m_model->refreshNewEpisodeHighlightDisplay();
   const int col = m_proxyModel->sortColumn();
   if (col >= 0) m_proxyModel->sort(col, m_proxyModel->sortOrder());
 }

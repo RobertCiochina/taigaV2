@@ -60,11 +60,20 @@ void AnimeListModel::rebuildIdList() {
       if (!anime::db.item(id)) continue;
       ids.push_back(id);
     }
-    std::sort(ids.begin(), ids.end(), [](int a, int b) {
+    const bool pin_next_on_disk = taiga::settings.listHighlightNextEpisodeOnDisk() &&
+                                  taiga::settings.listHighlightAvailableOnTop();
+    std::sort(ids.begin(), ids.end(), [pin_next_on_disk](int a, int b) {
       const auto* ea = anime::db.entry(a);
       const auto* eb = anime::db.entry(b);
       const auto la = static_cast<int64_t>(ea ? ea->last_updated : 0);
       const auto lb = static_cast<int64_t>(eb ? eb->last_updated : 0);
+      if (pin_next_on_disk) {
+        const auto* da = anime::db.item(a);
+        const auto* db_item = anime::db.item(b);
+        const bool oa = track::nextEpisodeIsOnDisk(a, da, ea);
+        const bool ob = track::nextEpisodeIsOnDisk(b, db_item, eb);
+        if (oa != ob) return oa > ob;
+      }
       if (la != lb) return la > lb;
       return a < b;
     });
@@ -349,6 +358,14 @@ void AnimeListModel::emitNewEpisodeHighlightDataChanged() {
   const int last = m_ids.size() - 1;
   emit dataChanged(index(0, COLUMN_TITLE), index(last, COLUMN_TITLE), {Qt::ForegroundRole});
   emit dataChanged(index(0, 0), index(last, 0), {Qt::ForegroundRole});
+}
+
+void AnimeListModel::refreshNewEpisodeHighlightDisplay() {
+  if (m_source == AnimeListModelSource::ListEntriesByLastUpdated) {
+    reloadFromDatabase();
+    return;
+  }
+  emitNewEpisodeHighlightDataChanged();
 }
 
 QVariant AnimeListModel::headerData(int section, Qt::Orientation orientation, int role) const {

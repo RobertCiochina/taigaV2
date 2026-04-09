@@ -562,7 +562,7 @@ void SearchWidget::refreshProgressColumnDisplay() {
 }
 
 void SearchWidget::refreshNewEpisodeHighlightDisplay() {
-  m_model->emitNewEpisodeHighlightDataChanged();
+  m_model->refreshNewEpisodeHighlightDisplay();
   const int col = m_proxyModel->sortColumn();
   if (col >= 0) m_proxyModel->sort(col, m_proxyModel->sortOrder());
 }
