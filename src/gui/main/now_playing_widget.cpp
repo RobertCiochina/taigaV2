@@ -230,8 +230,16 @@ void NowPlayingWidget::commitListUpdate() {
 
   const QString ep_str = QString::fromStdString(m_episode->element(anitomy::ElementKind::Episode));
   bool ok = false;
-  const int ep_no = ep_str.toInt(&ok);
+  int ep_no = ep_str.toInt(&ok);
   if (!ok || ep_no <= 0) return;
+
+  // Season 0 / specials: filenames often use global indices (e.g. S00E10..E12) even when the
+  // AniList entry is a short multi-episode OVA/movie. Map to 1..N so list progress advances.
+  const std::string season_str = m_episode->element(anitomy::ElementKind::Season, {});
+  const bool is_s0 = season_str == "0" || season_str == "00";
+  if (is_s0 && item->episode_count > 0 && item->episode_count <= 12 && ep_no > item->episode_count) {
+    ep_no = ((ep_no - 1) % item->episode_count) + 1;
+  }
 
   // out-of-range guard: skip update if episode exceeds known total
   if (taiga::settings.recognitionUpdateOutOfRange() && item->episode_count > 0 &&
@@ -261,7 +269,7 @@ void NowPlayingWidget::commitListUpdate() {
     updated.status = anime::list::Status::Watching;
   }
   m_update_committed_ = true;
-  // Prompt to move to Completed when the last episode is reached
+  // Mark as Completed when the last episode is reached (silent; no popup).
   gui::maybePromptCompletion(this, *item, updated);
   gui::commitListEntryLocalAndMaybeRemote(updated, this);
 }

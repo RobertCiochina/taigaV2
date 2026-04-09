@@ -55,24 +55,6 @@ bool maybePromptCompletion(QWidget* parent, const Anime& item, ListEntry& entry)
     return false;
   }
 
-  const QString title = QString::fromStdString(item.titles.romaji);
-  QWidget* p = parent ? parent : static_cast<QWidget*>(mainWindow());
-
-  auto* box = new QMessageBox(p);
-  box->setWindowTitle(QApplication::translate("ListCommit", "Series complete"));
-  box->setIcon(QMessageBox::Question);
-  box->setText(QApplication::translate("ListCommit",
-      "<b>%1</b><br/><br/>"
-      "You have finished watching this series.<br/>"
-      "Move it to your Completed list?")
-      .arg(title.toHtmlEscaped()));
-  auto* yes_btn = box->addButton(QApplication::translate("ListCommit", "Yes, mark Completed"), QMessageBox::AcceptRole);
-  auto* no_btn = box->addButton(QApplication::translate("ListCommit", "No, keep as-is"), QMessageBox::RejectRole);
-  box->setDefaultButton(no_btn);
-  box->exec();
-
-  if (box->clickedButton() != static_cast<QAbstractButton*>(yes_btn)) return false;
-
   entry.status = anime::list::Status::Completed;
 
   // Set completion date to today if not already set

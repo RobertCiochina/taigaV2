@@ -1641,10 +1641,20 @@ void MainWindow::runAutoDownload(const bool silent) {
     if (entry.status != anime::list::Status::Watching) continue;
     const auto* item = anime::db.item(anime_id);
     if (!item) continue;
-    // Use episode_count as a fallback when last_aired_episode is not populated
-    // (e.g. completed series whose airing schedule was not tracked in detail).
-    const int last_aired =
-        item->last_aired_episode > 0 ? item->last_aired_episode : item->episode_count;
+    const qint64 now_secs = QDateTime::currentSecsSinceEpoch();
+    // Only queue downloads for episodes that have actually aired.
+    // If the next episode air time is in the future and we don't have a reliable last-aired value,
+    // treat this as "nothing new aired yet" to avoid early RSS hits for upcoming series.
+    int last_aired = item->last_aired_episode;
+    if (last_aired <= 0) {
+      if (item->next_episode_time > now_secs) {
+        last_aired = entry.watched_episodes;
+      } else {
+        // Fallback for titles without schedule metadata (or where next_episode_time is unset/0):
+        // use episode_count as an upper bound, which is best-effort (may overestimate for unreleased shows).
+        last_aired = item->episode_count;
+      }
+    }
     const int watched = entry.watched_episodes;
     if (last_aired <= watched) continue;
     // Skip only if every episode in [watched+1 .. last_aired] is already on disk.
