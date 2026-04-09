@@ -1,9 +1,14 @@
 /.cache/
 /.vs/
 /.vscode/
+/.cursor/
 /bin/
 /build/
 
 # Parent-folder convenience runners (local only)
 /build-and-run-taiga.cmd
 /runTaiga
+
+# Local porting notes (local only)
+/_PORTING_ARCHIVE.md
+/_PORTING_SCRATCH.md
