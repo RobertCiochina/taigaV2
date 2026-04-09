@@ -26,13 +26,14 @@
 #include <optional>
 
 #include "base/string.hpp"
-#include "gui/media/media_dialog.hpp"
 #include "gui/main/main_window.hpp"
+#include "gui/media/media_dialog.hpp"
 #include "gui/utils/format.hpp"
 #include "gui/utils/list_commit.hpp"
 #include "gui/utils/theme.hpp"
 #include "media/anime.hpp"
 #include "media/anime_db.hpp"
+#include "media/anime_history.hpp"
 #include "media/anime_list.hpp"
 #include "taiga/session.hpp"
 #include "taiga/settings.hpp"
@@ -91,9 +92,10 @@ void NowPlayingWidget::reset() {
   m_countdown_timer_->stop();
 
   const int anime_id = m_episode ? m_episode->animeId() : anime::kUnknownId;
-  const QString ep_str = m_episode
-      ? QString::fromStdString(m_episode->element(anitomy::ElementKind::Episode, std::string{}))
-      : QString{};
+  const QString ep_str =
+      m_episode
+          ? QString::fromStdString(m_episode->element(anitomy::ElementKind::Episode, std::string{}))
+          : QString{};
   bool ep_ok = false;
   int ep_no = ep_str.toInt(&ep_ok);
   if (!ep_ok || ep_no < 1) ep_no = 1;
@@ -136,7 +138,10 @@ void NowPlayingWidget::reset() {
           };
           QString matched_root;
           for (const QString& r : roots) {
-            if (isUnderRoot(dir_clean, r)) { matched_root = r; break; }
+            if (isUnderRoot(dir_clean, r)) {
+              matched_root = r;
+              break;
+            }
           }
           if (!matched_root.isEmpty()) {
             QString cur = dir_clean;
@@ -172,12 +177,12 @@ void NowPlayingWidget::reset() {
 
 void NowPlayingWidget::setPlaying(track::Episode episode) {
   const int incoming_id = episode.animeId();
-  const QString incoming_ep = QString::fromStdString(episode.element(anitomy::ElementKind::Episode));
+  const QString incoming_ep =
+      QString::fromStdString(episode.element(anitomy::ElementKind::Episode));
 
   // Restart countdown only when the episode actually changes
   const bool same_episode =
-      m_episode.has_value() &&
-      m_episode->animeId() == incoming_id &&
+      m_episode.has_value() && m_episode->animeId() == incoming_id &&
       QString::fromStdString(m_episode->element(anitomy::ElementKind::Episode)) == incoming_ep;
 
   m_episode = episode;
@@ -192,6 +197,21 @@ void NowPlayingWidget::setPlaying(track::Episode episode) {
     m_update_committed_ = false;
     m_countdown_timer_->stop();
     m_countdown_remaining_ = 0;
+
+    // Record to History as soon as media detection sees a (new) episode.
+    bool ep_ok = false;
+    int ep_no = incoming_ep.toInt(&ep_ok);
+    if (ep_ok && incoming_id > 0 && ep_no > 0) {
+      // Apply the same S00 mapping as list updates (so history lines up with progress).
+      const auto* item = anime::db.item(incoming_id);
+      const std::string season_str = episode.element(anitomy::ElementKind::Season, {});
+      const bool is_s0 = season_str == "0" || season_str == "00";
+      if (item && is_s0 && item->episode_count > 0 && item->episode_count <= 12 &&
+          ep_no > item->episode_count) {
+        ep_no = ((ep_no - 1) % item->episode_count) + 1;
+      }
+      anime::history().recordEpisode(incoming_id, ep_no);
+    }
 
     if (taiga::settings.recognitionAutoUpdateList() && incoming_id > 0) {
       m_countdown_remaining_ = taiga::settings.recognitionUpdateDelaySeconds();
@@ -237,7 +257,8 @@ void NowPlayingWidget::commitListUpdate() {
   // AniList entry is a short multi-episode OVA/movie. Map to 1..N so list progress advances.
   const std::string season_str = m_episode->element(anitomy::ElementKind::Season, {});
   const bool is_s0 = season_str == "0" || season_str == "00";
-  if (is_s0 && item->episode_count > 0 && item->episode_count <= 12 && ep_no > item->episode_count) {
+  if (is_s0 && item->episode_count > 0 && item->episode_count <= 12 &&
+      ep_no > item->episode_count) {
     ep_no = ((ep_no - 1) % item->episode_count) + 1;
   }
 
@@ -327,8 +348,9 @@ void NowPlayingWidget::refresh() {
   } else if (m_countdown_remaining_ > 0) {
     const int mins = m_countdown_remaining_ / 60;
     const int secs = m_countdown_remaining_ % 60;
-    m_timerLabel->setText(tr("List update in <b style=\"font-weight:600;\">%1</b>")
-                              .arg(u"%1:%2"_s.arg(mins, 2, 10, QChar('0')).arg(secs, 2, 10, QChar('0'))));
+    m_timerLabel->setText(
+        tr("List update in <b style=\"font-weight:600;\">%1</b>")
+            .arg(u"%1:%2"_s.arg(mins, 2, 10, QChar('0')).arg(secs, 2, 10, QChar('0'))));
   } else {
     m_timerLabel->setText({});
   }

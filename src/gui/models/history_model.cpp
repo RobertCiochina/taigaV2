@@ -20,10 +20,10 @@
 
 #include <QApplication>
 #include <QPalette>
-#include <string_view>
 #include <anitomy.hpp>
 #include <anitomy/detail/keyword.hpp>  // don't try this at home
 #include <ranges>
+#include <string_view>
 
 #include "base/string.hpp"
 #include "media/anime_db.hpp"
@@ -42,10 +42,15 @@ bool historyRowIsImportedQueue(const anime::HistoryItem& h) {
 
 }  // namespace
 
-HistoryModel::HistoryModel(QObject* parent) : QAbstractListModel(parent) {}
+HistoryModel::HistoryModel(QObject* parent) : QAbstractListModel(parent) {
+  connect(&anime::history(), &anime::History::itemsChanged, this, [this]() {
+    beginResetModel();
+    endResetModel();
+  });
+}
 
 int HistoryModel::rowCount(const QModelIndex&) const {
-  return anime::history.items().size();
+  return anime::history().items().size();
 }
 
 int HistoryModel::columnCount(const QModelIndex&) const {
@@ -57,7 +62,7 @@ QVariant HistoryModel::data(const QModelIndex& index, int role) const {
 
   switch (role) {
     case Qt::DisplayRole: {
-      const auto& historyItem = anime::history.items().at(index.row());
+      const auto& historyItem = anime::history().items().at(index.row());
       const auto item = anime::db.item(historyItem.anime_id);
       switch (index.column()) {
         case COLUMN_TITLE:
@@ -90,7 +95,7 @@ QVariant HistoryModel::data(const QModelIndex& index, int role) const {
     }
 
     case AnimeIdRole:
-      return anime::history.items().at(index.row()).anime_id;
+      return anime::history().items().at(index.row()).anime_id;
   }
 
   return {};

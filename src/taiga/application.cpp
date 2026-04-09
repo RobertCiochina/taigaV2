@@ -80,7 +80,7 @@ int Application::run() {
   taiga::settings.ensureWindowsAutoStartFromSettings();
   taiga::network()->applyProxyFromSettings();
   anime::db.init();
-  anime::history.init();
+  anime::history().init();
   track::media::detection()->init();
   track::libraryFolderWatcher()->refreshFromSettings();
 

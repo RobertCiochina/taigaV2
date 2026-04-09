@@ -19,6 +19,7 @@
 #pragma once
 
 #include <QList>
+#include <QObject>
 #include <array>
 #include <string>
 #include <string_view>
@@ -36,16 +37,22 @@ struct HistoryItem {
 /// Prefix on `HistoryItem::time` for rows imported from legacy `history.xml` `<queue>`.
 inline constexpr std::string_view kHistoryItemQueuedImportPrefix = "[v1queue] ";
 
-class History {
+class History : public QObject {
+  Q_OBJECT
 public:
+  explicit History(QObject* parent = nullptr) : QObject(parent) {}
   void init();
 
   const QList<HistoryItem>& items() const;
+  void recordEpisode(int anime_id, int episode);
+
+signals:
+  void itemsChanged();
 
 private:
   QList<HistoryItem> items_;
 };
 
-inline History history;
+History& history();
 
 }  // namespace anime

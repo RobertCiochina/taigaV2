@@ -5,8 +5,6 @@
 
 #include "history_widget.hpp"
 
-#include <functional>
-
 #include <QAbstractItemView>
 #include <QClipboard>
 #include <QDesktopServices>
@@ -22,6 +20,7 @@
 #include <QSortFilterProxyModel>
 #include <QStatusBar>
 #include <QUrl>
+#include <functional>
 
 #include "gui/main/main_window.hpp"
 #include "gui/media/media_dialog.hpp"
@@ -76,9 +75,7 @@ protected:
           paintEmptyListText(
               this, tr("No history yet.\nTitles appear here after media detection records an "
                        "episode.\n"
-                       "Pending v1 offline list updates from history.xml also show here after "
-                       "import.\n\n"
-                       "Double-click or Enter: details · Middle-click: play next episode"));
+                       "Imported offline list updates also show here after import."));
         } else if (proxy->rowCount() == 0) {
           paintEmptyListText(
               this, tr("No entries match the filter.\nTry clearing the toolbar search box."));
@@ -128,9 +125,7 @@ HistoryWidget::HistoryWidget(QWidget* parent)
   connect(m_view, &QAbstractItemView::doubleClicked, this,
           [this](const QModelIndex& idx) { openDetailsForProxyIndex(idx); });
 
-  tree->onEnterPressed = [this, tree]() {
-    openDetailsForProxyIndex(tree->currentIndex());
-  };
+  tree->onEnterPressed = [this, tree]() { openDetailsForProxyIndex(tree->currentIndex()); };
   tree->onMiddleClick = [this](const QModelIndex& idx) {
     const int anime_id = idx.data(HistoryModel::AnimeIdRole).toInt();
     if (anime_id <= 0) return;
