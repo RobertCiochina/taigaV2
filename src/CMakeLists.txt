@@ -74,6 +74,8 @@ set(TAIGA_CORE_SOURCES
 	taiga/accounts.hpp
 	taiga/application.cpp
 	taiga/application.hpp
+	taiga/auto_download_rules.cpp
+	taiga/auto_download_rules.hpp
 	taiga/config.h
 	taiga/network.cpp
 	taiga/network.hpp
@@ -81,6 +83,8 @@ set(TAIGA_CORE_SOURCES
 	taiga/orange.hpp
 	taiga/path.cpp
 	taiga/path.hpp
+	taiga/season_browse_cache.cpp
+	taiga/season_browse_cache.hpp
 	taiga/session.cpp
 	taiga/session.hpp
 	taiga/tray_balloon_format.cpp

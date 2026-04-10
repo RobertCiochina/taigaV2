@@ -26,3 +26,15 @@ target_sources(taiga.tests.list_title_color PRIVATE gui/test_list_title_color.cp
 taiga_add_qttest(taiga.tests.search_my_list_only)
 target_sources(taiga.tests.search_my_list_only PRIVATE gui/test_search_my_list_only.cpp)
 
+taiga_add_qttest(taiga.tests.search_load_my_list_instant)
+target_sources(taiga.tests.search_load_my_list_instant PRIVATE gui/test_search_load_my_list_is_instant.cpp)
+
+taiga_add_qttest(taiga.tests.season_browse_cache)
+target_sources(taiga.tests.season_browse_cache PRIVATE taiga/test_season_browse_cache.cpp)
+
+taiga_add_qttest(taiga.tests.auto_download_rules)
+target_sources(taiga.tests.auto_download_rules PRIVATE taiga/test_auto_download_rules.cpp)
+
+taiga_add_qttest(taiga.tests.anime_history_max)
+target_sources(taiga.tests.anime_history_max PRIVATE media/test_anime_history_max.cpp)
+

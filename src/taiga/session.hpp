@@ -66,6 +66,9 @@ public:
   QString searchListAutoLoadedSeasonKey() const;
   /// Epoch seconds when the last auto-load ran (0 = never).
   qint64 searchListAutoLoadedSeasonAtSecs() const;
+  /// Season browse keys already fetched into the local DB (service+year+season).
+  /// Used to skip redundant "Load all" network calls unless the user forces refresh.
+  QStringList searchListSeasonBrowseLoadedKeys() const;
   QString torrentPanelLastQuery() const;
   /// Substring filter on the Torrents RSS table (restored when reopening the app).
   QString torrentPanelResultFilter() const;
@@ -98,6 +101,7 @@ public:
   void setSearchListViewMode(const gui::ListViewMode mode) const;
   void setSearchListAutoLoadedSeasonKey(const QString& key) const;
   void setSearchListAutoLoadedSeasonAtSecs(qint64 secs) const;
+  void setSearchListSeasonBrowseLoadedKeys(const QStringList& keys) const;
   void setTorrentPanelLastQuery(const QString& query) const;
   void setTorrentPanelResultFilter(const QString& text) const;
   void setTorrentCatalogSeenFingerprints(const QStringList& keys) const;

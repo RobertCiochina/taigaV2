@@ -172,6 +172,18 @@ qint64 Session::searchListAutoLoadedSeasonAtSecs() const {
   return value("searchList.autoLoadedSeasonAtSecs", static_cast<qint64>(0)).toLongLong();
 }
 
+QStringList Session::searchListSeasonBrowseLoadedKeys() const {
+  const QString raw = value("searchList.seasonBrowseLoadedKeys", QString{}).toString();
+  if (raw.isEmpty()) return {};
+  const QJsonDocument doc = QJsonDocument::fromJson(raw.toUtf8());
+  if (!doc.isArray()) return {};
+  QStringList out;
+  for (const QJsonValue& v : doc.array()) {
+    if (v.isString()) out.append(v.toString());
+  }
+  return out;
+}
+
 int Session::searchListSortColumn() const {
   return value("searchList.sortColumn", gui::AnimeListModel::COLUMN_AVERAGE).toInt();
 }
@@ -279,6 +291,15 @@ void Session::setSearchListAutoLoadedSeasonKey(const QString& key) const {
 
 void Session::setSearchListAutoLoadedSeasonAtSecs(const qint64 secs) const {
   setValue("searchList.autoLoadedSeasonAtSecs", secs);
+}
+
+void Session::setSearchListSeasonBrowseLoadedKeys(const QStringList& keys) const {
+  QJsonArray a;
+  for (const QString& k : keys) {
+    a.append(k);
+  }
+  setValue("searchList.seasonBrowseLoadedKeys",
+           QString::fromUtf8(QJsonDocument(a).toJson(QJsonDocument::Compact)));
 }
 
 void Session::setSearchListSortColumn(const int column) const {

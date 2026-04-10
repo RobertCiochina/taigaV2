@@ -80,6 +80,7 @@
 #include "sync/service.hpp"
 #include "taiga/accounts.hpp"
 #include "taiga/application.hpp"
+#include "taiga/auto_download_rules.hpp"
 #include "taiga/network.hpp"
 #include "taiga/path.hpp"
 #include "taiga/session.hpp"
@@ -1619,6 +1620,20 @@ void MainWindow::runAutoDownload(const bool silent) {
   }
   if (!m_torrentFeedWidget) return;
 
+  if (!track::libraryScanHasResults()) {
+    if (taiga::settings.cacheDiagnosticsEnabled()) {
+      track::appendLibraryEpisodeIndexCacheDebugLine(
+          QStringLiteral("autodl: skipped (library scan/index not ready yet)"));
+    }
+    if (!silent) {
+      QMessageBox::information(
+          this, tr("Auto-download"),
+          tr("The library episode index is not ready yet.\n\n"
+             "Run a library scan (or enable scan-on-startup) and try again."));
+    }
+    return;
+  }
+
   // Collect anime on the Watching list where an episode has aired but is not yet on disk.
   struct Candidate {
     int anime_id;
@@ -1641,21 +1656,9 @@ void MainWindow::runAutoDownload(const bool silent) {
     const auto* item = anime::db.item(anime_id);
     if (!item) continue;
     const qint64 now_secs = QDateTime::currentSecsSinceEpoch();
-    // Only queue downloads for episodes that have actually aired.
-    // If the next episode air time is in the future and we don't have a reliable last-aired value,
-    // treat this as "nothing new aired yet" to avoid early RSS hits for upcoming series.
-    int last_aired = item->last_aired_episode;
-    if (last_aired <= 0) {
-      if (item->next_episode_time > now_secs) {
-        last_aired = entry.watched_episodes;
-      } else {
-        // Fallback for titles without schedule metadata (or where next_episode_time is unset/0):
-        // use episode_count as an upper bound, which is best-effort (may overestimate for
-        // unreleased shows).
-        last_aired = item->episode_count;
-      }
-    }
-    const int watched = entry.watched_episodes;
+    const int watched = std::max(entry.watched_episodes,
+                                 anime::history().maxRecordedEpisodeForAnime(anime_id));
+    const int last_aired = taiga::computeLastAiredEpisodeForAutoDownload(*item, watched, now_secs);
     if (last_aired <= watched) continue;
     // Skip only if every episode in [watched+1 .. last_aired] is already on disk.
     // This correctly handles "episodes downloaded but not yet watched" —
@@ -1673,6 +1676,17 @@ void MainWindow::runAutoDownload(const bool silent) {
     const QString romaji = QString::fromStdString(item->titles.romaji);
     const QString folder = en.isEmpty() ? romaji : en;
     if (!en.isEmpty() || !romaji.isEmpty()) {
+      if (taiga::settings.cacheDiagnosticsEnabled()) {
+        track::appendLibraryEpisodeIndexCacheDebugLine(QStringLiteral(
+            "autodl: queued aid=%1 watched=%2 lastAired=%3 nextTime=%4 epCount=%5 status=%6 title='%7'")
+                                                           .arg(anime_id)
+                                                           .arg(watched)
+                                                           .arg(last_aired)
+                                                           .arg(static_cast<qint64>(item->next_episode_time))
+                                                           .arg(item->episode_count)
+                                                           .arg(static_cast<int>(item->status))
+                                                           .arg(folder.left(120)));
+      }
       if (skip_failed) {
         const int streak = m_auto_download_fail_streak_today_.value(anime_id, 0);
         if (streak >= 2) {

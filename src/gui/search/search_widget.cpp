@@ -24,10 +24,12 @@
 
 #include <QActionGroup>
 #include <QDate>
+#include <QDateTime>
 #include <QMenu>
 #include <QPointer>
 #include <QPushButton>
 #include <QSignalBlocker>
+#include <QGuiApplication>
 #include <QTimer>
 #include <QStatusBar>
 #include <QToolBar>
@@ -46,6 +48,7 @@
 #include "media/anime_season.hpp"
 #include "sync/anilist.hpp"
 #include "sync/service.hpp"
+#include "taiga/season_browse_cache.hpp"
 #include "taiga/session.hpp"
 #include "taiga/user_feedback.hpp"
 
@@ -159,10 +162,26 @@ SearchWidget::SearchWidget(QWidget* parent)
   }
 
   {
-    auto* load_all = new QPushButton(tr("Load all"), this);
-    load_all->setToolTip(
-        tr("Download the full year+season catalog from the active service into the local database."));
-    connect(load_all, &QPushButton::clicked, this, [this]() {
+    m_btnLoadAll = new QPushButton(tr("Load all"), this);
+    m_btnLoadAll->setToolTip(
+        tr("Download the full year+season catalog from the active service into the local database.\n"
+           "If that season was already loaded before, this will use the local database.\n"
+           "Tip: hold Shift while clicking to force refresh from the service."));
+    connect(m_btnLoadAll, &QPushButton::clicked, this, [this]() {
+      if (m_seasonBrowseInFlight) {
+        if (auto* mw = mainWindow()) {
+          mw->statusBar()->showMessage(tr("Please wait for the current refresh to finish."), 3500);
+        }
+        return;
+      }
+      const qint64 now_ms = QDateTime::currentMSecsSinceEpoch();
+      if (m_lastNetworkOpMs > 0 && (now_ms - m_lastNetworkOpMs) < 1200) {
+        if (auto* mw = mainWindow()) {
+          mw->statusBar()->showMessage(tr("Please wait a moment and try again."), 2500);
+        }
+        return;
+      }
+
       // Temporarily show all results (not just titles in the user's list).
       m_proxyModel->setListStatusFilter({});
       const int yi = m_comboYear->currentIndex();
@@ -177,120 +196,67 @@ SearchWidget::SearchWidget(QWidget* parent)
         taiga::userFeedback(tr("Select a valid year and season."), true);
         return;
       }
+
+      const bool force_refresh =
+          (QGuiApplication::keyboardModifiers() & Qt::KeyboardModifier::ShiftModifier) != 0;
+      const QString key = taiga::seasonBrowseCacheKey(sync::currentServiceId(), y, season);
+      const QStringList loaded_keys = taiga::session.searchListSeasonBrowseLoadedKeys();
+      if (!taiga::shouldFetchSeasonBrowse(loaded_keys, key, force_refresh)) {
+        reloadAnimeList();
+        if (auto* mw = mainWindow()) {
+          if (mw->navigation()) mw->navigation()->refresh();
+          mw->statusBar()->showMessage(
+              tr("Season already loaded. Hold Shift and click Load all to refresh."), 5000);
+        }
+        return;
+      }
+
       QPointer<SearchWidget> guard(this);
       if (auto* mw = mainWindow()) {
         mw->statusBar()->showMessage(tr("Loading seasonal catalog…"));
       }
-      sync::fetchSeasonBrowse(season, y, [guard](const bool ok, const QString& msg) {
+      m_seasonBrowseInFlight = true;
+      m_lastNetworkOpMs = now_ms;
+      if (m_btnLoadAll) m_btnLoadAll->setEnabled(false);
+      if (m_btnLoadMyList) m_btnLoadMyList->setEnabled(false);
+
+      sync::fetchSeasonBrowse(season, y, [guard, key](const bool ok, const QString& msg) {
         if (!guard) return;
+        guard->m_seasonBrowseInFlight = false;
+        if (guard->m_btnLoadAll) guard->m_btnLoadAll->setEnabled(true);
+        if (guard->m_btnLoadMyList) guard->m_btnLoadMyList->setEnabled(true);
         if (auto* mw = mainWindow()) {
           mw->statusBar()->clearMessage();
           if (ok) {
+            taiga::session.setSearchListSeasonBrowseLoadedKeys(taiga::seasonBrowseCacheAdd(
+                taiga::session.searchListSeasonBrowseLoadedKeys(), key));
             guard->reloadAnimeList();
             if (mw->navigation()) mw->navigation()->refresh();
             mw->statusBar()->showMessage(msg.isEmpty() ? tr("Season loaded.") : msg, 6000);
           } else {
+            // Avoid a modal network error popup on rapid repeated actions; status bar is enough.
             taiga::userFeedback(msg.isEmpty() ? QStringLiteral("Season request failed.") : msg,
-                                true);
+                                false);
           }
         }
       });
     });
-    filtersLayout->addWidget(load_all);
+    filtersLayout->addWidget(m_btnLoadAll);
 
-    auto* load_my_list = new QPushButton(tr("Load my list"), this);
-    load_my_list->setToolTip(
-        tr("Refresh details for anime already on your list that match the selected year+season.\n"
-           "This avoids loading the full seasonal catalog."));
-    connect(load_my_list, &QPushButton::clicked, this, [this]() {
+    m_btnLoadMyList = new QPushButton(tr("Load my list"), this);
+    m_btnLoadMyList->setToolTip(
+        tr("Show only titles already on your list.\n"
+           "This is instant and does not make network calls."));
+    connect(m_btnLoadMyList, &QPushButton::clicked, this, [this]() {
       // Switch back to "my list only" mode.
       m_proxyModel->setListStatusFilter({/*status=*/0, /*anyStatus=*/true});
-      const int yi = m_comboYear->currentIndex();
-      const int si = m_comboSeason->currentIndex();
-      if (yi < 0 || si < 0) {
-        taiga::userFeedback(tr("Select a year and season first."), true);
-        return;
-      }
-      const int y = m_comboYear->itemData(yi).toInt();
-      const auto season = static_cast<anime::SeasonName>(m_comboSeason->itemData(si).toInt());
-      if (y <= 0 || season == anime::SeasonName::Unknown) {
-        taiga::userFeedback(tr("Select a valid year and season."), true);
-        return;
-      }
-
-      // Collect list anime ids that match the selected season/year.
-      QList<int> ids;
-      for (const auto& [id, entry] : anime::db.entries().asKeyValueRange()) {
-        (void)entry;
-        const auto* item = anime::db.item(id);
-        if (!item) continue;
-        if (item->date_started.year() != y) continue;
-        const anime::Season s{item->date_started};
-        if (static_cast<int>(s.name) != static_cast<int>(season)) continue;
-        ids.push_back(id);
-      }
-
-      if (ids.isEmpty()) {
-        taiga::userFeedback(tr("No anime on your list match that year+season."), false);
-        return;
-      }
-
+      reloadAnimeList();
       if (auto* mw = mainWindow()) {
-        mw->statusBar()->showMessage(tr("Refreshing %1 list title(s)…").arg(ids.size()), 4000);
-      }
-
-      // Best-effort: queue per-anime refreshes. Only AniList exposes completion signals in this build.
-      if (sync::currentServiceId() == sync::ServiceId::AniList) {
-        auto* svc = sync::anilist::Service::instance();
-        const int total = ids.size();
-        auto remaining = std::make_shared<int>(total);
-        auto ok_count = std::make_shared<int>(0);
-        auto wanted = std::make_shared<QSet<int>>();
-        for (int id : ids) wanted->insert(id);
-
-        QPointer<SearchWidget> guard(this);
-        QMetaObject::Connection conn;
-        conn = connect(svc, &sync::anilist::Service::mediaFetchFinished, this,
-                       [guard, remaining, ok_count, wanted, total, &conn](int id, bool success) mutable {
-                         if (!guard) {
-                           disconnect(conn);
-                           return;
-                         }
-                         if (!wanted->contains(id)) return;
-                         wanted->remove(id);
-                         if (success) ++(*ok_count);
-                         if (*remaining > 0) --(*remaining);
-                         if (*remaining <= 0) {
-                           disconnect(conn);
-                           if (auto* mw = mainWindow()) {
-                             mw->statusBar()->showMessage(
-                                 tr("Refreshed %1/%2 title(s).").arg(*ok_count).arg(total),
-                                 6000);
-                           }
-                           guard->reloadAnimeList();
-                           if (auto* mw = mainWindow()) {
-                             if (mw->navigation()) mw->navigation()->refresh();
-                           }
-                         }
-                       });
-
-        for (int id : ids) {
-          sync::fetchAnime(id);
-        }
-      } else {
-        for (int id : ids) {
-          sync::fetchAnime(id);
-        }
-        // No completion tracking for MAL/Kitsu in this build; just refresh locally shortly after queueing.
-        QTimer::singleShot(1500, this, [this]() {
-          reloadAnimeList();
-          if (auto* mw = mainWindow()) {
-            if (mw->navigation()) mw->navigation()->refresh();
-          }
-        });
+        if (mw->navigation()) mw->navigation()->refresh();
+        mw->statusBar()->showMessage(tr("Showing only titles in your list."), 3000);
       }
     });
-    filtersLayout->addWidget(load_my_list);
+    filtersLayout->addWidget(m_btnLoadMyList);
 
     auto* reset_filters = new QPushButton(tr("Reset filters"), this);
     reset_filters->setToolTip(

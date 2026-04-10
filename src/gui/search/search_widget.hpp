@@ -19,6 +19,7 @@
 #pragma once
 
 #include <QMenu>
+#include <QPushButton>
 #include <QString>
 
 #include "gui/common/anime_list_view_base.hpp"
@@ -70,6 +71,10 @@ private:
   ListViewMode m_viewMode = ListViewMode::Cards;
   QMenu* m_sortMenu = nullptr;
   QMenu* m_viewMenu = nullptr;
+  QPushButton* m_btnLoadAll = nullptr;
+  QPushButton* m_btnLoadMyList = nullptr;
+  bool m_seasonBrowseInFlight = false;
+  qint64 m_lastNetworkOpMs = 0;
   bool m_applying_defaults_ = false;
   bool m_did_first_show_sync_ = false;
 };

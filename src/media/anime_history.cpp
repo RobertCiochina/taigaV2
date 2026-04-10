@@ -137,4 +137,14 @@ void History::recordEpisode(const int anime_id, const int episode) {
   emit itemsChanged();
 }
 
+int History::maxRecordedEpisodeForAnime(const int anime_id) const {
+  if (anime_id <= 0) return 0;
+  int max_ep = 0;
+  for (const auto& h : items_) {
+    if (h.anime_id != anime_id) continue;
+    if (h.episode > max_ep) max_ep = h.episode;
+  }
+  return max_ep;
+}
+
 }  // namespace anime

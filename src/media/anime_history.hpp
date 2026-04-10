@@ -45,6 +45,7 @@ public:
 
   const QList<HistoryItem>& items() const;
   void recordEpisode(int anime_id, int episode);
+  int maxRecordedEpisodeForAnime(int anime_id) const;
 
 signals:
   void itemsChanged();
