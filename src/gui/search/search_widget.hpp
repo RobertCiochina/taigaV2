@@ -57,7 +57,7 @@ private:
   void setViewMode(ListViewMode mode);
   void initToolbar();
   void initViewMenu();
-  void initMoreMenu();
+  // Search "More" menu was removed: import/export lives in the main menus.
 
   AnimeListModel* m_model = nullptr;
   AnimeListProxyModel* m_proxyModel = nullptr;
@@ -70,7 +70,6 @@ private:
   ListViewMode m_viewMode = ListViewMode::Cards;
   QMenu* m_sortMenu = nullptr;
   QMenu* m_viewMenu = nullptr;
-  QMenu* m_moreMenu = nullptr;
   bool m_applying_defaults_ = false;
   bool m_did_first_show_sync_ = false;
 };

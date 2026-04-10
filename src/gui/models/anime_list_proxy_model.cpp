@@ -68,18 +68,12 @@ AnimeListProxyModel::AnimeListProxyModel(QObject* parent) : QSortFilterProxyMode
 
 QString AnimeListProxyModel::cachedPreferredTitleLower(const int anime_id,
                                                        const Anime* anime) const {
-  const auto lang = taiga::settings.listTitleLanguage();
-  const int lang_i = static_cast<int>(lang);
-  if (m_cachedPreferredTitleLang != lang_i) {
-    m_cachedPreferredTitleLang = lang_i;
-    m_cachedPreferredTitleLower.clear();
-  }
   if (!anime) return {};
   if (const auto it = m_cachedPreferredTitleLower.find(anime_id);
       it != m_cachedPreferredTitleLower.end()) {
     return it.value();
   }
-  const std::string s = anime::preferredListTitleString(*anime, lang);
+  const std::string s = anime::preferredListTitleString(*anime, anime::TitleLanguage::English);
   const QString q = QString::fromStdString(s).toLower();
   m_cachedPreferredTitleLower.insert(anime_id, q);
   return q;
@@ -140,7 +134,7 @@ void AnimeListProxyModel::setTextFilter(const QString& text) {
 }
 
 bool AnimeListProxyModel::filterAcceptsRow(int row, const QModelIndex& parent) const {
-  const auto model = static_cast<AnimeListModel*>(sourceModel());
+  const auto* model = sourceModel();
   if (!model) return false;
   const auto index = model->index(row, 0, parent);
   const auto anime = getAnime(index);

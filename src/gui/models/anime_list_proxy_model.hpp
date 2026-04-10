@@ -77,8 +77,6 @@ private:
   // Cache to avoid recomputing preferred titles during heavy sorts (e.g. Search reset expanding
   // result set). Keyed by anime id; values are lowercased for case-insensitive compare.
   mutable QHash<int, QString> m_cachedPreferredTitleLower;
-  // Stored as int to avoid including settings types in the header.
-  mutable int m_cachedPreferredTitleLang = -1;
 };
 
 }  // namespace gui

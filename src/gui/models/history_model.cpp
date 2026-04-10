@@ -26,6 +26,7 @@
 #include <string_view>
 
 #include "base/string.hpp"
+#include "gui/utils/ui_title.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_history.hpp"
 #include "track/episode.hpp"
@@ -66,7 +67,7 @@ QVariant HistoryModel::data(const QModelIndex& index, int role) const {
       const auto item = anime::db.item(historyItem.anime_id);
       switch (index.column()) {
         case COLUMN_TITLE:
-          if (item) return QString::fromStdString(item->titles.romaji);
+          if (item) return gui::uiTitle(*item);
           return {};
         case COLUMN_DETAILS:
           if (historyRowIsImportedQueue(historyItem)) {

@@ -353,7 +353,7 @@ void MediaMenu::torrents() const {
   const QString primary = has_romaji
       ? QString::fromStdString(item.titles.romaji)
       : QString::fromStdString(
-            anime::preferredListTitleString(item, taiga::settings.listTitleLanguage()));
+            anime::preferredListTitleString(item, anime::TitleLanguage::English));
   // Build a fallback: use English title if available and different from primary.
   QString fallback;
   if (has_romaji && !item.titles.english.empty()) {

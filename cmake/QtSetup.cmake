@@ -11,6 +11,7 @@ find_package(Qt6 REQUIRED COMPONENTS
 	Network
 	Sql
 	Svg
+	Test
 	Widgets
 )
 

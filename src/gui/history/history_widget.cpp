@@ -26,6 +26,7 @@
 #include "gui/media/media_dialog.hpp"
 #include "gui/models/history_model.hpp"
 #include "gui/utils/painters.hpp"
+#include "gui/utils/ui_title.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_list.hpp"
 #include "sync/service.hpp"
@@ -179,7 +180,7 @@ void HistoryWidget::showContextMenu() const {
   if (anime_item) {
     menu.addAction(tr("Copy title"), [this, anime_id]() {
       if (const auto* a = anime::db.item(anime_id)) {
-        QGuiApplication::clipboard()->setText(QString::fromStdString(a->titles.romaji));
+        QGuiApplication::clipboard()->setText(gui::uiTitle(*a));
         mainWindow()->statusBar()->showMessage(tr("Copied title to clipboard."), 2500);
       }
     });
@@ -193,7 +194,7 @@ void HistoryWidget::showContextMenu() const {
   menu.addAction(tr("Go to anime list"), [anime_id]() {
     mainWindow()->navigateTo(MainWindowPage::List);
     if (const auto* item = anime::db.item(anime_id)) {
-      mainWindow()->searchBox()->setText(QString::fromStdString(item->titles.romaji));
+      mainWindow()->searchBox()->setText(gui::uiTitle(*item));
     }
   });
   menu.exec(QCursor::pos());

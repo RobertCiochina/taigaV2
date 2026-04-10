@@ -36,10 +36,12 @@
 #include "gui/utils/format.hpp"
 #include "gui/utils/image_provider.hpp"
 #include "gui/utils/list_commit.hpp"
+#include "gui/utils/ui_title.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_season.hpp"
 #include "taiga/settings.hpp"
 #include "track/scanner.hpp"
+#include "gui/models/list_title_color.hpp"
 
 namespace gui {
 
@@ -152,8 +154,7 @@ QVariant AnimeListModel::data(const QModelIndex& index, int role) const {
     case Qt::DisplayRole:
       switch (index.column()) {
         case COLUMN_TITLE:
-          return QString::fromStdString(
-              anime::preferredListTitleString(*anime, taiga::settings.listTitleLanguage()));
+          return gui::uiTitle(*anime);
         case COLUMN_DURATION:
           return formatEpisodeLength(anime->episode_length);
         case COLUMN_REWATCHES:
@@ -248,26 +249,18 @@ QVariant AnimeListModel::data(const QModelIndex& index, int role) const {
           // are shown in a muted slate-blue so they are visually distinct from list entries.
           if (!entry) return qApp->palette().color(QPalette::PlaceholderText);
 
-          // Priority 1 – "Seen / caught up": all aired episodes watched.
-          // Use a muted green that reads well on both light and dark themes.
           const int last_aired = anime->last_aired_episode;
           const int watched = entry->watched_episodes;
           const bool caught_up = last_aired > 0 && watched >= last_aired;
           const bool fully_done = anime->episode_count > 0 && watched >= anime->episode_count;
-          if (caught_up || fully_done) {
-            return QColor(0x4c, 0xaf, 0x50);  // material green
-          }
+          const bool next_on_disk = taiga::settings.listHighlightNextEpisodeOnDisk() &&
+                                    track::nextEpisodeIsOnDisk(anime->id, anime, entry);
+          const bool aired_not_downloaded = last_aired > watched;
 
-          // Priority 2 – "Downloaded / ready to watch": next episode file is on disk.
-          if (taiga::settings.listHighlightNextEpisodeOnDisk() &&
-              track::nextEpisodeIsOnDisk(anime->id, anime, entry)) {
-            return QColor(0x42, 0xa5, 0xf5);  // material blue
-          }
-
-          // Priority 3 – "Released but not yet downloaded": a new episode aired
-          // but is not on disk yet.
-          if (last_aired > watched) {
-            return QColor(0x9e, 0x9e, 0x9e);  // material grey
+          if (const auto c = decideListTitleColor(/*caught_up_or_done=*/(caught_up || fully_done),
+                                                  /*next_unwatched_episode_on_disk=*/next_on_disk,
+                                                  /*aired_but_not_downloaded=*/aired_not_downloaded)) {
+            return *c;
           }
           break;
         }

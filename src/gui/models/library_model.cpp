@@ -28,6 +28,7 @@
 #include <ranges>
 
 #include "base/string.hpp"
+#include "gui/utils/ui_title.hpp"
 #include "media/anime.hpp"
 #include "media/anime_db.hpp"
 #include "taiga/settings.hpp"
@@ -38,8 +39,7 @@
 namespace gui {
 
 static QString preferredAnimeTitle(const anime::Details& item) {
-  return QString::fromStdString(
-      anime::preferredListTitleString(item, taiga::settings.listTitleLanguage()));
+  return gui::uiTitle(item);
 }
 
 LibraryModel::LibraryModel(QObject* parent) : QFileSystemModel(parent) {

@@ -2,9 +2,7 @@ include(QtSetup)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
-add_executable(taiga)
-
-target_sources(taiga PRIVATE
+set(TAIGA_CORE_SOURCES
 	base/chrono.cpp
 	base/chrono.hpp
 	base/file.cpp
@@ -119,8 +117,26 @@ target_sources(taiga PRIVATE
 	track/streaming_sites.cpp
 	track/streaming_sites.hpp
 
-	main.cpp
+	gui/models/list_title_color.cpp
+	gui/models/list_title_color.hpp
 )
+
+add_library(taiga-core STATIC)
+target_sources(taiga-core PRIVATE ${TAIGA_CORE_SOURCES})
+
+target_link_libraries(taiga-core PRIVATE
+	Qt6::Core
+	Qt6::Gui
+	Qt6::Network
+	Qt6::Sql
+	Qt6::Widgets
+	taiga-config
+	taiga-deps
+)
+
+add_executable(taiga)
+target_sources(taiga PRIVATE main.cpp)
+target_link_libraries(taiga PRIVATE taiga-core)
 
 target_link_libraries(taiga PRIVATE
 	Qt6::Core
@@ -145,6 +161,7 @@ endif()
 
 add_subdirectory(gui)
 add_subdirectory(resources)
+add_subdirectory(tests)
 
 qt_add_translations(taiga
 	SOURCE_TARGETS taiga-gui

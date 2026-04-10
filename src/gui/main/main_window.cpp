@@ -658,9 +658,6 @@ void MainWindow::initToolbar() {
       auto* view_menu = menu->addMenu(tr("View"));
       view_menu->addAction(ui_->actionToggleStatusbar);
       view_menu->addAction(ui_->actionToggleNowPlaying);
-      view_menu->addSeparator();
-      view_menu->addAction(ui_->actionToggleDetection);
-      view_menu->addAction(ui_->actionToggleSynchronization);
       menu->addSeparator();
       menu->addMenu(ui_->menuHelp);
       menu->addSeparator();
@@ -1431,7 +1428,7 @@ void MainWindow::maybeNotifyMediaDetectionBalloon(const std::optional<track::Epi
           item);
       if (body.trimmed().isEmpty()) {
         const QString displayTitle = QString::fromStdString(
-            anime::preferredListTitleString(*item, taiga::settings.listTitleLanguage()));
+            anime::preferredListTitleString(*item, anime::TitleLanguage::English));
         body =
             item->episode_count > 1 ? tr("%1 — episode %2").arg(displayTitle, epn) : displayTitle;
       }
@@ -1479,7 +1476,7 @@ void MainWindow::updateTrayTooltip() {
   if (const auto ep = track::media::detection()->getCurrentEpisode()) {
     if (const auto item = anime::db.item(ep->animeId())) {
       const QString wtitle = QString::fromStdString(
-          anime::preferredListTitleString(*item, taiga::settings.listTitleLanguage()));
+          anime::preferredListTitleString(*item, anime::TitleLanguage::English));
       if (item->episode_count > 1) {
         const QString ep_num =
             QString::fromStdString(ep->element(anitomy::ElementKind::Episode, "1"));
@@ -1887,7 +1884,7 @@ void MainWindow::refreshHomeDashboard() {
       const auto* item = anime::db.item(entry.anime_id);
       if (!item) continue;
       upNext.push_back({QString::fromStdString(anime::preferredListTitleString(
-                            *item, taiga::settings.listTitleLanguage())),
+                            *item, anime::TitleLanguage::English)),
                         entry.anime_id, next_ep});
     }
     std::sort(upNext.begin(), upNext.end(), [](const UpNextEntry& a, const UpNextEntry& b) {
@@ -2009,7 +2006,7 @@ void MainWindow::refreshHomeDashboard() {
     // Helper: preferred display title
     auto preferredTitle = [](const Anime& item) -> QString {
       return QString::fromStdString(
-          anime::preferredListTitleString(item, taiga::settings.listTitleLanguage()));
+          anime::preferredListTitleString(item, anime::TitleLanguage::English));
     };
 
     // ---- Sub-section: Upcoming episodes this week -------------------------

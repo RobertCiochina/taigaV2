@@ -37,6 +37,7 @@
 #include "gui/utils/image_provider.hpp"
 #include "gui/utils/theme.hpp"
 #include "gui/utils/widgets.hpp"
+#include "media/anime.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_list.hpp"
 #include "media/anime_season.hpp"
@@ -200,7 +201,8 @@ void MediaDialog::setAnime(const Anime& anime, const std::optional<ListEntry> en
 }
 
 void MediaDialog::initTitles() {
-  const auto mainTitle = QString::fromStdString(m_anime.titles.romaji);
+  const auto mainTitle = QString::fromStdString(
+      anime::preferredListTitleString(m_anime, anime::TitleLanguage::English));
   setWindowTitle(mainTitle);
   ui_->titleLabel->setText(mainTitle);
 
@@ -209,6 +211,7 @@ void MediaDialog::initTitles() {
     if (title.isEmpty() || title == mainTitle) return;
     altTitles.push_back(title);
   };
+  addTitle(QString::fromStdString(m_anime.titles.romaji));
   addTitle(QString::fromStdString(m_anime.titles.english));
   addTitle(QString::fromStdString(m_anime.titles.japanese));
   if (!altTitles.isEmpty()) ui_->altTitlesLabel->setText(altTitles.join(", "));

@@ -305,7 +305,7 @@ void NowPlayingWidget::refresh() {
   m_iconLabel->setPixmap(theme.getIcon(iconName).pixmap(QSize(16, 16)));
 
   const std::string title =
-      m_anime ? anime::preferredListTitleString(*m_anime, taiga::settings.listTitleLanguage())
+      m_anime ? anime::preferredListTitleString(*m_anime, anime::TitleLanguage::English)
               : m_episode->element(anitomy::ElementKind::Title);
   const auto episodeNumber = m_episode->element(anitomy::ElementKind::Episode, "1");
   const auto episodeCount = formatNumber(m_anime ? m_anime->episode_count : 0, "?");

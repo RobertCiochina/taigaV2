@@ -24,8 +24,6 @@
 
 #include <QActionGroup>
 #include <QDate>
-#include <QDateTime>
-#include <QFileDialog>
 #include <QMenu>
 #include <QPointer>
 #include <QPushButton>
@@ -45,7 +43,6 @@
 #include "gui/utils/theme.hpp"
 #include "media/anime.hpp"
 #include "media/anime_db.hpp"
-#include "media/anime_list_export.hpp"
 #include "media/anime_season.hpp"
 #include "sync/anilist.hpp"
 #include "sync/service.hpp"
@@ -77,11 +74,13 @@ SearchWidget::SearchWidget(QWidget* parent)
       m_comboType(new ComboBox(this)),
       m_comboStatus(new ComboBox(this)),
       m_sortMenu(new QMenu(this)),
-      m_viewMenu(new QMenu(this)),
-      m_moreMenu(new QMenu(this)) {
+      m_viewMenu(new QMenu(this)) {
   // Search should be fast and predictable: keep the natural database order (by anime id) and
   // avoid proxy sorting costs on large result sets (e.g. after Reset filters).
   m_proxyModel->setFilters(taiga::session.searchListFilters());
+  // Default behavior: only show titles already on the user's list.
+  // This is intentionally not persisted (Load all is a temporary mode).
+  m_proxyModel->setListStatusFilter({/*status=*/0, /*anyStatus=*/true});
 
   static const auto filterValue = [](QComboBox* combo, int index) {
     return index > -1 ? std::optional<int>{combo->itemData(index).toInt()} : std::nullopt;
@@ -164,6 +163,8 @@ SearchWidget::SearchWidget(QWidget* parent)
     load_all->setToolTip(
         tr("Download the full year+season catalog from the active service into the local database."));
     connect(load_all, &QPushButton::clicked, this, [this]() {
+      // Temporarily show all results (not just titles in the user's list).
+      m_proxyModel->setListStatusFilter({});
       const int yi = m_comboYear->currentIndex();
       const int si = m_comboSeason->currentIndex();
       if (yi < 0 || si < 0) {
@@ -202,6 +203,8 @@ SearchWidget::SearchWidget(QWidget* parent)
         tr("Refresh details for anime already on your list that match the selected year+season.\n"
            "This avoids loading the full seasonal catalog."));
     connect(load_my_list, &QPushButton::clicked, this, [this]() {
+      // Switch back to "my list only" mode.
+      m_proxyModel->setListStatusFilter({/*status=*/0, /*anyStatus=*/true});
       const int yi = m_comboYear->currentIndex();
       const int si = m_comboSeason->currentIndex();
       if (yi < 0 || si < 0) {
@@ -320,7 +323,6 @@ SearchWidget::SearchWidget(QWidget* parent)
 
   initToolbar();
   connect(m_viewMenu, &QMenu::aboutToShow, this, &SearchWidget::initViewMenu);
-  connect(m_moreMenu, &QMenu::aboutToShow, this, &SearchWidget::initMoreMenu);
   setViewMode(taiga::session.searchListViewMode());
 
   applyDefaultSeasonYearIfNeeded();
@@ -477,18 +479,12 @@ void SearchWidget::setViewMode(ListViewMode mode) {
 
 void SearchWidget::initToolbar() {
   const auto actionView = new QAction(theme.getIcon("grid_view"), tr("View"), this);
-  const auto actionMore = new QAction(theme.getIcon("more_horiz"), tr("More"), this);
 
   m_toolbar->addAction(actionView);
-  m_toolbar->addAction(actionMore);
 
   const auto viewButton = static_cast<QToolButton*>(m_toolbar->widgetForAction(actionView));
   viewButton->setPopupMode(QToolButton::InstantPopup);
   viewButton->setMenu(m_viewMenu);
-
-  const auto moreButton = static_cast<QToolButton*>(m_toolbar->widgetForAction(actionMore));
-  moreButton->setPopupMode(QToolButton::InstantPopup);
-  moreButton->setMenu(m_moreMenu);
 }
 
 // Sorting is intentionally disabled on the Search page to keep large-result-set operations (like
@@ -512,39 +508,12 @@ void SearchWidget::initViewMenu() {
   }
 }
 
-void SearchWidget::initMoreMenu() {
-  m_moreMenu->clear();
-
-  constexpr auto export_as = [](QWidget* parent, const QString& extension, auto export_function) {
-    const auto directory = QFileDialog::getExistingDirectory(
-        parent, tr("Select Export Location"), {},
-        QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks | QFileDialog::ReadOnly);
-
-    if (directory.isEmpty()) return;
-
-    const auto timestamp = QDateTime::currentDateTime().toSecsSinceEpoch();
-    const auto path = u"{}/animelist_{}.{}"_s.arg(directory).arg(timestamp).arg(extension);
-    if (export_function(path.toStdString())) {
-      taiga::userFeedback(tr("Exported list to %1").arg(path), false);
-    } else {
-      taiga::userFeedback(tr("Could not write the export file."), true);
-    }
-  };
-
-  m_moreMenu->addAction(tr("Export as Markdown..."), this,
-                        [this]() { export_as(this, "md", &anime::list::exportAsMarkdown); });
-
-  m_moreMenu->addAction(tr("Export as XML..."), this,
-                        [this]() { export_as(this, "xml", &anime::list::exportAsXml); });
-  m_moreMenu->addAction(tr("Export as CSV..."), this,
-                        [this]() { export_as(this, "csv", &anime::list::exportAsCsv); });
-  m_moreMenu->addSeparator();
-  m_moreMenu->addAction(tr("Import from MyAnimeList XML..."), mainWindow(),
-                        &MainWindow::importAnimeListMalXml);
-}
-
 void SearchWidget::saveState() {
-  taiga::session.setSearchListFilters(m_proxyModel->filters());
+  // Persist search filters, but keep "my list only" as the default next time
+  // (Load all is a temporary mode).
+  auto f = m_proxyModel->filters();
+  f.listStatus = {};
+  taiga::session.setSearchListFilters(f);
   taiga::session.setSearchListViewMode(m_viewMode);
 }
 
