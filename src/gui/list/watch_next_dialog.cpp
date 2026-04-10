@@ -36,6 +36,7 @@
 #include <QRandomGenerator>
 #include <QResizeEvent>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QSignalBlocker>
 #include <QSizePolicy>
 #include <QTimer>
@@ -763,6 +764,19 @@ void WatchNextDialog::applyPendingScrollRestore() {
   }
 }
 
+int WatchNextDialog::readTimelineHorizontalScrollValue() const {
+  if (!m_timelineStripScroll) return -1;
+  if (QScrollBar* sb = m_timelineStripScroll->horizontalScrollBar()) return sb->value();
+  return -1;
+}
+
+void WatchNextDialog::restoreTimelineHorizontalScroll(const int px) {
+  if (px < 0 || !m_timelineStripScroll) return;
+  if (QScrollBar* sb = m_timelineStripScroll->horizontalScrollBar()) {
+    sb->setValue(qBound(sb->minimum(), px, sb->maximum()));
+  }
+}
+
 void WatchNextDialog::syncCardsHostGeometry() {
   if (!m_cardsHost) return;
   m_cardsHost->updateGeometry();
@@ -975,6 +989,8 @@ void WatchNextDialog::recomputeClosure() {
 void WatchNextDialog::rebuildCards() {
   if (!m_cardsHost || !m_cardsLayout) return;
 
+  const int saved_timeline_hscroll = readTimelineHorizontalScrollValue();
+
   m_cardsHost->setUpdatesEnabled(false);
   clearVBoxLayoutWidgets(m_cardsLayout);
 
@@ -988,9 +1004,10 @@ void WatchNextDialog::rebuildCards() {
     empty->setWordWrap(true);
     m_cardsLayout->addWidget(empty);
     m_cardsHost->setUpdatesEnabled(true);
-    QTimer::singleShot(0, this, [this]() {
+    QTimer::singleShot(0, this, [this, saved_timeline_hscroll]() {
       syncCardsHostGeometry();
       applyPendingScrollRestore();
+      restoreTimelineHorizontalScroll(saved_timeline_hscroll);
     });
     if (m_fetchStripScroll && m_sessionKind != SessionKind::EmbeddedGuide) {
       m_fetchStripScroll->setVisible(false);
@@ -1036,9 +1053,10 @@ void WatchNextDialog::rebuildCards() {
   }
 
   m_cardsHost->setUpdatesEnabled(true);
-  QTimer::singleShot(0, this, [this]() {
+  QTimer::singleShot(0, this, [this, saved_timeline_hscroll]() {
     syncCardsHostGeometry();
     applyPendingScrollRestore();
+    restoreTimelineHorizontalScroll(saved_timeline_hscroll);
   });
 
   if (m_fetchStripScroll && m_sessionKind != SessionKind::EmbeddedGuide) {
@@ -1173,6 +1191,7 @@ QWidget* WatchNextDialog::buildMainTimelineRow(const QVector<int>& flow, const Q
     scroll->setMaximumHeight(stripH);
   }
   rootLay->addWidget(scroll);
+  m_timelineStripScroll = scroll;
 
   if (m_alternativesOpenForId != 0) {
     const QVector<int> panelAlts = alternativesFromAnchor(m_alternativesOpenForId, idSet);

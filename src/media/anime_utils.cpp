@@ -169,4 +169,11 @@ bool isStale(const Details& item) {
   return duration.hours() >= 1;
 }
 
+bool shouldSkipRedundantMediaFetch(const Details& item) {
+  if (item.relations.empty() || !item.last_modified) return false;
+  const qint64 now = QDateTime::currentSecsSinceEpoch();
+  const qint64 age = now - static_cast<qint64>(item.last_modified);
+  return age >= 0 && age < kRedundantMediaFetchTtlSeconds;
+}
+
 }  // namespace anime

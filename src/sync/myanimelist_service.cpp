@@ -28,6 +28,7 @@
 
 #include "base/log.hpp"
 #include "media/anime_db.hpp"
+#include "media/anime_utils.hpp"
 #include "media/anime_season.hpp"
 #include "sync/myanimelist.hpp"
 #include "sync/myanimelist_parsers.hpp"
@@ -346,6 +347,9 @@ void Service::fetchAnime(const int id) {
 }
 
 void Service::fetchAnimeImpl(const int id, const bool allow_token_refresh) {
+  if (const Anime* existing = anime::db.item(id)) {
+    if (anime::shouldSkipRedundantMediaFetch(*existing)) return;
+  }
   QUrl url(QStringLiteral("https://api.myanimelist.net/v2/anime/%1").arg(id));
   QUrlQuery q;
   q.addQueryItem(QStringLiteral("fields"), malAnimeDetailFields());

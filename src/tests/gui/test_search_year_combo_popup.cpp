@@ -1,3 +1,4 @@
+#include <QApplication>
 #include <QComboBox>
 #include <QListView>
 #include <QTest>
@@ -34,13 +35,21 @@ private slots:
 
     // Ensure years won't appear as "..." due to popup eliding.
     year->showPopup();
-    QTest::qWait(1);
-    if (auto* lv = qobject_cast<QListView*>(year->view())) {
-      QCOMPARE(lv->textElideMode(), Qt::ElideNone);
-      QVERIFY(!lv->hasAutoScroll());
-      QVERIFY(!lv->hasMouseTracking());
-      QCOMPARE(lv->verticalScrollBarPolicy(), Qt::ScrollBarAlwaysOn);
+    QTest::qWait(50);
+    // gui::ComboBox uses a top-level Qt::Popup frame (not QComboBox::view()).
+    QListView* lv = nullptr;
+    const QWidgetList tops = QApplication::topLevelWidgets();
+    for (QWidget* w : tops) {
+      if (w && w->objectName() == QLatin1String("taigaComboPopup")) {
+        lv = w->findChild<QListView*>();
+        break;
+      }
     }
+    QVERIFY2(lv != nullptr, "Custom ComboBox popup (taigaComboPopup) QListView not found.");
+    QCOMPARE(lv->textElideMode(), Qt::ElideNone);
+    QVERIFY(!lv->hasAutoScroll());
+    QVERIFY(lv->hasMouseTracking());  // hover highlight in custom ComboBox popup
+    QCOMPARE(lv->verticalScrollBarPolicy(), Qt::ScrollBarAsNeeded);
     year->hidePopup();
   }
 };

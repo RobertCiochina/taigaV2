@@ -51,6 +51,8 @@ private:
 
   QMap<int, QPixmap> m_pixmaps;
   QSet<int> m_loading;
+  /// Avoid overlapping network GETs for the same anime id (e.g. many list cells requesting one poster).
+  QSet<int> m_network_fetch_pending;
   quint64 m_generation = 0;
 };
 

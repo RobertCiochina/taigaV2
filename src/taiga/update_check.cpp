@@ -5,6 +5,7 @@
 
 #include "update_check.hpp"
 
+#include <QDateTime>
 #include <QDesktopServices>
 #include <QMessageBox>
 #include <QNetworkReply>
@@ -24,6 +25,11 @@
 namespace taiga {
 
 namespace {
+
+QPointer<QNetworkReply> g_update_reply;
+quint64 g_update_seq = 0;
+qint64 g_last_silent_update_attempt_ms = 0;
+constexpr qint64 kSilentUpdateCheckMinIntervalMs = 60LL * 60LL * 1000LL;
 
 struct ParsedUpdate {
   bool parse_ok = false;
@@ -86,6 +92,21 @@ void checkForUpdates(QWidget* parent_context, const bool silent) {
   if (!parent_context) return;
   QPointer<QWidget> guard(parent_context);
 
+  if (silent) {
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (g_last_silent_update_attempt_ms > 0 &&
+        now - g_last_silent_update_attempt_ms < kSilentUpdateCheckMinIntervalMs) {
+      return;
+    }
+    if (g_update_reply) return;
+    g_last_silent_update_attempt_ms = now;
+  } else if (g_update_reply) {
+    ++g_update_seq;
+    g_update_reply->abort();
+  }
+
+  const quint64 my_seq = ++g_update_seq;
+
   QUrl url(QStringLiteral("https://taiga.moe/update.php"));
   QUrlQuery q;
   const std::string pre = version().prerelease;
@@ -103,8 +124,11 @@ void checkForUpdates(QWidget* parent_context, const bool silent) {
   applyCommonHeaders(req);
 
   QNetworkReply* reply = taiga::network()->get(req);
-  QObject::connect(reply, &QNetworkReply::finished, parent_context, [reply, guard, silent]() {
+  g_update_reply = reply;
+  QObject::connect(reply, &QNetworkReply::finished, parent_context, [reply, guard, silent, my_seq]() {
     reply->deleteLater();
+    if (my_seq != g_update_seq) return;
+    g_update_reply.clear();
     if (!guard) return;
 
     if (reply->error() != QNetworkReply::NoError) {

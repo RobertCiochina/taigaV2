@@ -20,6 +20,7 @@
 
 #include <QDialog>
 #include <QHash>
+#include <QPointer>
 #include <QMap>
 #include <QSet>
 #include <QString>
@@ -101,6 +102,8 @@ private:
   void clearAnilistFetchRows();
   void refreshAnilistFetchRow(int id);
   void applyPendingScrollRestore();
+  int readTimelineHorizontalScrollValue() const;
+  void restoreTimelineHorizontalScroll(int px);
   void syncCardsHostGeometry();
   void resizeEvent(QResizeEvent* event) override;
   void closeEvent(QCloseEvent* event) override;
@@ -127,6 +130,8 @@ private:
   QTimer* m_randomizeSettleTimer = nullptr;
   QWidget* m_cardsHost = nullptr;
   QVBoxLayout* m_cardsLayout = nullptr;
+  /// Horizontal franchise timeline strip (recreated on each `rebuildCards()`).
+  QPointer<QScrollArea> m_timelineStripScroll;
 
   QScrollArea* m_fetchStripScroll = nullptr;
   QLabel* m_fetchStripTitle = nullptr;

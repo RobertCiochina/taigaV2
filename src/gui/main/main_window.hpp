@@ -98,7 +98,7 @@ public slots:
   /// Keeps View → Enable media detection in sync after changing recognition options in Settings.
   void applyMediaDetectionToggleFromSettings();
   void updateTitle();
-  void startListSynchronization();
+  void startListSynchronization(bool queue_if_busy = false);
   void importAnimeListMalXml();
   /// Switches to Torrents, sets the toolbar query when non-empty, and runs an in-app RSS fetch.
   /// \p fallback is tried automatically if the primary search returns no results.
@@ -156,6 +156,7 @@ private:
   void goForwardNavigation();
   void updateNavHistoryActions();
   void refreshSyncActionState();
+  void finalizeListSyncSession();
   std::optional<int> animeIdForPlaybackContext() const;
   void exportAnimeListMarkdown();
   void exportAnimeListXml();
@@ -204,6 +205,9 @@ private:
   bool m_startup_sync_done_ = false;  // true after the first sync on this run
   bool m_startup_scan_done_ = false;  // true after first startup library scan (this run)
   bool m_library_scan_in_progress_ = false;
+  bool m_list_sync_in_progress_ = false;
+  bool m_list_sync_queued_ = false;
+  bool m_post_sync_auto_download_ = false;
   bool m_startup_auto_download_pending_ = false;
   bool m_upcoming_release_sync_in_progress_ = false;
   bool m_upcoming_release_auto_download_pending_ = false;

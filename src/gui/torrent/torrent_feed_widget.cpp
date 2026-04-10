@@ -8,6 +8,7 @@
 #include <QAbstractItemView>
 #include <QClipboard>
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
 #include <QDialog>
@@ -1373,22 +1374,21 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
     ++(*variantIdx);
     const QString title = variants[idx];
 
-    if (m_bg_fetch_reply_) {
-      m_bg_fetch_reply_->disconnect(); m_bg_fetch_reply_->abort();
-      m_bg_fetch_reply_->deleteLater(); m_bg_fetch_reply_ = nullptr;
-    }
+    abortBackgroundRss();
     const QString tmpl = QString::fromStdString(taiga::settings.torrentDiscoverySearchUrl());
     const QUrl url = taiga::torrentDiscoveryFeedFetchUrl(tmpl, title);
     if (!url.isValid()) { (*try_fn)(); return; }
 
     QNetworkRequest req(url);
     taiga::applyCommonHeaders(req);
+    m_bg_rss_op_ = BgRssOp::BatchEpisodes;
     m_bg_fetch_reply_ = taiga::network()->get(req);
 
     connect(m_bg_fetch_reply_, &QNetworkReply::finished, this,
             [this, title, folder_name, on_done, try_fn, anime_id]() {
               auto* reply = m_bg_fetch_reply_;
               m_bg_fetch_reply_ = nullptr;
+              m_bg_rss_op_ = BgRssOp::None;
               if (!reply) { if (on_done) on_done(0); return; }
               reply->deleteLater();
               if (reply->error() != QNetworkReply::NoError) { (*try_fn)(); return; }
@@ -1511,18 +1511,15 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
   (*try_fn)();
 }
 
+static QString bestMatchCoalesceKey(const QUrl& url, const QString& folder_name,
+                                    const QString& fallback_title) {
+  return url.toString(QUrl::FullyEncoded) + QChar(0) + folder_name + QChar(0) + fallback_title;
+}
+
 void TorrentFeedWidget::downloadBestMatchForTitle(const QString& search_title,
                                                   const QString& folder_name,
                                                   std::function<void(bool found)> on_done,
                                                   const QString& fallback_title) {
-  // Cancel any in-progress background fetch.
-  if (m_bg_fetch_reply_) {
-    m_bg_fetch_reply_->disconnect();
-    m_bg_fetch_reply_->abort();
-    m_bg_fetch_reply_->deleteLater();
-    m_bg_fetch_reply_ = nullptr;
-  }
-
   const QString tmpl = QString::fromStdString(taiga::settings.torrentDiscoverySearchUrl());
   const QUrl url = taiga::torrentDiscoveryFeedFetchUrl(tmpl, search_title);
   if (!url.isValid()) {
@@ -1530,110 +1527,176 @@ void TorrentFeedWidget::downloadBestMatchForTitle(const QString& search_title,
     return;
   }
 
+  const QString key = bestMatchCoalesceKey(url, folder_name, fallback_title);
+
+  if (m_bg_fetch_reply_ != nullptr && m_bg_rss_op_ == BgRssOp::BestMatch &&
+      m_bg_best_match_key_ == key) {
+    m_bg_best_match_waiters_.push_back(
+        BestMatchWaiter{std::move(on_done), folder_name, fallback_title});
+    return;
+  }
+
+  abortBackgroundRss();
+
+  m_bg_rss_op_ = BgRssOp::BestMatch;
+  m_bg_best_match_key_ = key;
+  m_bg_best_match_waiters_.clear();
+  m_bg_best_match_waiters_.push_back(
+      BestMatchWaiter{std::move(on_done), folder_name, fallback_title});
+
   QNetworkRequest req(url);
   taiga::applyCommonHeaders(req);
   m_bg_fetch_reply_ = taiga::network()->get(req);
 
-  connect(m_bg_fetch_reply_, &QNetworkReply::finished, this,
-          [this, folder_name, fallback_title, on_done](){ 
-            auto* reply = m_bg_fetch_reply_;
-            m_bg_fetch_reply_ = nullptr;
-            if (!reply) { if (on_done) on_done(false); return; }
-            reply->deleteLater();
-            if (reply->error() != QNetworkReply::NoError) {
-              if (on_done) on_done(false);
-              return;
-            }
-            const QByteArray data = reply->readAll();
-            const rss::Feed feed = gui::parseSyndicationFeed(data).value_or(rss::Feed{});
-            const QList<const rss::Item*> filtered = filterRssItemsBySettings(feed);
+  connect(m_bg_fetch_reply_, &QNetworkReply::finished, this, [this]() {
+    auto* reply = m_bg_fetch_reply_;
+    m_bg_fetch_reply_ = nullptr;
+    m_bg_rss_op_ = BgRssOp::None;
+    m_bg_best_match_key_.clear();
+    QVector<BestMatchWaiter> waiters = std::move(m_bg_best_match_waiters_);
+    m_bg_best_match_waiters_.clear();
 
-            // If no results and we have a fallback title, retry once with that.
-            if (filtered.isEmpty() && !fallback_title.isEmpty()) {
-              downloadBestMatchForTitle(fallback_title, folder_name, on_done, {});
-              return;
-            }
-            if (filtered.isEmpty()) { if (on_done) on_done(false); return; }
+    if (!reply) {
+      for (const BestMatchWaiter& w : waiters) {
+        if (w.on_done) w.on_done(false);
+      }
+      return;
+    }
+    reply->deleteLater();
 
-            // Pick the item with the highest seeder count.
-            const rss::Item* best = nullptr;
-            int best_seeds = -1;
-            for (const rss::Item* it : filtered) {
-              const auto seed_it = it->namespace_elements.find("seeders");
-              const int seeds = (seed_it != it->namespace_elements.end())
-                                    ? QString::fromStdString(seed_it->second).toInt()
-                                    : 0;
-              if (seeds > best_seeds) { best_seeds = seeds; best = it; }
-            }
-            if (!best) best = filtered.first();
+    if (reply->error() != QNetworkReply::NoError) {
+      for (const BestMatchWaiter& w : waiters) {
+        if (w.on_done) w.on_done(false);
+      }
+      return;
+    }
 
-            const QString effective_folder =
-                folder_name.isEmpty() ? QString::fromStdString(best->title) : folder_name;
+    const QByteArray data = reply->readAll();
+    const rss::Feed feed = gui::parseSyndicationFeed(data).value_or(rss::Feed{});
+    const QList<const rss::Item*> filtered = filterRssItemsBySettings(feed);
 
-            // ── Mode 1: qBittorrent Web API (preferred) ───────────────────
-            if (taiga::settings.torrentQBitApiEnabled()) {
-              if (!ensureClientDownloadBaseDir(this).has_value()) {
-                if (on_done) on_done(false);
-                return;
-              }
-              // Prefer magnet link → .torrent URL → page link.
-              QString api_url;
-              if (const auto m = best->namespace_elements.find(kTorrentFeedMagnetKey);
-                  m != best->namespace_elements.end()) {
-                api_url = QString::fromStdString(m->second);
-              }
-              if (api_url.isEmpty()) {
-                api_url = QString::fromStdString(best->enclosure.url);
-              }
-              if (api_url.isEmpty()) api_url = QString::fromStdString(best->link);
-              if (api_url.isEmpty()) { if (on_done) on_done(false); return; }
+    for (const BestMatchWaiter& w : waiters) {
+      if (filtered.isEmpty() && !w.fallback_title.isEmpty()) {
+        downloadBestMatchForTitle(w.fallback_title, w.folder_name, w.on_done, {});
+      } else if (filtered.isEmpty()) {
+        if (w.on_done) w.on_done(false);
+      }
+    }
 
-              const QString save_path = resolvedTorrentDownloadDirForSavedTorrent(effective_folder);
-              addTorrentViaQBitApi(api_url, save_path, [on_done](bool ok, const QString& err) {
-                if (!err.isEmpty())
-                  taiga::userFeedback(
-                      QStringLiteral("qBittorrent Web API error: ") + err, true);
-                if (on_done) on_done(ok);
-              });
-              return;
-            }
+    if (!filtered.isEmpty()) {
+      if (waiters.size() == 1) {
+        deliverBestMatchFromFiltered(filtered, waiters[0].folder_name, waiters[0].on_done);
+      } else {
+        deliverBestMatchFromFiltered(filtered, waiters[0].folder_name, [waiters](bool ok) {
+          for (const BestMatchWaiter& w : waiters) {
+            if (w.on_done) w.on_done(ok);
+          }
+        });
+      }
+    }
+  });
+}
 
-            // ── Mode 2: Prefer magnet (open directly) ─────────────────────
-            const QString tor_url = QString::fromStdString(best->enclosure.url);
-            const bool has_http = !tor_url.isEmpty() && httpUrlFromUserString(tor_url).has_value();
+void TorrentFeedWidget::abortBackgroundRss() {
+  if (m_bg_fetch_reply_) {
+    m_bg_fetch_reply_->disconnect();
+    m_bg_fetch_reply_->abort();
+    m_bg_fetch_reply_->deleteLater();
+    m_bg_fetch_reply_ = nullptr;
+  }
+  for (const BestMatchWaiter& w : m_bg_best_match_waiters_) {
+    if (w.on_done) w.on_done(false);
+  }
+  m_bg_best_match_waiters_.clear();
+  m_bg_best_match_key_.clear();
+  m_bg_rss_op_ = BgRssOp::None;
+}
 
-            if (taiga::settings.torrentDownloadUseMagnet() || !has_http) {
-              QString link;
-              if (const auto m = best->namespace_elements.find(kTorrentFeedMagnetKey);
-                  m != best->namespace_elements.end()) {
-                link = QString::fromStdString(m->second);
-              }
-              if (!link.isEmpty()) {
-                openPrimaryTorrentUrl(link);
-                if (on_done) on_done(true);
-                return;
-              }
-            }
+void TorrentFeedWidget::deliverBestMatchFromFiltered(const QList<const rss::Item*>& filtered,
+                                                     const QString& folder_name,
+                                                     std::function<void(bool)> on_done) {
+  if (filtered.isEmpty()) {
+    if (on_done) on_done(false);
+    return;
+  }
 
-            // ── Mode 3: Download .torrent file then open client ────────────
-            if (has_http) {
-              if (const auto u = httpUrlFromUserString(tor_url)) {
-                enqueueSaveTorrent(*u, effective_folder);
-                startNextQueuedSave();  // kick off the queue (safe to call even if active)
-                if (on_done) on_done(true);
-                return;
-              }
-            }
+  const rss::Item* best = nullptr;
+  int best_seeds = -1;
+  for (const rss::Item* it : filtered) {
+    const auto seed_it = it->namespace_elements.find("seeders");
+    const int seeds = (seed_it != it->namespace_elements.end())
+                          ? QString::fromStdString(seed_it->second).toInt()
+                          : 0;
+    if (seeds > best_seeds) {
+      best_seeds = seeds;
+      best = it;
+    }
+  }
+  if (!best) best = filtered.first();
 
-            // Last resort: open page link
-            const QString page_link = QString::fromStdString(best->link);
-            if (!page_link.isEmpty()) {
-              openPrimaryTorrentUrl(page_link);
-              if (on_done) on_done(true);
-            } else {
-              if (on_done) on_done(false);
-            }
-          });
+  const QString effective_folder =
+      folder_name.isEmpty() ? QString::fromStdString(best->title) : folder_name;
+
+  if (taiga::settings.torrentQBitApiEnabled()) {
+    if (!ensureClientDownloadBaseDir(this).has_value()) {
+      if (on_done) on_done(false);
+      return;
+    }
+    QString api_url;
+    if (const auto m = best->namespace_elements.find(kTorrentFeedMagnetKey);
+        m != best->namespace_elements.end()) {
+      api_url = QString::fromStdString(m->second);
+    }
+    if (api_url.isEmpty()) {
+      api_url = QString::fromStdString(best->enclosure.url);
+    }
+    if (api_url.isEmpty()) api_url = QString::fromStdString(best->link);
+    if (api_url.isEmpty()) {
+      if (on_done) on_done(false);
+      return;
+    }
+
+    const QString save_path = resolvedTorrentDownloadDirForSavedTorrent(effective_folder);
+    addTorrentViaQBitApi(api_url, save_path, [on_done](bool ok, const QString& err) {
+      if (!err.isEmpty())
+        taiga::userFeedback(QStringLiteral("qBittorrent Web API error: ") + err, true);
+      if (on_done) on_done(ok);
+    });
+    return;
+  }
+
+  const QString tor_url = QString::fromStdString(best->enclosure.url);
+  const bool has_http = !tor_url.isEmpty() && httpUrlFromUserString(tor_url).has_value();
+
+  if (taiga::settings.torrentDownloadUseMagnet() || !has_http) {
+    QString link;
+    if (const auto m = best->namespace_elements.find(kTorrentFeedMagnetKey);
+        m != best->namespace_elements.end()) {
+      link = QString::fromStdString(m->second);
+    }
+    if (!link.isEmpty()) {
+      openPrimaryTorrentUrl(link);
+      if (on_done) on_done(true);
+      return;
+    }
+  }
+
+  if (has_http) {
+    if (const auto u = httpUrlFromUserString(tor_url)) {
+      enqueueSaveTorrent(*u, effective_folder);
+      startNextQueuedSave();
+      if (on_done) on_done(true);
+      return;
+    }
+  }
+
+  const QString page_link = QString::fromStdString(best->link);
+  if (!page_link.isEmpty()) {
+    openPrimaryTorrentUrl(page_link);
+    if (on_done) on_done(true);
+  } else {
+    if (on_done) on_done(false);
+  }
 }
 
 void TorrentFeedWidget::cancelPending() {
@@ -1902,11 +1965,30 @@ void TorrentFeedWidget::runCatalogAutocheckFetch() {
   if (!url.isValid() || (scheme != u"http" && scheme != u"https")) {
     return;
   }
+  if (m_pending_ != nullptr && m_active_fetch_ == FetchKind::CatalogAutocheck) {
+    return;
+  }
+  const QString url_key = url.toString(QUrl::FullyEncoded);
+  const qint64 now = QDateTime::currentMSecsSinceEpoch();
+  constexpr qint64 kCatalogAutocheckMinIntervalMs = 10LL * 60LL * 1000LL;
+  if (!m_catalog_autocheck_last_ok_url_.isEmpty() && url_key == m_catalog_autocheck_last_ok_url_ &&
+      m_catalog_autocheck_last_ok_ms_ > 0 &&
+      now - m_catalog_autocheck_last_ok_ms_ < kCatalogAutocheckMinIntervalMs) {
+    return;
+  }
   startFetch(url, {}, FetchKind::CatalogAutocheck);
 }
 
 void TorrentFeedWidget::startFetch(const QUrl& url, const QString& status_message,
                                    const FetchKind kind) {
+  if (kind == FetchKind::SearchRss && m_pending_ != nullptr &&
+      m_active_fetch_ == FetchKind::SearchRss) {
+    const QString pending_key = m_pending_->request().url().toString(QUrl::FullyEncoded);
+    const QString next_key = url.toString(QUrl::FullyEncoded);
+    if (pending_key == next_key) {
+      return;
+    }
+  }
   cancelPending();
   m_active_fetch_ = kind;
   if (auto* mw = mainWindow()) {
@@ -1969,6 +2051,10 @@ void TorrentFeedWidget::onFetchFinished(QNetworkReply* reply) {
       taiga::userFeedback(tr("Could not parse feed: %1").arg(err), true);
     }
     return;
+  }
+  if (kind == FetchKind::CatalogAutocheck) {
+    m_catalog_autocheck_last_ok_url_ = reply->request().url().toString(QUrl::FullyEncoded);
+    m_catalog_autocheck_last_ok_ms_ = QDateTime::currentMSecsSinceEpoch();
   }
   if (feed->items.empty()) {
     // Auto-retry with the fallback title (e.g. English title when romaji gave 0 results).

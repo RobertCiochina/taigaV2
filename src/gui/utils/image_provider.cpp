@@ -42,6 +42,8 @@ void ImageProvider::fetchPoster(const int id) {
   const auto item = anime::db.item(id);
 
   if (!item || item->image_url.empty()) return;
+  if (m_network_fetch_pending.contains(id)) return;
+  m_network_fetch_pending.insert(id);
 
   const auto url = QString::fromStdString(item->image_url);
   QNetworkRequest req{url};
@@ -51,19 +53,29 @@ void ImageProvider::fetchPoster(const int id) {
   const auto reply = taiga::network()->get(req);
 
   connect(reply, &QNetworkReply::finished, this, [this, id, reply]() {
+    m_network_fetch_pending.remove(id);
     const auto err = reply->error();
     const QVariant contentType = reply->header(QNetworkRequest::ContentTypeHeader);
     const QByteArray payload = reply->readAll();
 
-    if (err != QNetworkReply::NoError || payload.isEmpty()) return;
+    const auto finishReply = [reply]() { reply->deleteLater(); };
+
+    if (err != QNetworkReply::NoError || payload.isEmpty()) {
+      finishReply();
+      return;
+    }
     const QByteArray t = payload.trimmed();
     if (t.startsWith("<!DOCTYPE") || t.startsWith("<!doctype") || t.startsWith("<html") ||
         t.startsWith("<HTML")) {
+      finishReply();
       return;
     }
 
     QDir d(cacheDir());
-    if (!d.exists() && !d.mkpath(QStringLiteral("."))) return;
+    if (!d.exists() && !d.mkpath(QStringLiteral("."))) {
+      finishReply();
+      return;
+    }
 
     QString ext = QStringLiteral("img");
     if (contentType.isValid()) {
@@ -83,11 +95,18 @@ void ImageProvider::fetchPoster(const int id) {
     }
 
     QFile file{fileNameWithExtension(id, ext)};
-    if (!file.open(QIODevice::WriteOnly)) return;
-    if (file.write(payload) <= 0) return;
+    if (!file.open(QIODevice::WriteOnly)) {
+      finishReply();
+      return;
+    }
+    if (file.write(payload) <= 0) {
+      finishReply();
+      return;
+    }
     file.close();
 
     reloadPoster(id);
+    finishReply();
   });
 }
 
@@ -168,6 +187,7 @@ void ImageProvider::reloadPoster(const int id) {
 void ImageProvider::clearPosterCache() {
   m_pixmaps.clear();
   m_loading.clear();
+  m_network_fetch_pending.clear();
   ++m_generation;
   QDir dir(cacheDir());
   if (!dir.exists()) return;

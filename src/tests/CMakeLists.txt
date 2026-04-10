@@ -41,3 +41,15 @@ target_sources(taiga.tests.anime_history_max PRIVATE media/test_anime_history_ma
 taiga_add_qttest(taiga.tests.search_year_combo_popup)
 target_sources(taiga.tests.search_year_combo_popup PRIVATE gui/test_search_year_combo_popup.cpp)
 
+add_custom_target(taiga_all_tests)
+add_dependencies(
+  taiga_all_tests
+  taiga.tests.ui_title
+  taiga.tests.search_toolbar
+  taiga.tests.list_title_color
+  taiga.tests.search_my_list_only
+  taiga.tests.search_load_my_list_instant
+  taiga.tests.season_browse_cache
+  taiga.tests.auto_download_rules
+  taiga.tests.anime_history_max
+  taiga.tests.search_year_combo_popup)

@@ -192,7 +192,7 @@ void MainWindow::init() {
   updateToolbarSearchPlaceholder();
 
   if (taiga::settings.syncAutoOnStart() && taiga::settings.listSynchronizationEnabled()) {
-    QTimer::singleShot(0, this, &MainWindow::startListSynchronization);
+    QTimer::singleShot(0, this, [this]() { startListSynchronization(false); });
   }
   if (taiga::settings.checkForUpdatesOnStartup()) {
     QTimer::singleShot(2200, this, [this]() { taiga::checkForUpdates(this, true); });
@@ -337,7 +337,8 @@ void MainWindow::initActions() {
   connect(ui_->actionStatistics, &QAction::triggered, this, &MainWindow::statistics);
   connect(ui_->actionDisplayWindow, &QAction::triggered, this, &MainWindow::displayWindow);
 
-  connect(ui_->actionSynchronize, &QAction::triggered, this, &MainWindow::startListSynchronization);
+  connect(ui_->actionSynchronize, &QAction::triggered, this,
+          [this]() { startListSynchronization(true); });
   ui_->actionSynchronize->setShortcuts(
       {QKeySequence{QKeySequence::Refresh}, QKeySequence{Qt::CTRL | Qt::Key_S}});
   ui_->actionSynchronize->setShortcutContext(Qt::ApplicationShortcut);
@@ -974,7 +975,7 @@ void MainWindow::initFeatureToggleActions() {
 void MainWindow::refreshSyncActionState() {
   const bool can_sync = sync::currentServiceId() != sync::ServiceId::Unknown &&
                         taiga::settings.listSynchronizationEnabled();
-  ui_->actionSynchronize->setEnabled(can_sync);
+  ui_->actionSynchronize->setEnabled(can_sync && !m_list_sync_in_progress_);
 }
 
 void MainWindow::refreshServiceDependentUi() {
@@ -1164,7 +1165,7 @@ void MainWindow::statistics() {
   StatsDialog::show(this);
 }
 
-void MainWindow::startListSynchronization() {
+void MainWindow::startListSynchronization(const bool queue_if_busy) {
   if (sync::currentServiceId() == sync::ServiceId::Unknown) {
     return;
   }
@@ -1173,11 +1174,16 @@ void MainWindow::startListSynchronization() {
                              5000);
     return;
   }
+  if (m_list_sync_in_progress_) {
+    if (queue_if_busy) m_list_sync_queued_ = true;
+    return;
+  }
+  m_list_sync_in_progress_ = true;
+  refreshSyncActionState();
 
   QPointer<MainWindow> guard(this);
   statusBar()->showMessage(
       tr("Synchronizing with %1...").arg(sync::serviceName(sync::currentServiceId())));
-  ui_->actionSynchronize->setEnabled(false);
 
   sync::fetchListEntries([guard](const bool ok, const QString& message) {
     if (!guard) return;
@@ -1187,7 +1193,14 @@ void MainWindow::startListSynchronization() {
 }
 
 void MainWindow::handleListSyncFinished(bool ok, QString message) {
+  m_list_sync_in_progress_ = false;
   refreshSyncActionState();
+  if (m_post_sync_auto_download_) {
+    m_post_sync_auto_download_ = false;
+    if (ok) {
+      QTimer::singleShot(0, this, [this]() { runAutoDownload(true); });
+    }
+  }
   if (ok) {
     // Invalidate the recognition cache so newly-synced titles are indexed
     // on the next library scan / media-detection lookup.
@@ -1210,6 +1223,7 @@ void MainWindow::handleListSyncFinished(bool ok, QString message) {
         // stale and we'd re-download episodes that are already on disk.
         m_startup_auto_download_pending_ = true;
         runLibraryScan(true, LibraryScanReason::StartupPostSync);
+        finalizeListSyncSession();
         return;
       }
       QTimer::singleShot(0, this, [this]() { runAutoDownload(true); });
@@ -1223,7 +1237,15 @@ void MainWindow::handleListSyncFinished(bool ok, QString message) {
     statusBar()->showMessage(tr("Synchronization failed: %1").arg(message), 8000);
   }
 
+  finalizeListSyncSession();
+}
+
+void MainWindow::finalizeListSyncSession() {
   m_upcoming_release_sync_in_progress_ = false;
+  if (m_list_sync_queued_) {
+    m_list_sync_queued_ = false;
+    QTimer::singleShot(0, this, [this]() { startListSynchronization(false); });
+  }
 }
 
 void MainWindow::showUserFeedback(QString message, bool error) {
@@ -2430,20 +2452,8 @@ void MainWindow::showLibraryFoldersDialog() {
 void MainWindow::applyWatchNextListSideEffects() {
   if (sync::currentServiceId() != sync::ServiceId::Unknown &&
       taiga::settings.listSynchronizationEnabled()) {
-    QPointer<MainWindow> guard(this);
-    statusBar()->showMessage(
-        tr("Synchronizing with %1…").arg(sync::serviceName(sync::currentServiceId())));
-    ui_->actionSynchronize->setEnabled(false);
-    sync::fetchListEntries([guard](const bool ok, const QString& message) {
-      if (!guard) return;
-      QMetaObject::invokeMethod(guard.data(), "handleListSyncFinished", Qt::QueuedConnection,
-                                Q_ARG(bool, ok), Q_ARG(QString, message));
-      if (ok && guard) {
-        QTimer::singleShot(0, guard.data(), [guard]() {
-          if (guard) guard->runAutoDownload(true);
-        });
-      }
-    });
+    m_post_sync_auto_download_ = true;
+    startListSynchronization();
   } else {
     runAutoDownload(true);
   }

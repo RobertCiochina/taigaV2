@@ -34,4 +34,10 @@ int estimateLastAiredEpisodeNumber(const Details& item);
 bool isNsfw(const Details& item);
 bool isStale(const Details& item);
 
+/// Seconds: skip another remote “full media” fetch when local row is this fresh and has relations.
+inline constexpr int kRedundantMediaFetchTtlSeconds = 3600;
+
+/// True when a recent `fetchAnime`-style response already populated relation edges (watch-order graph).
+bool shouldSkipRedundantMediaFetch(const Details& item);
+
 }  // namespace anime

@@ -5,9 +5,11 @@
 
 #pragma once
 
+#include <QList>
 #include <QQueue>
 #include <QString>
 #include <QUrl>
+#include <QVector>
 #include <QWidget>
 #include <functional>
 
@@ -73,6 +75,13 @@ public:
 
 private:
   enum class FetchKind { None, SearchRss, CatalogManual, CatalogAutocheck };
+  enum class BgRssOp { None, BestMatch, BatchEpisodes };
+
+  struct BestMatchWaiter {
+    std::function<void(bool found)> on_done;
+    QString folder_name;
+    QString fallback_title;
+  };
 
   struct PendingTorrentSave {
     QUrl url{};
@@ -82,6 +91,11 @@ private:
   };
 
   void cancelPending();
+  /// Aborts `m_bg_fetch_reply_` and fails any queued best-match waiters (superseded fetches).
+  void abortBackgroundRss();
+  void deliverBestMatchFromFiltered(const QList<const rss::Item*>& filtered,
+                                    const QString& folder_name,
+                                    std::function<void(bool found)> on_done);
   void startFetch(const QUrl& url, const QString& status_message, FetchKind kind);
   void onFetchFinished(QNetworkReply* reply);
   void populateTable(const rss::Feed& feed);
@@ -96,6 +110,9 @@ private:
   void beginSaveTorrent(const QUrl& url, const QString& title_hint);
 
   QNetworkReply* m_bg_fetch_reply_ = nullptr;
+  BgRssOp m_bg_rss_op_ = BgRssOp::None;
+  QString m_bg_best_match_key_;
+  QVector<BestMatchWaiter> m_bg_best_match_waiters_;
   QNetworkReply* m_qbit_login_reply_ = nullptr;
 
   /// qBittorrent Web API: send a magnet/torrent URL with a target save path.
@@ -122,6 +139,8 @@ private:
   FetchKind m_active_fetch_ = FetchKind::None;
   // When the primary search returns 0 results, the fallback title is tried once.
   QString m_search_fallback_title_;
+  QString m_catalog_autocheck_last_ok_url_;
+  qint64 m_catalog_autocheck_last_ok_ms_ = 0;
 };
 
 }  // namespace gui

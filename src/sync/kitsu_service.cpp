@@ -14,6 +14,7 @@
 #include "base/log.hpp"
 #include "kitsu_parsers.hpp"
 #include "media/anime_db.hpp"
+#include "media/anime_utils.hpp"
 #include "media/anime_season.hpp"
 #include "taiga/accounts.hpp"
 #include "taiga/network.hpp"
@@ -441,6 +442,9 @@ void Service::fetchSeasonPage(const QString& season_filter, const int year, cons
 }
 
 void Service::fetchAnime(const int id) {
+  if (const Anime* existing = anime::db.item(id)) {
+    if (anime::shouldSkipRedundantMediaFetch(*existing)) return;
+  }
   QUrl url(QStringLiteral("%1/edge/anime/%2").arg(QLatin1String(kBase)).arg(id));
   QUrlQuery q;
   q.addQueryItem(

@@ -29,6 +29,7 @@
 #include "base/log.hpp"
 #include "base/string.hpp"
 #include "media/anime_db.hpp"
+#include "media/anime_utils.hpp"
 #include "sync/anilist_parsers.hpp"
 #include "sync/anilist_utils.hpp"
 #include "taiga/accounts.hpp"
@@ -146,6 +147,16 @@ void Service::authenticateUser(ListFetchComplete on_complete) {
 void Service::fetchAnime(const int id) {
   if (id <= 0) return;
   if (fetch_anime_pending_.contains(id)) return;
+  if (const Anime* existing = anime::db.item(id)) {
+    if (anime::shouldSkipRedundantMediaFetch(*existing)) {
+      QTimer::singleShot(0, this, [this, id]() {
+        emit mediaFetchQueued(id);
+        emit mediaFetchStarted(id);
+        emit mediaFetchFinished(id, true);
+      });
+      return;
+    }
+  }
   fetch_anime_pending_.insert(id);
   fetch_anime_queue_.enqueue(id);
   emit mediaFetchQueued(id);

@@ -1,6 +1,8 @@
+#include <QDateTime>
 #include <QTest>
 
 #include "media/anime.hpp"
+#include "media/anime_utils.hpp"
 #include "taiga/auto_download_rules.hpp"
 
 namespace taiga::test {
@@ -57,6 +59,27 @@ private slots:
     // Without a reliable last-aired field, don't infer that ep 6 aired just because the schedule
     // timestamp is stale (common when sync is disabled).
     QCOMPARE(taiga::computeLastAiredEpisodeForAutoDownload(item, watched, now), watched);
+  }
+
+  void redundant_media_fetch_skips_when_recent_and_has_relations() {
+    anime::Details item;
+    item.last_modified = static_cast<std::time_t>(QDateTime::currentSecsSinceEpoch() - 30);
+    item.relations.push_back({1, anime::RelationType::Sequel});
+    QVERIFY(anime::shouldSkipRedundantMediaFetch(item));
+  }
+
+  void redundant_media_fetch_not_when_no_relations() {
+    anime::Details item;
+    item.last_modified = static_cast<std::time_t>(QDateTime::currentSecsSinceEpoch() - 30);
+    QVERIFY(!anime::shouldSkipRedundantMediaFetch(item));
+  }
+
+  void redundant_media_fetch_not_when_stale() {
+    anime::Details item;
+    item.last_modified = static_cast<std::time_t>(
+        QDateTime::currentSecsSinceEpoch() - anime::kRedundantMediaFetchTtlSeconds - 10);
+    item.relations.push_back({1, anime::RelationType::Sequel});
+    QVERIFY(!anime::shouldSkipRedundantMediaFetch(item));
   }
 };
 
