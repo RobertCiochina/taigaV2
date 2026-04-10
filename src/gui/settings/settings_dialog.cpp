@@ -24,6 +24,7 @@
 #include <QSpacerItem>
 #include <QSystemTrayIcon>
 #include <QTextEdit>
+#include <QTimer>
 #include <QTreeWidgetItem>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -867,6 +868,11 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
 }
 
 void SettingsDialog::accept() {
+  // Close the dialog first so heavy “apply” work doesn’t block the UI.
+  // Settings are still saved synchronously below; expensive refreshes run after close.
+  QDialog::accept();
+
+  const auto apply_after_close = [=]() {
   taiga::settings.setSyncAutoOnStart(ui_->checkSyncOnStart->isChecked());
   taiga::settings.setAppColorScheme(
       static_cast<Qt::ColorScheme>(ui_->comboColorScheme->currentData().toInt()));
@@ -979,8 +985,9 @@ void SettingsDialog::accept() {
     mw->refreshTorrentCatalogAutocheckTimer();
     mw->resortTorrentRssTableFromSettings();
   }
+  };
 
-  QDialog::accept();
+  QTimer::singleShot(0, this, apply_after_close);
 }
 
 void SettingsDialog::show(QWidget* parent) {
