@@ -19,6 +19,10 @@
 #pragma once
 
 #include <QComboBox>
+#include <QPointer>
+
+class QFrame;
+class QListView;
 
 namespace gui {
 
@@ -31,8 +35,19 @@ public:
   ~ComboBox() = default;
 
 protected:
+  void showPopup() override;
+  void hidePopup() override;
+  bool eventFilter(QObject* watched, QEvent* event) override;
   void keyPressEvent(QKeyEvent* event) override;
   void mousePressEvent(QMouseEvent* event) override;
+
+private:
+  void ensurePopup();
+  void positionAndShowPopup();
+
+  QPointer<QWidget> popup_window_;  // legacy/compat: kept for safety when styles create containers
+  QPointer<QFrame> popup_frame_;
+  QListView* popup_list_ = nullptr;
 };
 
 }  // namespace gui

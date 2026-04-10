@@ -96,6 +96,11 @@ SearchWidget::SearchWidget(QWidget* parent)
   // Year
   {
     m_comboYear->setPlaceholderText(tr("Year"));
+    m_comboYear->setProperty("taiga.popupWidthMode", QStringLiteral("content"));
+    // Prevent the popup from growing tall enough to run off-screen.
+    // (Some styles ignore maxVisibleItems for popup geometry, so clamp the view height too.)
+    constexpr int kMaxYearRows = 14;
+    m_comboYear->setMaxVisibleItems(kMaxYearRows);
     for (int year = QDate::currentDate().year() + 1; year >= 1940; --year) {
       m_comboYear->addItem(QString::number(year), year);
     }
@@ -113,6 +118,7 @@ SearchWidget::SearchWidget(QWidget* parent)
   // Season
   {
     m_comboSeason->setPlaceholderText(tr("Season"));
+    m_comboSeason->setProperty("taiga.popupWidthMode", QStringLiteral("content"));
     const auto seasons = {
         anime::SeasonName::Winter,
         anime::SeasonName::Spring,
@@ -135,6 +141,7 @@ SearchWidget::SearchWidget(QWidget* parent)
   // Type
   {
     m_comboType->setPlaceholderText(tr("Type"));
+    m_comboType->setProperty("taiga.popupWidthMode", QStringLiteral("content"));
     for (const auto type : anime::kTypes) {
       m_comboType->addItem(formatType(type), static_cast<int>(type));
     }
@@ -149,6 +156,7 @@ SearchWidget::SearchWidget(QWidget* parent)
   // Status
   {
     m_comboStatus->setPlaceholderText(tr("Status"));
+    m_comboStatus->setProperty("taiga.popupWidthMode", QStringLiteral("content"));
     for (const auto status : anime::kStatuses) {
       m_comboStatus->addItem(formatStatus(status), static_cast<int>(status));
     }

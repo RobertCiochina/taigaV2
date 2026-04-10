@@ -38,3 +38,6 @@ target_sources(taiga.tests.auto_download_rules PRIVATE taiga/test_auto_download_
 taiga_add_qttest(taiga.tests.anime_history_max)
 target_sources(taiga.tests.anime_history_max PRIVATE media/test_anime_history_max.cpp)
 
+taiga_add_qttest(taiga.tests.search_year_combo_popup)
+target_sources(taiga.tests.search_year_combo_popup PRIVATE gui/test_search_year_combo_popup.cpp)
+
