@@ -19,8 +19,12 @@
 #include "watch_next_dialog.hpp"
 
 #include <QApplication>
+#include <QGuiApplication>
+#include <QScreen>
+#include <QAbstractButton>
 #include <QCloseEvent>
 #include <QComboBox>
+#include <QDialog>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDialogButtonBox>
@@ -32,6 +36,8 @@
 #include <QHash>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QLineEdit>
+#include <QListWidget>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
 #include <QMouseEvent>
@@ -49,6 +55,7 @@
 #include <QTimer>
 #include <QToolButton>
 #include <QUrl>
+#include <QAbstractItemView>
 #include <QVBoxLayout>
 #include <algorithm>
 #include <functional>
@@ -128,6 +135,125 @@ QString animeDisplayTitle(const Anime* a, const int id) {
   if (!a->titles.romaji.empty()) return QString::fromStdString(a->titles.romaji);
   return QApplication::translate("WatchNext", "#%1").arg(id);
 }
+
+struct PlanningPickerRow {
+  QString title;
+  int id = 0;
+};
+
+QVector<PlanningPickerRow> sortedPlanningPickerRows() {
+  QVector<PlanningPickerRow> rows;
+  rows.reserve(static_cast<int>(anime::db.entries().size()));
+  for (auto it = anime::db.entries().cbegin(); it != anime::db.entries().cend(); ++it) {
+    const ListEntry& e = it.value();
+    if (e.status != anime::list::Status::PlanToWatch) continue;
+    const int aid = e.anime_id;
+    if (const Anime* a = anime::db.item(aid)) {
+      rows.push_back({animeDisplayTitle(a, aid), aid});
+    } else {
+      rows.push_back({QApplication::translate("WatchNext", "#%1").arg(aid), aid});
+    }
+  }
+  std::sort(rows.begin(), rows.end(), [](const PlanningPickerRow& a, const PlanningPickerRow& b) {
+    return a.title.compare(b.title, Qt::CaseInsensitive) < 0;
+  });
+  return rows;
+}
+
+/// Modal list + filter instead of a giant Planning combo popup.
+class PlanningTitlePickerDialog final : public QDialog {
+public:
+  explicit PlanningTitlePickerDialog(QWidget* parent, const int preselect_id)
+      : QDialog(parent) {
+    setWindowTitle(QApplication::translate("WatchNext", "Choose Planning title"));
+    setModal(true);
+    resize(540, 460);
+
+    auto* root = new QVBoxLayout(this);
+    root->setSpacing(8);
+
+    m_filter = new QLineEdit(this);
+    m_filter->setPlaceholderText(QApplication::translate("WatchNext", "Filter by title…"));
+    m_filter->setClearButtonEnabled(true);
+    root->addWidget(m_filter);
+
+    m_list = new QListWidget(this);
+    m_list->setAlternatingRowColors(true);
+    m_list->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_list->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    root->addWidget(m_list, 1);
+
+    const QVector<PlanningPickerRow> rows = sortedPlanningPickerRows();
+    int preselect_row = -1;
+    for (int i = 0; i < rows.size(); ++i) {
+      const PlanningPickerRow& r = rows[i];
+      auto* item = new QListWidgetItem(r.title, m_list);
+      item->setData(Qt::UserRole, r.id);
+      if (preselect_id > 0 && r.id == preselect_id) preselect_row = i;
+    }
+
+    auto* box = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+    m_ok = box->button(QDialogButtonBox::Ok);
+    root->addWidget(box);
+
+    connect(box, &QDialogButtonBox::accepted, this, &QDialog::accept);
+    connect(box, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    connect(m_list, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem* it) {
+      if (it && !it->isHidden()) QDialog::accept();
+    });
+
+    connect(m_filter, &QLineEdit::textChanged, this, [this](const QString&) { applyFilter(); });
+
+    applyFilter();
+    if (preselect_row >= 0) m_list->setCurrentRow(preselect_row);
+    m_ok->setEnabled(hasVisibleSelection());
+    QTimer::singleShot(0, this, [this] {
+      if (m_filter) m_filter->setFocus(Qt::OtherFocusReason);
+    });
+  }
+
+  int selectedAnimeId() const {
+    QListWidgetItem* cur = m_list->currentItem();
+    if (cur && !cur->isHidden()) return cur->data(Qt::UserRole).toInt();
+    for (int i = 0; i < m_list->count(); ++i) {
+      QListWidgetItem* it = m_list->item(i);
+      if (!it->isHidden()) return it->data(Qt::UserRole).toInt();
+    }
+    return 0;
+  }
+
+private:
+  void applyFilter() {
+    const QString needle = m_filter->text().trimmed().toCaseFolded();
+    for (int i = 0; i < m_list->count(); ++i) {
+      QListWidgetItem* it = m_list->item(i);
+      const bool show = needle.isEmpty() || it->text().toCaseFolded().contains(needle);
+      it->setHidden(!show);
+    }
+    QListWidgetItem* cur = m_list->currentItem();
+    if (!cur || cur->isHidden()) {
+      for (int i = 0; i < m_list->count(); ++i) {
+        QListWidgetItem* it = m_list->item(i);
+        if (!it->isHidden()) {
+          m_list->setCurrentItem(it);
+          break;
+        }
+      }
+    }
+    if (m_ok) m_ok->setEnabled(hasVisibleSelection());
+  }
+
+  bool hasVisibleSelection() const {
+    for (int i = 0; i < m_list->count(); ++i) {
+      if (!m_list->item(i)->isHidden()) return true;
+    }
+    return false;
+  }
+
+  QLineEdit* m_filter = nullptr;
+  QListWidget* m_list = nullptr;
+  QAbstractButton* m_ok = nullptr;
+};
 
 QWidget* makeLegendItem(QWidget* parent, const QIcon& icon, const QString& text) {
   auto* w = new QWidget(parent);
@@ -418,7 +544,18 @@ namespace gui {
 WatchNextDialog::WatchNextDialog(QWidget* parent) : QDialog(parent) {
   setWindowTitle(tr("What to watch next"));
   setModal(true);
-  resize(1000, 980);
+  QScreen* sc = parent ? parent->screen() : nullptr;
+  if (!sc) {
+    sc = QGuiApplication::primaryScreen();
+  }
+  if (sc) {
+    const QRect a = sc->availableGeometry();
+    const int w = qBound(1180, static_cast<int>(a.width() * 0.92) - 40, 1920);
+    const int h = qBound(860, static_cast<int>(a.height() * 0.90) - 40, 1280);
+    resize(w, h);
+  } else {
+    resize(1680, 1080);
+  }
 
   auto* root = new QVBoxLayout(this);
   root->setContentsMargins(12, 12, 12, 12);
@@ -446,7 +583,10 @@ WatchNextDialog::WatchNextDialog(QWidget* parent) : QDialog(parent) {
   auto* lay_label = new QLabel(tr("Layout:"), m_layoutSwitcherHost);
   lay_label->setStyleSheet(
       QStringLiteral("QLabel{color: palette(placeholderText); font-size:12px;}"));
-  m_watchLayoutCombo = new QComboBox(m_layoutSwitcherHost);
+  m_watchLayoutCombo = new ComboBox(m_layoutSwitcherHost);
+  m_watchLayoutCombo->setProperty("taiga.clearOnEscape", false);
+  m_watchLayoutCombo->setProperty("taiga.clearOnChordClicks", false);
+  m_watchLayoutCombo->setMaxVisibleItems(8);
   m_watchLayoutCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
   m_watchLayoutCombo->addItem(tr("Horizontal timeline"));
   m_watchLayoutCombo->addItem(tr("List and detail"));
@@ -495,19 +635,33 @@ WatchNextDialog::WatchNextDialog(QWidget* parent) : QDialog(parent) {
   primaryRow->addWidget(m_closeBtn);
   toolRoot->addLayout(primaryRow);
 
-  m_planningCombo = new QComboBox(this);
-  m_planningCombo->setMinimumWidth(260);
-  m_planningCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-  m_planningCombo->setToolTip(tr("Jump to any title on your Planning list."));
-  connect(m_planningCombo, QOverload<int>::of(&QComboBox::activated), this, [this](const int idx) {
-    const int id = m_planningCombo->itemData(idx).toInt();
-    if (id > 0 && id != m_seedId) setSeed(id);
+  auto* planningPickRow = new QWidget(this);
+  auto* planningPickLay = new QHBoxLayout(planningPickRow);
+  planningPickLay->setContentsMargins(0, 0, 0, 0);
+  planningPickLay->setSpacing(8);
+  m_planningPickLabel = new QLabel(planningPickRow);
+  m_planningPickLabel->setWordWrap(false);
+  m_planningPickLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+  m_planningPickLabel->setMinimumWidth(200);
+  m_planningPickLabel->setStyleSheet(
+      QStringLiteral("QLabel{color: palette(text); padding-top:2px;}"));
+  m_planningPickButton = new QPushButton(tr("Choose…"), planningPickRow);
+  m_planningPickButton->setToolTip(tr("Open a searchable list of your Planning titles."));
+  planningPickLay->addWidget(m_planningPickLabel, 1);
+  planningPickLay->addWidget(m_planningPickButton, 0, Qt::AlignRight);
+  connect(m_planningPickButton, &QPushButton::clicked, this, [this]() {
+    if (sortedPlanningPickerRows().isEmpty()) return;
+    PlanningTitlePickerDialog dlg(this, m_seedId);
+    if (dlg.exec() == QDialog::Accepted) {
+      const int id = dlg.selectedAnimeId();
+      if (id > 0 && id != m_seedId) setSeed(id);
+    }
   });
   auto* pickForm = new QFormLayout();
   pickForm->setContentsMargins(0, 0, 0, 0);
   pickForm->setHorizontalSpacing(12);
   pickForm->setFieldGrowthPolicy(QFormLayout::ExpandingFieldsGrow);
-  pickForm->addRow(tr("Start from Planning"), m_planningCombo);
+  pickForm->addRow(tr("Start from Planning"), planningPickRow);
   toolRoot->addLayout(pickForm);
 
   m_toolFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
@@ -921,7 +1075,7 @@ QString WatchNextDialog::formatAnilistFetchRowHtml(const int id) const {
     }
   }
   const QString title = animeDisplayTitle(anime::db.item(id), id).toHtmlEscaped();
-  return QStringLiteral("#%1 %2 — %3").arg(id).arg(title).arg(statusHtml);
+  return QStringLiteral("%1 — %2").arg(title).arg(statusHtml);
 }
 
 void WatchNextDialog::refreshAnilistFetchRow(const int id) {
@@ -998,40 +1152,41 @@ void WatchNextDialog::keyPressEvent(QKeyEvent* event) {
 }
 
 void WatchNextDialog::repopulatePlanningCombo() {
-  if (!m_planningCombo) return;
+  if (!m_planningPickLabel || !m_planningPickButton) return;
   if (m_sessionKind == SessionKind::EmbeddedGuide) return;
-  const QSignalBlocker blocker(m_planningCombo);
-  m_planningCombo->clear();
-  m_planningCombo->addItem(tr("(pick a Planning title)"), 0);
 
-  struct Row {
-    QString title;
-    int id = 0;
-  };
-  QVector<Row> rows;
-  rows.reserve(static_cast<int>(anime::db.entries().size()));
-  for (auto it = anime::db.entries().cbegin(); it != anime::db.entries().cend(); ++it) {
-    const ListEntry& e = it.value();
-    if (e.status != anime::list::Status::PlanToWatch) continue;
-    const int aid = e.anime_id;
-    if (const Anime* a = anime::db.item(aid)) {
-      rows.push_back({animeDisplayTitle(a, aid), aid});
-    } else {
-      rows.push_back({tr("#%1").arg(aid), aid});
+  const QVector<PlanningPickerRow> rows = sortedPlanningPickerRows();
+  if (rows.isEmpty()) {
+    m_planningPickLabel->setText(tr("No titles in Planning yet."));
+    m_planningPickLabel->setToolTip({});
+    m_planningPickButton->setEnabled(false);
+    return;
+  }
+  m_planningPickButton->setEnabled(true);
+
+  if (m_seedId <= 0) {
+    m_planningPickLabel->setText(tr("(pick a Planning title)"));
+    m_planningPickLabel->setToolTip(tr("Use “Choose…” to pick a starting title from Planning."));
+    return;
+  }
+
+  const Anime* seedA = anime::db.item(m_seedId);
+  const QString seedTitle = animeDisplayTitle(seedA, m_seedId);
+  bool onPlanning = false;
+  for (const PlanningPickerRow& r : rows) {
+    if (r.id == m_seedId) {
+      onPlanning = true;
+      break;
     }
   }
-  std::sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) {
-    return a.title.compare(b.title, Qt::CaseInsensitive) < 0;
-  });
-  for (const Row& r : rows) {
-    m_planningCombo->addItem(r.title, r.id);
-  }
-
-  if (m_seedId > 0) {
-    const int ix = m_planningCombo->findData(m_seedId);
-    m_planningCombo->setCurrentIndex(ix >= 0 ? ix : 0);
+  if (onPlanning) {
+    m_planningPickLabel->setText(seedTitle);
+    m_planningPickLabel->setToolTip(seedTitle);
   } else {
-    m_planningCombo->setCurrentIndex(0);
+    m_planningPickLabel->setText(tr("%1 (not on Planning)").arg(seedTitle));
+    m_planningPickLabel->setToolTip(
+        tr("Current recommendation is not on your Planning list. Choose a Planning title to jump "
+           "there."));
   }
 }
 
@@ -1105,16 +1260,11 @@ void WatchNextDialog::setSeed(const int id, const bool skip_closure_loading_gate
   m_relatedShowAll = false;
   clearAnilistFetchRows();
 
-  if (const Anime* a = anime::db.item(m_seedId)) {
-    const QString title = animeDisplayTitle(a, m_seedId);
-    if (m_sessionKind == SessionKind::ModelessGuide ||
-        m_sessionKind == SessionKind::EmbeddedGuide) {
-      m_header->setText(tr("<b>Watch order:</b> %1").arg(title.toHtmlEscaped()));
-    } else {
-      m_header->setText(tr("<b>Recommended:</b> %1").arg(title.toHtmlEscaped()));
-    }
+  const QString title = animeDisplayTitle(anime::db.item(m_seedId), m_seedId);
+  if (m_sessionKind == SessionKind::ModelessGuide || m_sessionKind == SessionKind::EmbeddedGuide) {
+    m_header->setText(tr("<b>Watch order:</b> %1").arg(title.toHtmlEscaped()));
   } else {
-    m_header->setText(tr("<b>Recommended:</b> #%1").arg(id));
+    m_header->setText(tr("<b>Recommended:</b> %1").arg(title.toHtmlEscaped()));
   }
 
   recomputeClosure();

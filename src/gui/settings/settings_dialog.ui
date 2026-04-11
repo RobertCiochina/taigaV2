@@ -121,6 +121,19 @@
              </property>
             </widget>
            </item>
+           <item>
+            <widget class="QLabel" name="labelSyncOnStartHint">
+             <property name="text">
+              <string/>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignTop|Qt::AlignLeft</set>
+             </property>
+             <property name="wordWrap">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
           </layout>
          </widget>
          </widget>

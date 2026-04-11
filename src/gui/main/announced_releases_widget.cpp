@@ -12,9 +12,11 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include "gui/main/main_window.hpp"
+#include "gui/utils/image_provider.hpp"
 #include "gui/utils/list_commit.hpp"
 #include "gui/utils/ui_title.hpp"
 #include "media/anime.hpp"
@@ -76,7 +78,8 @@ AnnouncedReleasesWidget::AnnouncedReleasesWidget(QWidget* parent) : QWidget(pare
           "AnnouncedReleases",
           "Shows anime that are <b>not yet aired</b> or <b>currently airing</b> when they are a "
           "<b>direct sequel</b> (on AniList) to something on your list as <b>Completed</b> or "
-          "<b>Planning</b>. Synchronize and open media details so relations are cached."),
+          "<b>Planning</b>. Keep your list synchronized; sequel links cached on those titles are "
+          "read from disk, and missing sequel entries are fetched from AniList when you open this page."),
       this);
   hint->setWordWrap(true);
   hint->setTextFormat(Qt::RichText);
@@ -138,6 +141,14 @@ AnnouncedReleasesWidget::AnnouncedReleasesWidget(QWidget* parent) : QWidget(pare
   m_rowsLayout->addStretch(1);
   scroll->setWidget(inner);
   outer->addWidget(scroll, 1);
+
+  m_dbRefreshDebounce_ = new QTimer(this);
+  m_dbRefreshDebounce_->setSingleShot(true);
+  connect(m_dbRefreshDebounce_, &QTimer::timeout, this, &AnnouncedReleasesWidget::refresh);
+  connect(&anime::db, &anime::Database::itemUpdated, this, [this](int) {
+    if (!isVisible()) return;
+    m_dbRefreshDebounce_->start(400);
+  });
 }
 
 void AnnouncedReleasesWidget::applyToolbarTextFilter(const QString& text) {
@@ -167,11 +178,17 @@ void AnnouncedReleasesWidget::rebuildRows() {
     return;
   }
 
+  anime::prefetchMissingAnnouncedSequelMediaFromAnchors();
+
   const auto cands =
       anime::computeAnnouncedReleaseCandidates(taiga::session.announcedReleasesDismissedAnimeIds());
   if (cands.isEmpty()) {
-    auto* empty =
-        new QLabel(QApplication::translate("AnnouncedReleases", "No matching titles right now."), this);
+    const QString emptyText =
+        anime::hasAnnouncedSequelAnchorsAwaitingMediaFetch()
+            ? QApplication::translate("AnnouncedReleases",
+                                        "Fetching related sequels from AniList…")
+            : QApplication::translate("AnnouncedReleases", "No matching titles right now.");
+    auto* empty = new QLabel(emptyText, this);
     empty->setWordWrap(true);
     empty->setStyleSheet(QStringLiteral("QLabel{color: palette(placeholderText);}"));
     m_rowsLayout->addWidget(empty);
@@ -199,6 +216,35 @@ void AnnouncedReleasesWidget::rebuildRows() {
     hl->setContentsMargins(10, 8, 10, 8);
     hl->setSpacing(10);
 
+    constexpr int kPosterW = 56;
+    constexpr int kPosterH = 80;
+    auto* poster = new QLabel(frame);
+    poster->setFixedSize(kPosterW, kPosterH);
+    poster->setAlignment(Qt::AlignCenter);
+    poster->setStyleSheet(
+        QStringLiteral("QLabel{border-radius:4px; background: palette(alternate-base);}"));
+    const int aid = c.anime_id;
+    auto paintPoster = [poster, aid]() {
+      if (const QPixmap* p = imageProvider.loadPoster(aid); p && !p->isNull()) {
+        poster->setPixmap(
+            p->scaled(poster->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        poster->setText(QString());
+      } else {
+        poster->clear();
+        poster->setText(QStringLiteral("…"));
+      }
+    };
+    paintPoster();
+    connect(&imageProvider, &ImageProvider::posterChanged, frame, [poster, aid](const int id) {
+      if (id != aid) return;
+      if (const QPixmap* p = imageProvider.loadPoster(aid); p && !p->isNull()) {
+        poster->setPixmap(
+            p->scaled(poster->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        poster->setText(QString());
+      }
+    });
+    hl->addWidget(poster);
+
     auto* vl = new QVBoxLayout();
     auto* t1 = new QLabel(QStringLiteral("<b>%1</b>").arg(title.toHtmlEscaped()), frame);
     t1->setTextFormat(Qt::RichText);
@@ -216,7 +262,6 @@ void AnnouncedReleasesWidget::rebuildRows() {
     hl->addLayout(vl, 1);
 
     auto* addBtn = new QPushButton(tr("Add to Planning"), frame);
-    const int aid = c.anime_id;
     connect(addBtn, &QPushButton::clicked, this, [this, aid]() {
       ListEntry e;
       e.anime_id = aid;

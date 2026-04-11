@@ -21,4 +21,12 @@ struct AnnouncedReleaseCandidate {
 /// Planning / Watching / Completed). Requires local `Anime` rows with relations + status.
 QVector<AnnouncedReleaseCandidate> computeAnnouncedReleaseCandidates(const QSet<int>& dismissed);
 
+/// For each Completed / Planning list row whose cached `Anime.relations` includes a Sequel edge to
+/// an id not yet present in `anime::db`, enqueue `sync::fetchAnime` (AniList only, capped). Restores
+/// Announced releases after a cold start once relations were previously fetched for anchors.
+void prefetchMissingAnnouncedSequelMediaFromAnchors();
+
+/// True when a Completed/Planning entry references a Sequel id not yet in `anime::db` (AniList).
+bool hasAnnouncedSequelAnchorsAwaitingMediaFetch();
+
 }  // namespace anime

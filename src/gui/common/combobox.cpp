@@ -18,15 +18,15 @@
 
 #include "combobox.hpp"
 
+#include <QAbstractItemView>
+#include <QApplication>
 #include <QEvent>
-#include <QKeyEvent>
-#include <QListView>
-#include <QMouseEvent>
 #include <QFrame>
 #include <QGuiApplication>
 #include <QHBoxLayout>
-#include <QAbstractItemView>
-#include <QApplication>
+#include <QKeyEvent>
+#include <QListView>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QScreen>
 #include <QScrollBar>
@@ -40,7 +40,9 @@ class ComboPopupListView final : public QListView {
 public:
   explicit ComboPopupListView(QWidget* parent) : QListView(parent) {}
 
-  QModelIndex hoveredIndex() const { return hovered_index_; }
+  QModelIndex hoveredIndex() const {
+    return hovered_index_;
+  }
 
 protected:
   void mouseMoveEvent(QMouseEvent* event) override {
@@ -150,12 +152,20 @@ void ComboBox::ensurePopup() {
   // Close on focus/activation loss.
   popup_frame_->installEventFilter(this);
 
-  // Click selects + closes.
-  connect(popup_list_, &QListView::clicked, this, [this](const QModelIndex& idx) {
+  // Click / keyboard activation selects + closes. Must emit `activated(int)` like the native
+  // popup — slots (e.g. Watch Next layout → `rebuildCards`) connect to that, not
+  // `currentIndexChanged`.
+  const auto apply_popup_choice = [this](const QModelIndex& idx) {
     if (!idx.isValid()) return;
-    setCurrentIndex(idx.row());
+    if (!popup_frame_ || !popup_frame_->isVisible()) return;
+    const int row = idx.row();
+    if (row < 0 || row >= count()) return;
+    setCurrentIndex(row);
     hidePopup();
-  });
+    emit activated(row);
+  };
+  connect(popup_list_, &QListView::clicked, this, apply_popup_choice);
+  connect(popup_list_, &QAbstractItemView::activated, this, apply_popup_choice);
 }
 
 void ComboBox::positionAndShowPopup() {
@@ -208,8 +218,7 @@ void ComboBox::positionAndShowPopup() {
   QPoint pos = below;
   if (avail.isValid()) {
     if (pos.x() + want_w > avail.right()) pos.setX(std::max(avail.left(), avail.right() - want_w));
-    if (pos.y() + max_h > avail.bottom())
-      pos.setY(std::max(avail.top(), avail.bottom() - max_h));
+    if (pos.y() + max_h > avail.bottom()) pos.setY(std::max(avail.top(), avail.bottom() - max_h));
   }
 
   popup_frame_->move(pos);
@@ -238,18 +247,29 @@ bool ComboBox::eventFilter(QObject* watched, QEvent* event) {
 }
 
 void ComboBox::keyPressEvent(QKeyEvent* event) {
-  if (event->key() == Qt::Key::Key_Escape) {
-    this->setCurrentIndex(-1);
-    return;
+  if (event->key() == Qt::Key_Escape) {
+    const QVariant esc = property("taiga.clearOnEscape");
+    const bool clear_on_escape = !esc.isValid() || esc.toBool();
+    if (clear_on_escape) {
+      setCurrentIndex(-1);
+      return;
+    }
+    if (popup_frame_ && popup_frame_->isVisible()) {
+      hidePopup();
+      event->accept();
+      return;
+    }
   }
 
   QComboBox::keyPressEvent(event);
 }
 
 void ComboBox::mousePressEvent(QMouseEvent* event) {
-  if (event->button() == Qt::MouseButton::MiddleButton ||
-      event->button() == Qt::MouseButton::RightButton) {
-    this->setCurrentIndex(-1);
+  const QVariant chord = property("taiga.clearOnChordClicks");
+  const bool clear_on_chord = !chord.isValid() || chord.toBool();
+  if (clear_on_chord && (event->button() == Qt::MouseButton::MiddleButton ||
+                         event->button() == Qt::MouseButton::RightButton)) {
+    setCurrentIndex(-1);
     return;
   }
 

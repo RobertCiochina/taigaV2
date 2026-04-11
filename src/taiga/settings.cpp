@@ -144,8 +144,8 @@ bool Settings::networkRelaxedTls() const {
 
 bool Settings::syncAutoOnStart() const {
   // v2 key; fallback matches legacy v1 flat key name (account/myanimelist/login was reused for this
-  // bool).
-  return value("sync.autoOnStart", value("account/myanimelist/login", false)).toBool();
+  // bool). Default true for new installs so list/search stay aligned with the service.
+  return value("sync.autoOnStart", value("account/myanimelist/login", true)).toBool();
 }
 
 bool Settings::syncOnWindowFocus() const {

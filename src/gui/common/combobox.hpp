@@ -26,6 +26,9 @@ class QListView;
 
 namespace gui {
 
+/// Custom popup (Search filters, etc.). Optional dynamic `QWidget` properties:
+/// `taiga.clearOnEscape` (default true: Esc clears selection), `taiga.clearOnChordClicks` (default
+/// true: MMB/RMB clear).
 class ComboBox : public QComboBox {
   Q_OBJECT
   Q_DISABLE_COPY_MOVE(ComboBox)

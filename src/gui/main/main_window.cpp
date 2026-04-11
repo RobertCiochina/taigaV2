@@ -27,6 +27,9 @@
 #include <QEvent>
 #include <QFileDialog>
 #include <QFont>
+#include <QGuiApplication>
+#include <QScreen>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -42,6 +45,7 @@
 #include <QShortcut>
 #include <QShowEvent>
 #include <QSignalBlocker>
+#include <QSizePolicy>
 #include <QSystemTrayIcon>
 #include <QThreadPool>
 #include <QTimer>
@@ -125,6 +129,21 @@ MainWindow::MainWindow() : QMainWindow(), ui_(new Ui::MainWindow) {
     centerWidgetToScreen(this);
   }
 
+  // Legacy sessions can store a very small window; grow to a comfortable floor
+  // without exceeding the current screen's work area.
+  if (QScreen* sc = screen() ? screen() : QGuiApplication::primaryScreen()) {
+    const QRect avail = sc->availableGeometry();
+    constexpr int kFloorW = 1320;
+    constexpr int kFloorH = 780;
+    if (width() < kFloorW || height() < kFloorH) {
+      const int targetW = qMin(qMax(width(), kFloorW), avail.width() - 24);
+      const int targetH = qMin(qMax(height(), kFloorH), avail.height() - 24);
+      if (targetW > 0 && targetH > 0 && (targetW != width() || targetH != height())) {
+        resize(targetW, targetH);
+      }
+    }
+  }
+
   // Do not call `init()` here, as it relies on the main window pointer being
   // available through the application instance.
 }
@@ -195,6 +214,7 @@ void MainWindow::init() {
   }
   initStatusbar();
   initNowPlaying();
+  initNoStartupSyncBanner();
   restoreViewChromeFromSession();
   updateTitle();
   updateToolbarSearchPlaceholder();
@@ -1046,6 +1066,7 @@ void MainWindow::initFeatureToggleActions() {
   connect(ui_->actionToggleSynchronization, &QAction::toggled, this, [this](const bool on) {
     taiga::settings.setListSynchronizationEnabled(on);
     refreshSyncActionState();
+    updateNoStartupSyncBanner();
   });
 
   refreshSyncActionState();
@@ -1071,6 +1092,7 @@ void MainWindow::refreshServiceDependentUi() {
   updateTrayTooltip();
   if (m_listWidget) m_listWidget->refreshListTitleDisplay();
   if (m_searchWidget) m_searchWidget->refreshListTitleDisplay();
+  updateNoStartupSyncBanner();
 }
 
 void MainWindow::refreshNavigationSidebar() {
@@ -1106,9 +1128,64 @@ void MainWindow::refreshMatureContentSurfaces() {
   refreshHomeDashboard();
 }
 
+void MainWindow::initNoStartupSyncBanner() {
+  if (m_noStartupSyncBannerHost) return;
+  auto* vl = qobject_cast<QVBoxLayout*>(ui_->centralWidget->layout());
+  if (!vl) return;
+
+  // Single frame (no extra wrapper): wrapped QLabel + QHBoxLayout otherwise report a huge
+  // minimum height before width is known, which steals vertical space from the splitter.
+  auto* frame = new QFrame(ui_->centralWidget);
+  m_noStartupSyncBannerHost = frame;
+  frame->setObjectName(QStringLiteral("noStartupSyncBanner"));
+  frame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
+  frame->setStyleSheet(QStringLiteral(
+      "QFrame#noStartupSyncBanner{border-bottom:1px solid palette(mid); padding:8px 12px; "
+      "background: palette(toolTipBase); color: palette(toolTipText);}"));
+  auto* hl = new QHBoxLayout(frame);
+  hl->setContentsMargins(10, 8, 10, 8);
+  hl->setSpacing(12);
+
+  m_noStartupSyncBannerMessage = new QLabel(frame);
+  m_noStartupSyncBannerMessage->setWordWrap(true);
+  m_noStartupSyncBannerMessage->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
+  hl->addWidget(m_noStartupSyncBannerMessage, 1);
+
+  auto* btn = new QPushButton(tr("Synchronize now"), frame);
+  btn->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+  btn->setToolTip(synchronizeWithServiceToolTip(sync::serviceName(sync::currentServiceId())));
+  connect(btn, &QPushButton::clicked, this, [this]() { startListSynchronization(true); });
+  hl->addWidget(btn, 0, Qt::AlignVCenter);
+
+  vl->insertWidget(0, frame);
+  if (const int splitterIdx = vl->indexOf(ui_->splitter); splitterIdx >= 0) {
+    vl->setStretch(splitterIdx, 1);
+  }
+  for (int i = 0; i < vl->count(); ++i) {
+    if (QWidget* w = vl->itemAt(i)->widget(); w && w != ui_->splitter) {
+      vl->setStretch(i, 0);
+    }
+  }
+  updateNoStartupSyncBanner();
+}
+
+void MainWindow::updateNoStartupSyncBanner() {
+  if (!m_noStartupSyncBannerHost || !m_noStartupSyncBannerMessage) return;
+  const bool show = taiga::settings.listSynchronizationEnabled() &&
+                    !taiga::settings.syncAutoOnStart() && !m_startup_sync_done_;
+  if (show) {
+    m_noStartupSyncBannerMessage->setText(
+        tr("Synchronizing the anime list when Taiga starts is turned off in Settings. Your list, "
+           "search, and related data may be incomplete until you synchronize with %1.")
+            .arg(sync::serviceName(sync::currentServiceId())));
+  }
+  m_noStartupSyncBannerHost->setVisible(show);
+}
+
 void MainWindow::applyListSynchronizationToggleFromSettings() {
   const QSignalBlocker b(ui_->actionToggleSynchronization);
   ui_->actionToggleSynchronization->setChecked(taiga::settings.listSynchronizationEnabled());
+  updateNoStartupSyncBanner();
 }
 
 void MainWindow::applyMediaDetectionToggleFromSettings() {
@@ -1327,6 +1404,7 @@ void MainWindow::handleListSyncFinished(bool ok, QString message) {
         m_startup_auto_download_pending_ = true;
         runLibraryScan(true, LibraryScanReason::StartupPostSync);
         finalizeListSyncSession();
+        updateNoStartupSyncBanner();
         return;
       }
       QTimer::singleShot(0, this, [this]() { runAutoDownload(true); });
@@ -1340,6 +1418,7 @@ void MainWindow::handleListSyncFinished(bool ok, QString message) {
     statusBar()->showMessage(synchronizationFailedStatus(message), 8000);
   }
 
+  updateNoStartupSyncBanner();
   finalizeListSyncSession();
 }
 

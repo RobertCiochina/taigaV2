@@ -103,6 +103,8 @@ public slots:
   void refreshAnimeListNewEpisodeHighlight();
   /// Re-applies the “show mature titles” setting across list/search proxies, history, Home, and Announced releases.
   void refreshMatureContentSurfaces();
+  /// Shows or hides the “sync at startup is off” notice until the first successful list sync this session.
+  void updateNoStartupSyncBanner();
   /// Keeps the Enable synchronization toggle in sync with `taiga::settings` without emitting
   /// toggled.
   void applyListSynchronizationToggleFromSettings();
@@ -189,6 +191,7 @@ private:
   void ensureWatchOrderGuideWindow();
   void refreshHomeQBitPlayButtons();
   void updateHomeAnnouncedBanner();
+  void initNoStartupSyncBanner();
 
   Ui::MainWindow* ui_ = nullptr;
 
@@ -214,6 +217,8 @@ private:
   QWidget* m_homeRecentContainer = nullptr;
   QLabel* m_homeRecentHeader = nullptr;
   QWidget* m_homeAnnouncedBannerHost = nullptr;
+  QWidget* m_noStartupSyncBannerHost = nullptr;
+  QLabel* m_noStartupSyncBannerMessage = nullptr;
 
   struct HomeUpNextButton {
     QPointer<QPushButton> btn;

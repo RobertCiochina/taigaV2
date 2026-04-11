@@ -20,7 +20,6 @@
 
 #include <QDateTime>
 #include <QDesktopServices>
-#include <cmath>
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -31,11 +30,12 @@
 #include <QToolButton>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <cmath>
 
 #include "base/string.hpp"
 #include "gui/utils/format.hpp"
-#include "gui/utils/list_commit.hpp"
 #include "gui/utils/image_provider.hpp"
+#include "gui/utils/list_commit.hpp"
 #include "gui/utils/theme.hpp"
 #include "gui/utils/ui_strings.hpp"
 #include "gui/utils/widgets.hpp"
@@ -148,9 +148,7 @@ MediaDialog::MediaDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::MediaDi
     const int anime_id = m_anime.id;
     if (anime_id <= 0) return;
     if (!track::playNextEpisode(anime_id)) {
-      QMessageBox::information(
-          this, tr("Taiga"),
-          playNextEpisodeNotFoundMessage());
+      QMessageBox::information(this, tr("Taiga"), playNextEpisodeNotFoundMessage());
     }
   });
 }
@@ -288,12 +286,18 @@ void MediaDialog::initDetails() {
     using R = anime::AgeRating;
     const auto ratingStr = [this]() -> QString {
       switch (m_anime.age_rating) {
-        case R::G:   return u"G — All ages"_s;
-        case R::PG:  return u"PG — Children"_s;
-        case R::PG13:return u"PG-13 — Teens 13+"_s;
-        case R::R17: return u"R — 17+"_s;
-        case R::R18: return u"R+ — Adults"_s;
-        default:     return {};
+        case R::G:
+          return u"G — All ages"_s;
+        case R::PG:
+          return u"PG — Children"_s;
+        case R::PG13:
+          return u"PG-13 — Teens 13+"_s;
+        case R::R17:
+          return u"R — 17+"_s;
+        case R::R18:
+          return u"R+ — Adults"_s;
+        default:
+          return {};
       }
     }();
     if (!ratingStr.isEmpty()) {
@@ -310,16 +314,13 @@ void MediaDialog::initDetails() {
   // Airing info: last aired episode and next episode countdown
   if (m_anime.status == anime::Status::Airing) {
     if (m_anime.last_aired_episode > 0) {
-      ui_->infoLayout->addRow(
-          get_row_title(tr("Last aired:")),
-          get_row_label(tr("Episode %1").arg(m_anime.last_aired_episode)));
+      ui_->infoLayout->addRow(get_row_title(tr("Last aired:")),
+                              get_row_label(tr("Episode %1").arg(m_anime.last_aired_episode)));
     }
     if (m_anime.next_episode_time > 0) {
       const QString rel = formatAsRelativeTime(static_cast<qint64>(m_anime.next_episode_time));
       const int next_ep = m_anime.last_aired_episode + 1;
-      const QString next_ep_label = next_ep > 0
-          ? tr("Episode %1 — %2").arg(next_ep).arg(rel)
-          : rel;
+      const QString next_ep_label = next_ep > 0 ? tr("Episode %1 — %2").arg(next_ep).arg(rel) : rel;
       auto* next_label = get_row_label(next_ep_label);
       next_label->setToolTip(
           QDateTime::fromSecsSinceEpoch(static_cast<qint64>(m_anime.next_episode_time))
@@ -331,10 +332,8 @@ void MediaDialog::initDetails() {
   // Trailer (YouTube link)
   if (!m_anime.trailer_id.empty()) {
     const QString trailerUrl =
-        u"https://www.youtube.com/watch?v=%1"_s.arg(
-            QString::fromStdString(m_anime.trailer_id));
-    auto* trailer_label = get_row_label(
-        u"<a href=\"%1\">Watch on YouTube</a>"_s.arg(trailerUrl));
+        u"https://www.youtube.com/watch?v=%1"_s.arg(QString::fromStdString(m_anime.trailer_id));
+    auto* trailer_label = get_row_label(u"<a href=\"%1\">Watch on YouTube</a>"_s.arg(trailerUrl));
     trailer_label->setOpenExternalLinks(true);
     trailer_label->setTextFormat(Qt::RichText);
     ui_->infoLayout->addRow(get_row_title(tr("Trailer:")), trailer_label);
@@ -386,12 +385,11 @@ void MediaDialog::initList() {
     btnRow->setAlignment(Qt::AlignCenter);
     btnRow->setSpacing(8);
 
-    for (const auto status :
-         {anime::list::Status::Watching, anime::list::Status::PlanToWatch,
-          anime::list::Status::OnHold, anime::list::Status::Dropped,
-          anime::list::Status::Completed}) {
-      auto* btn = new QPushButton(
-          tr("Add as \"%1\"").arg(formatListStatus(status)), m_addToListPanel);
+    for (const auto status : {anime::list::Status::Watching, anime::list::Status::PlanToWatch,
+                              anime::list::Status::OnHold, anime::list::Status::Dropped,
+                              anime::list::Status::Completed}) {
+      auto* btn =
+          new QPushButton(tr("Add as \"%1\"").arg(formatListStatus(status)), m_addToListPanel);
       connect(btn, &QPushButton::clicked, this, [this, status]() { addToList(status); });
       btnRow->addWidget(btn);
     }
@@ -488,8 +486,8 @@ void MediaDialog::resizePosterImage() {
     return;
   }
 
-  const int out_h = static_cast<int>(
-      std::lround(static_cast<double>(h) * (static_cast<double>(label_w) / static_cast<double>(w))));
+  const int out_h = static_cast<int>(std::lround(
+      static_cast<double>(h) * (static_cast<double>(label_w) / static_cast<double>(w))));
   const QPixmap scaled =
       full->scaled(label_w, out_h, Qt::KeepAspectRatio, Qt::SmoothTransformation);
   ui_->posterLabel->setPixmap(scaled);

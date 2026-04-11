@@ -201,6 +201,16 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
     refresh_accounts_summary();
 
     ui_->checkSyncOnStart->setChecked(taiga::settings.syncAutoOnStart());
+    ui_->labelSyncOnStartHint->setText(
+        tr("If you turn this off, Taiga can work from stale data until you synchronize manually. "
+           "Your list, search, and other flows that rely on the service may be incomplete or "
+           "misbehave until the next successful sync."));
+    ui_->labelSyncOnStartHint->setStyleSheet(
+        QStringLiteral("QLabel{color: palette(placeholderText); font-size:12px;}"));
+    ui_->checkSyncOnStart->setToolTip(
+        tr("Recommended: keep this on so your local list matches your service after each start. "
+           "Turning it off can leave search and list-related features out of date until you sync "
+           "manually, and is not recommended if you depend on accurate service data."));
 
     auto* anilist_btn = new QPushButton(tr("Sign in with AniList…"), ui_->accountsPage);
     connect(anilist_btn, &QPushButton::clicked, this, [this, refresh_accounts_summary] {
@@ -834,8 +844,10 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
     const auto fill_row_actions = [this](QComboBox* box) {
       box->clear();
       box->addItem(tr("Do nothing"), static_cast<int>(taiga::ListRowAction::Nothing));
-      box->addItem(editListEntryActionLabel(), static_cast<int>(taiga::ListRowAction::EditListEntry));
-      box->addItem(libraryOpenFolderActionLabel(), static_cast<int>(taiga::ListRowAction::OpenFolder));
+      box->addItem(editListEntryActionLabel(),
+                   static_cast<int>(taiga::ListRowAction::EditListEntry));
+      box->addItem(libraryOpenFolderActionLabel(),
+                   static_cast<int>(taiga::ListRowAction::OpenFolder));
       box->addItem(playNextEpisodeActionLabel(), static_cast<int>(taiga::ListRowAction::PlayNext));
       box->addItem(mediaViewDetailsActionLabel(),
                    static_cast<int>(taiga::ListRowAction::ShowDetails));
@@ -994,9 +1006,9 @@ void SettingsDialog::accept() {
   MainWindow* const mw = gui::mainWindow();
   QTimer::singleShot(
       0, qApp,
-      [mw, prev_service, prev_library_folders, prev_scan_library_on_startup, prev_library_min_file_bytes,
-       prev_library_watch, prev_torrent_client_path, prev_torrent_create_subfolder, prev_qbit_api,
-       prev_qbit_url]() {
+      [mw, prev_service, prev_library_folders, prev_scan_library_on_startup,
+       prev_library_min_file_bytes, prev_library_watch, prev_torrent_client_path,
+       prev_torrent_create_subfolder, prev_qbit_api, prev_qbit_url]() {
         const bool home_data_changed =
             prev_service != taiga::settings.service() ||
             prev_library_folders != taiga::settings.libraryFolders() ||
@@ -1016,11 +1028,13 @@ void SettingsDialog::accept() {
         if (mw) {
           mw->applyListSynchronizationToggleFromSettings();
           mw->applyMediaDetectionToggleFromSettings();
-          track::media::detection()->setPollingEnabled(taiga::settings.mediaDetectionPollingActive());
+          track::media::detection()->setPollingEnabled(
+              taiga::settings.mediaDetectionPollingActive());
           mw->refreshServiceDependentUi();
           mw->refreshAnimeListProgressDecorations();
           mw->refreshAnimeListNewEpisodeHighlight();
           mw->refreshMatureContentSurfaces();
+          mw->updateNoStartupSyncBanner();
           mw->refreshTorrentCatalogAutocheckTimer();
           mw->resortTorrentRssTableFromSettings();
           if (home_data_changed) mw->refreshHomeDashboard();

@@ -27,11 +27,11 @@
 #include <QVector>
 #include <functional>
 
+#include "gui/common/combobox.hpp"
 #include "media/anime.hpp"
 #include "media/anime_list.hpp"
 
 class QCloseEvent;
-class QComboBox;
 class QFrame;
 class QKeyEvent;
 class QLabel;
@@ -143,14 +143,15 @@ private:
   QLabel* m_header = nullptr;
   QLabel* m_subHeader = nullptr;
   QWidget* m_layoutSwitcherHost = nullptr;
-  QComboBox* m_watchLayoutCombo = nullptr;
+  ComboBox* m_watchLayoutCombo = nullptr;
   QFrame* m_toolFrame = nullptr;
   QWidget* m_buttonLegendHost = nullptr;
   QPushButton* m_randomBtn = nullptr;
   QPushButton* m_addAllWatchingBtn = nullptr;
   QPushButton* m_addAllPlanningBtn = nullptr;
   QPushButton* m_closeBtn = nullptr;
-  QComboBox* m_planningCombo = nullptr;
+  QLabel* m_planningPickLabel = nullptr;
+  QPushButton* m_planningPickButton = nullptr;
   SessionKind m_sessionKind = SessionKind::ModalRandomPlanning;
   /// Delays re-enabling Randomize so brief gaps between sequential AniList completions don’t flash.
   QTimer* m_randomizeSettleTimer = nullptr;

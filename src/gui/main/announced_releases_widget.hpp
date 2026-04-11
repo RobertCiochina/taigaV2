@@ -7,6 +7,7 @@
 #include <QString>
 #include <QWidget>
 
+class QTimer;
 class QVBoxLayout;
 
 namespace gui {
@@ -26,6 +27,7 @@ private:
 
   QString m_filter;
   QVBoxLayout* m_rowsLayout = nullptr;
+  QTimer* m_dbRefreshDebounce_ = nullptr;
 };
 
 }  // namespace gui

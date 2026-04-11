@@ -6,6 +6,8 @@
 
 #include <algorithm>
 
+#include <QSet>
+
 #include "media/anime.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_list.hpp"
@@ -31,6 +33,27 @@ bool listEntryHidesFromAnnouncedTab(const ListEntry* e) {
   using anime::list::Status;
   return e->status == Status::PlanToWatch || e->status == Status::Watching ||
          e->status == Status::Completed;
+}
+
+QSet<int> missingSequelIdsFromAnnouncedAnchors() {
+  QSet<int> missing;
+  if (sync::currentServiceId() != sync::ServiceId::AniList) return missing;
+
+  for (const auto& e : anime::db.entries()) {
+    if (e.status != anime::list::Status::Completed &&
+        e.status != anime::list::Status::PlanToWatch) {
+      continue;
+    }
+    const Anime* a = anime::db.item(e.anime_id);
+    if (!a) continue;
+    for (const auto& rel : a->relations) {
+      if (rel.type != RelationType::Sequel) continue;
+      const int sid = rel.related_id;
+      if (sid <= 0 || anime::db.item(sid)) continue;
+      missing.insert(sid);
+    }
+  }
+  return missing;
 }
 
 }  // namespace
@@ -73,6 +96,20 @@ QVector<AnnouncedReleaseCandidate> computeAnnouncedReleaseCandidates(const QSet<
   });
 
   return out;
+}
+
+bool hasAnnouncedSequelAnchorsAwaitingMediaFetch() {
+  return !missingSequelIdsFromAnnouncedAnchors().isEmpty();
+}
+
+void prefetchMissingAnnouncedSequelMediaFromAnchors() {
+  const QSet<int> missing = missingSequelIdsFromAnnouncedAnchors();
+  constexpr int kMaxPrefetch = 48;
+  int n = 0;
+  for (const int sid : missing) {
+    if (++n > kMaxPrefetch) break;
+    sync::fetchAnime(sid);
+  }
 }
 
 }  // namespace anime

@@ -82,14 +82,22 @@ bool playNextEpisode(int animeId) {
 
   const auto entry = anime::db.entry(animeId);
 
-  const int total_episodes = item->episode_count;
-  const int last_episode = entry ? std::min(entry->watched_episodes, total_episodes) : 0;
-  const int next_episode = last_episode + 1;
+  // When `episode_count` is unknown (`kUnknownEpisodeCount` is -1), never clamp watched against it:
+  // `std::min(watched, -1)` would be -1 and we'd try to play episode 0 (Home "Up next" uses
+  // `watched + 1` and would list a title whose next file exists, but Play would fail).
+  const int totalEpisodes = item->episode_count;
+  const int watched = entry ? entry->watched_episodes : 0;
+  int lastWatched = watched;
+  if (totalEpisodes > 0) {
+    lastWatched = std::min(watched, totalEpisodes);
+  }
+  const int nextEpisode = lastWatched + 1;
+  if (nextEpisode < 1) return false;
 
-  const bool ok = playEpisode(animeId, next_episode);
+  const bool ok = playEpisode(animeId, nextEpisode);
   if (diag) {
     qDebug() << "playNextEpisode:" << (ok ? "ok" : "fail") << "in" << t.elapsed() << "ms (animeId="
-             << animeId << "next=" << next_episode << ")";
+             << animeId << "next=" << nextEpisode << ")";
   }
   return ok;
 }
