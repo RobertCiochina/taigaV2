@@ -18,27 +18,24 @@
 
 #include "search_widget.hpp"
 
-#include <optional>
-
-#include "base/string.hpp"
-
 #include <QActionGroup>
 #include <QDate>
 #include <QDateTime>
+#include <QGuiApplication>
 #include <QMenu>
 #include <QPointer>
 #include <QPushButton>
 #include <QSignalBlocker>
-#include <QGuiApplication>
-#include <QTimer>
 #include <QStatusBar>
+#include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
+#include <optional>
 
+#include "base/string.hpp"
 #include "gui/common/anime_list_view.hpp"
 #include "gui/common/anime_list_view_cards.hpp"
 #include "gui/main/main_window.hpp"
-#include "gui/main/navigation_widget.hpp"
 #include "gui/models/anime_list_model.hpp"
 #include "gui/models/anime_list_proxy_model.hpp"
 #include "gui/utils/format.hpp"
@@ -107,11 +104,10 @@ SearchWidget::SearchWidget(QWidget* parent)
     if (m_proxyModel->filters().year) {
       setComboToData(m_comboYear, *m_proxyModel->filters().year);
     }
-    connect(m_comboYear, &QComboBox::currentIndexChanged, this,
-            [this](int index) {
-              m_proxyModel->setYearFilter(filterValue(m_comboYear, index));
-              if (!m_applying_defaults_) taiga::session.setSearchListSeasonYearCustomized(true);
-            });
+    connect(m_comboYear, &QComboBox::currentIndexChanged, this, [this](int index) {
+      m_proxyModel->setYearFilter(filterValue(m_comboYear, index));
+      if (!m_applying_defaults_) taiga::session.setSearchListSeasonYearCustomized(true);
+    });
     filtersLayout->addWidget(m_comboYear);
   }
 
@@ -171,10 +167,10 @@ SearchWidget::SearchWidget(QWidget* parent)
 
   {
     m_btnLoadAll = new QPushButton(tr("Load all"), this);
-    m_btnLoadAll->setToolTip(
-        tr("Download the full year+season catalog from the active service into the local database.\n"
-           "If that season was already loaded before, this will use the local database.\n"
-           "Tip: hold Shift while clicking to force refresh from the service."));
+    m_btnLoadAll->setToolTip(tr(
+        "Download the full year+season catalog from the active service into the local database.\n"
+        "If that season was already loaded before, this will use the local database.\n"
+        "Tip: hold Shift while clicking to force refresh from the service."));
     connect(m_btnLoadAll, &QPushButton::clicked, this, [this]() {
       if (m_seasonBrowseInFlight) {
         if (auto* mw = mainWindow()) {
@@ -212,7 +208,7 @@ SearchWidget::SearchWidget(QWidget* parent)
       if (!taiga::shouldFetchSeasonBrowse(loaded_keys, key, force_refresh)) {
         reloadAnimeList();
         if (auto* mw = mainWindow()) {
-          if (mw->navigation()) mw->navigation()->refresh();
+          mw->refreshNavigationSidebar();
           mw->statusBar()->showMessage(
               tr("Season already loaded. Hold Shift and click Load all to refresh."), 5000);
         }
@@ -239,7 +235,7 @@ SearchWidget::SearchWidget(QWidget* parent)
             taiga::session.setSearchListSeasonBrowseLoadedKeys(taiga::seasonBrowseCacheAdd(
                 taiga::session.searchListSeasonBrowseLoadedKeys(), key));
             guard->reloadAnimeList();
-            if (mw->navigation()) mw->navigation()->refresh();
+            mw->refreshNavigationSidebar();
             mw->statusBar()->showMessage(msg.isEmpty() ? tr("Season loaded.") : msg, 6000);
           } else {
             // Avoid a modal network error popup on rapid repeated actions; status bar is enough.
@@ -260,7 +256,7 @@ SearchWidget::SearchWidget(QWidget* parent)
       m_proxyModel->setListStatusFilter({/*status=*/0, /*anyStatus=*/true});
       reloadAnimeList();
       if (auto* mw = mainWindow()) {
-        if (mw->navigation()) mw->navigation()->refresh();
+        mw->refreshNavigationSidebar();
         mw->statusBar()->showMessage(tr("Showing only titles in your list."), 3000);
       }
     });
@@ -321,7 +317,8 @@ void SearchWidget::syncSeasonYearCombosFromFilters() {
     setComboToData(m_comboSeason, *f.season);
   }
 
-  // If the filters are present but the combo still couldn't select (unexpected), fall back to "now".
+  // If the filters are present but the combo still couldn't select (unexpected), fall back to
+  // "now".
   if (m_comboYear->currentIndex() < 0 || m_comboSeason->currentIndex() < 0) {
     const anime::Season cur{QDate::currentDate().toStdSysDays()};
     const int year = static_cast<int>(cur.year);
@@ -412,7 +409,7 @@ void SearchWidget::maybeAutoLoadDefaultSeason() {
       mw->statusBar()->clearMessage();
       if (ok) {
         guard->reloadAnimeList();
-        if (mw->navigation()) mw->navigation()->refresh();
+        mw->refreshNavigationSidebar();
         mw->statusBar()->showMessage(msg.isEmpty() ? tr("Season loaded.") : msg, 6000);
       } else {
         taiga::userFeedback(msg.isEmpty() ? QStringLiteral("Season request failed.") : msg, true);
@@ -508,6 +505,10 @@ void SearchWidget::refreshNewEpisodeHighlightDisplay() {
   m_model->refreshNewEpisodeHighlightDisplay();
   const int col = m_proxyModel->sortColumn();
   if (col >= 0) m_proxyModel->sort(col, m_proxyModel->sortOrder());
+}
+
+void SearchWidget::refreshMatureContentRowFilter() {
+  if (m_proxyModel) m_proxyModel->invalidate();
 }
 
 void SearchWidget::applyToolbarTextFilter(const QString& text) {

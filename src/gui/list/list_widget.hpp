@@ -57,6 +57,7 @@ public:
   void refreshListTitleDisplay();
   void refreshProgressColumnDisplay();
   void refreshNewEpisodeHighlightDisplay();
+  void refreshMatureContentRowFilter();
 
   /// First selected list row's anime id, if the list view exists and something is selected.
   std::optional<int> selectedAnimeId() const;

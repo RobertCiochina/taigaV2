@@ -52,7 +52,10 @@ void applyAnimeListHorizontalStretch(QHeaderView* header) {
 
 ListView::ListView(QWidget* parent, AnimeListModel* model, AnimeListProxyModel* proxyModel,
                    const bool enableSorting)
-    : m_base(new ListViewBase(parent, this, model, proxyModel)) {
+    // ListViewBase must be parented to this view, not the page widget: switching List/Cards
+    // destroys the view while the page (ListWidget/SearchWidget) lives on; a ListViewBase left
+    // under the page would outlive the view and hold a dangling m_view.
+    : m_base(new ListViewBase(this, this, model, proxyModel)) {
   setObjectName("animeList");
 
   setFrameShape(QFrame::Shape::NoFrame);

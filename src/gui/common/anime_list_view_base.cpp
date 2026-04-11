@@ -185,10 +185,13 @@ void ListViewBase::showMediaMenu() {
 }
 
 void ListViewBase::updateSelectionStatus(const QItemSelection&, const QItemSelection&) {
+  auto* mw = mainWindow();
+  if (!mw || !mw->statusBar()) return;
+
   const auto n_selected = selectedIndexes().size();
 
   if (!n_selected) {
-    mainWindow()->statusBar()->clearMessage();
+    mw->statusBar()->clearMessage();
     return;
   }
 
@@ -215,7 +218,7 @@ void ListViewBase::updateSelectionStatus(const QItemSelection&, const QItemSelec
       tr("%1 average").arg(formatScore(average_score)),
   };
 
-  mainWindow()->statusBar()->showMessage(parts.join(" · "));
+  mw->statusBar()->showMessage(parts.join(" · "));
 }
 
 QModelIndexList ListViewBase::selectedIndexes() {

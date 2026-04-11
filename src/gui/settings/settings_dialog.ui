@@ -1424,7 +1424,7 @@
               <item>
                <widget class="QCheckBox" name="checkListUpdatesEnabled">
                 <property name="text">
-                 <string>Allow downloading and uploading list changes (same as Enable synchronization in the tray menu)</string>
+                 <string>Allow downloading and uploading list changes (same as View → Enable synchronization)</string>
                 </property>
                 <property name="checked">
                  <bool>true</bool>
@@ -1554,6 +1554,16 @@
                <widget class="QCheckBox" name="checkListHighlightOnTop">
                 <property name="text">
                  <string>Keep highlighted titles at the top when sorting (within the current sort column)</string>
+                </property>
+                <property name="checked">
+                 <bool>false</bool>
+                </property>
+               </widget>
+              </item>
+              <item row="7" column="0" colspan="2">
+               <widget class="QCheckBox" name="checkListShowMatureContent">
+                <property name="text">
+                 <string>Show mature (18+) titles in the app (list, search, history, Home, Announced releases)</string>
                 </property>
                 <property name="checked">
                  <bool>false</bool>

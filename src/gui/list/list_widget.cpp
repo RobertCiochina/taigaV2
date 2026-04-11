@@ -399,6 +399,10 @@ void ListWidget::refreshNewEpisodeHighlightDisplay() {
   if (col >= 0) m_proxyModel->sort(col, m_proxyModel->sortOrder());
 }
 
+void ListWidget::refreshMatureContentRowFilter() {
+  if (m_proxyModel) m_proxyModel->invalidate();
+}
+
 void ListWidget::applyToolbarTextFilter(const QString& text) {
   m_proxyModel->setTextFilter(text);
 }

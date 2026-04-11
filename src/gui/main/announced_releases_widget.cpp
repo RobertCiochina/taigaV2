@@ -19,9 +19,11 @@
 #include "gui/utils/ui_title.hpp"
 #include "media/anime.hpp"
 #include "media/anime_db.hpp"
+#include "media/anime_utils.hpp"
 #include "media/announced_releases.hpp"
 #include "sync/service.hpp"
 #include "taiga/session.hpp"
+#include "taiga/settings.hpp"
 
 namespace gui {
 
@@ -92,6 +94,7 @@ AnnouncedReleasesWidget::AnnouncedReleasesWidget(QWidget* parent) : QWidget(pare
     for (const auto& c : cands) {
       const Anime* a = anime::db.item(c.anime_id);
       if (!a) continue;
+      if (!taiga::settings.listShowMatureContent() && anime::isNsfw(*a)) continue;
       const QString t = uiTitle(*a);
       if (!m_filter.trimmed().isEmpty() &&
           !t.contains(m_filter.trimmed(), Qt::CaseInsensitive)) {
@@ -181,6 +184,7 @@ void AnnouncedReleasesWidget::rebuildRows() {
     const Anime* a = anime::db.item(c.anime_id);
     const Anime* anchor = anime::db.item(c.anchor_anime_id);
     if (!a) continue;
+    if (!taiga::settings.listShowMatureContent() && anime::isNsfw(*a)) continue;
     const QString title = uiTitle(*a);
     if (!m_filter.trimmed().isEmpty() && !title.contains(m_filter.trimmed(), Qt::CaseInsensitive)) {
       continue;

@@ -18,6 +18,8 @@
 
 #include "anime_list_item_delegate_cards.hpp"
 
+#include <cmath>
+
 #include <QListView>
 #include <QPainter>
 #include <QPainterPath>
@@ -52,13 +54,16 @@ void ListItemDelegateCards::paint(QPainter* painter, const QStyleOptionViewItem&
 
   QStyleOptionViewItem opt = option;
   QRect rect = opt.rect;
+  if (rect.width() < 1 || rect.height() < 1) return;
+
+  const bool selected = option.state & QStyle::State_Selected;
 
   QPainterPath path;
   path.addRoundedRect(rect, 4, 4);
   painter->setClipPath(path);
 
   // Background
-  if (option.state & QStyle::State_Selected) {
+  if (selected) {
     painter->fillRect(rect, opt.palette.highlight());
   } else if (theme.isDark()) {
     painter->fillRect(rect, opt.palette.mid());
@@ -71,31 +76,37 @@ void ListItemDelegateCards::paint(QPainter* painter, const QStyleOptionViewItem&
     QRect posterRect = rect;
     posterRect.setWidth(posterWidth);
 
-    if (theme.isDark()) {
-      painter->fillRect(posterRect, opt.palette.dark());
-    } else {
-      painter->fillRect(posterRect, opt.palette.mid());
+    if (!selected) {
+      if (theme.isDark()) {
+        painter->fillRect(posterRect, opt.palette.dark());
+      } else {
+        painter->fillRect(posterRect, opt.palette.mid());
+      }
     }
 
     const QPixmap pixmap =
         index.data(static_cast<int>(AnimeListItemDataRole::Poster)).value<QPixmap>();
 
-    if (!pixmap.isNull()) {
-      const auto scaled =
-          pixmap.size().scaled(posterRect.size(), Qt::AspectRatioMode::KeepAspectRatioByExpanding);
-
-      QRect sourceRect{pixmap.rect()};
-      if (scaled.width() > posterRect.width()) {
-        const auto half = (scaled.width() - posterRect.width()) / 2.0f;
-        const auto scale = static_cast<float>(pixmap.width()) / scaled.width();
-        sourceRect.adjust(half * scale, 0, -half * scale, 0);
+    if (!pixmap.isNull() && posterRect.width() > 0 && posterRect.height() > 0) {
+      const QSize scaled = pixmap.size().scaled(
+          posterRect.size(), Qt::AspectRatioMode::KeepAspectRatioByExpanding);
+      if (scaled.width() < 1 || scaled.height() < 1) {
+        // Degenerate layout / pixmap — avoid division by zero in crop math.
       } else {
-        const auto half = (scaled.height() - posterRect.height()) / 2.0f;
-        const auto scale = static_cast<float>(pixmap.height()) / scaled.height();
-        sourceRect.adjust(0, half * scale, 0, -half * scale);
-      }
+        QRect sourceRect{pixmap.rect()};
+        if (scaled.width() > posterRect.width()) {
+          const auto half = (scaled.width() - posterRect.width()) / 2.0f;
+          const auto scale = static_cast<float>(pixmap.width()) / static_cast<float>(scaled.width());
+          sourceRect.adjust(static_cast<int>(half * scale), 0, static_cast<int>(-half * scale), 0);
+        } else {
+          const auto half = (scaled.height() - posterRect.height()) / 2.0f;
+          const auto scale =
+              static_cast<float>(pixmap.height()) / static_cast<float>(scaled.height());
+          sourceRect.adjust(0, static_cast<int>(half * scale), 0, static_cast<int>(-half * scale));
+        }
 
-      painter->drawPixmap(posterRect, pixmap, sourceRect);
+        painter->drawPixmap(posterRect, pixmap, sourceRect);
+      }
     }
   }
 
@@ -115,7 +126,9 @@ void ListItemDelegateCards::paint(QPainter* painter, const QStyleOptionViewItem&
     QRect titleRect = rect;
     titleRect.setHeight(32);
 
-    painter->fillRect(titleRect, opt.palette.dark());
+    if (!selected) {
+      painter->fillRect(titleRect, opt.palette.dark());
+    }
     titleRect.adjust(12, 0, -12, 0);
 
     auto titleFont = font;
@@ -123,7 +136,9 @@ void ListItemDelegateCards::paint(QPainter* painter, const QStyleOptionViewItem&
     titleFont.setWeight(QFont::Weight::DemiBold);
     painter->setFont(titleFont);
 
-    if (const QVariant fg = index.data(Qt::ForegroundRole); fg.canConvert<QColor>()) {
+    if (selected) {
+      painter->setPen(opt.palette.color(QPalette::HighlightedText));
+    } else if (const QVariant fg = index.data(Qt::ForegroundRole); fg.canConvert<QColor>()) {
       painter->setPen(fg.value<QColor>());
     } else {
       painter->setPen(opt.palette.windowText().color());
@@ -158,6 +173,11 @@ void ListItemDelegateCards::paint(QPainter* painter, const QStyleOptionViewItem&
     QRect summaryRect = rect;
     summaryRect.setHeight(metrics.height());
 
+    if (selected) {
+      painter->setPen(opt.palette.color(QPalette::HighlightedText));
+    } else {
+      painter->setPen(opt.palette.windowText().color());
+    }
     painter->drawText(summaryRect, Qt::AlignVCenter | Qt::TextSingleLine, summary);
 
     rect.adjust(0, summaryRect.height() + 8, 0, 0);
@@ -175,12 +195,19 @@ void ListItemDelegateCards::paint(QPainter* painter, const QStyleOptionViewItem&
     painter->setFont(font);
 
     const QFontMetrics metrics(painter->font());
-    QRect linesRect = rect;
+    QRect lineStrip = rect;
 
+    if (selected) {
+      painter->setPen(opt.palette.color(QPalette::HighlightedText));
+    } else {
+      painter->setPen(opt.palette.windowText().color());
+    }
     for (const auto& line : lines) {
-      const QString elidedLine = metrics.elidedText(line, Qt::ElideRight, linesRect.width());
-      painter->drawText(linesRect, Qt::TextSingleLine, elidedLine);
-      linesRect.adjust(0, metrics.height(), 0, 0);
+      QRect lineRect = lineStrip;
+      lineRect.setHeight(metrics.height());
+      const QString elidedLine = metrics.elidedText(line, Qt::ElideRight, lineRect.width());
+      painter->drawText(lineRect, Qt::TextSingleLine, elidedLine);
+      lineStrip.adjust(0, metrics.height(), 0, 0);
     }
 
     rect.adjust(0, (metrics.height() * lines.size()) + 8, 0, 0);
@@ -193,7 +220,8 @@ void ListItemDelegateCards::paint(QPainter* painter, const QStyleOptionViewItem&
     removeHtmlTags(synopsis);
     synopsis = synopsis.simplified();
 
-    painter->setPen(opt.palette.placeholderText().color());
+    painter->setPen(selected ? opt.palette.color(QPalette::HighlightedText)
+                             : opt.palette.placeholderText().color());
 
     auto synopsisFont = painter->font();
     synopsisFont.setPointSize(8);
@@ -224,12 +252,20 @@ void ListItemDelegateCards::initStyleOption(QStyleOptionViewItem* option,
 QSize ListItemDelegateCards::itemSize() const {
   constexpr int maxColumns = 4;
   constexpr int maxItemWidth = 360;
+  constexpr int minItemWidth = 180;
 
-  const auto parent = reinterpret_cast<QListView*>(this->parent());
-  const int spacing = parent->spacing();
+  const auto* list = qobject_cast<const QListView*>(this->parent());
+  if (!list) return QSize(maxItemWidth, itemHeight);
 
-  const int availableWidth =
-      parent->geometry().width() - ((2 * spacing) + parent->verticalScrollBar()->width());
+  const int spacing = list->spacing();
+  const QScrollBar* vsb = list->verticalScrollBar();
+  const int scrollbarW = (vsb && vsb->isVisible()) ? vsb->width() : 0;
+  int vw = list->viewport() ? list->viewport()->width() : list->width();
+  // Width is often 0 before the first layout pass; negative item widths break QListView layout.
+  vw = qMax(vw, maxItemWidth + 2 * spacing + scrollbarW);
+
+  int availableWidth = vw - ((2 * spacing) + scrollbarW);
+  availableWidth = qMax(availableWidth, minItemWidth);
 
   const int columns = [&]() {
     for (int i = maxColumns; i >= 1; --i) {
@@ -239,9 +275,11 @@ QSize ListItemDelegateCards::itemSize() const {
   }();
 
   const int columnsWidth = availableWidth - (columns * spacing);
-  const float itemWidth = columnsWidth / static_cast<float>(columns);
+  const float itemWidth =
+      qMax(static_cast<float>(minItemWidth),
+           static_cast<float>(columnsWidth) / static_cast<float>(columns));
 
-  return QSize(std::floor(itemWidth), itemHeight);
+  return QSize(static_cast<int>(std::floor(itemWidth)), itemHeight);
 }
 
 }  // namespace gui

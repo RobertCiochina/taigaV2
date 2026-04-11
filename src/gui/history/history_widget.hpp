@@ -39,6 +39,7 @@ public:
   ~HistoryWidget() = default;
 
   void applyToolbarTextFilter(const QString& text);
+  void refreshMatureContentRowFilter();
 
 private:
   void showContextMenu() const;

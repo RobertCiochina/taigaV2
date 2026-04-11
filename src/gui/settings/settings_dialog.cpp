@@ -861,6 +861,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
          "files exist. No slow disk access while scrolling the list."));
   ui_->checkListHighlightNextOnDisk->setChecked(taiga::settings.listHighlightNextEpisodeOnDisk());
   ui_->checkListHighlightOnTop->setChecked(taiga::settings.listHighlightAvailableOnTop());
+  ui_->checkListShowMatureContent->setChecked(taiga::settings.listShowMatureContent());
   ui_->checkListHighlightNextOnDisk->setToolTip(
       tr("Uses the same library scan index as “episodes on disk” on the progress bar — no disk I/O "
          "while scrolling."));
@@ -986,6 +987,7 @@ void SettingsDialog::accept() {
   taiga::settings.setListProgressShowAvailable(ui_->checkListProgressShowAvailable->isChecked());
   taiga::settings.setListHighlightNextEpisodeOnDisk(ui_->checkListHighlightNextOnDisk->isChecked());
   taiga::settings.setListHighlightAvailableOnTop(ui_->checkListHighlightOnTop->isChecked());
+  taiga::settings.setListShowMatureContent(ui_->checkListShowMatureContent->isChecked());
 
   QDialog::accept();
 
@@ -1018,6 +1020,7 @@ void SettingsDialog::accept() {
           mw->refreshServiceDependentUi();
           mw->refreshAnimeListProgressDecorations();
           mw->refreshAnimeListNewEpisodeHighlight();
+          mw->refreshMatureContentSurfaces();
           mw->refreshTorrentCatalogAutocheckTimer();
           mw->resortTorrentRssTableFromSettings();
           if (home_data_changed) mw->refreshHomeDashboard();

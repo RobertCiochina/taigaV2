@@ -91,13 +91,20 @@ public slots:
   void refreshLibraryRootsFromSettings();
   void runInteractiveLibraryScan();
   void showUserFeedback(QString message, bool error);
-  /// Call after settings change the active list site or sync permissions (toolbar, search hint, nav).
-  /// Does not rebuild Home or the Announced releases page — call `refreshHomeDashboard` /
+  /// Call after settings change the active list site or sync permissions (toolbar, search hint,
+  /// nav). Does not rebuild Home or the Announced releases page — call `refreshHomeDashboard` /
   /// `refreshAnnouncedReleasesPageAfterServiceChange` when those surfaces must update.
   void refreshServiceDependentUi();
+  /// Rebuilds sidebar list counts without changing the active page (`m_activePage`). Plain
+  /// `NavigationWidget::refresh()` clears the tree and can leave selection on Home, which emits
+  /// `currentPageChanged` and navigates away from List/Search.
+  void refreshNavigationSidebar();
   void refreshAnimeListProgressDecorations();
   void refreshAnimeListNewEpisodeHighlight();
-  /// Keeps the Enable synchronization toggle in sync with `taiga::settings` without emitting toggled.
+  /// Re-applies the “show mature titles” setting across list/search proxies, history, Home, and Announced releases.
+  void refreshMatureContentSurfaces();
+  /// Keeps the Enable synchronization toggle in sync with `taiga::settings` without emitting
+  /// toggled.
   void applyListSynchronizationToggleFromSettings();
   /// Keeps View → Enable media detection in sync after changing recognition options in Settings.
   void applyMediaDetectionToggleFromSettings();
@@ -110,11 +117,12 @@ public slots:
   void postTrayMessage(const QString& title, const QString& message);
   void refreshTorrentCatalogAutocheckTimer();
   void resortTorrentRssTableFromSettings();
-  /// Kick off the auto-download run (checks all watching anime for new episodes and downloads best match).
+  /// Kick off the auto-download run (checks all watching anime for new episodes and downloads best
+  /// match).
   void runAutoDownload(bool silent = false);
   void refreshHomeDashboard();
-  /// Refreshes the Announced releases sidebar page after the active list service changes (Home banner is
-  /// handled by `refreshHomeDashboard` when needed).
+  /// Refreshes the Announced releases sidebar page after the active list service changes (Home
+  /// banner is handled by `refreshHomeDashboard` when needed).
   void refreshAnnouncedReleasesPageAfterServiceChange();
   void refreshListColors();
   void updateAutoDownloadCountdownLabel();
@@ -123,7 +131,8 @@ public slots:
   void openWatchOrderGuideForAnime(int anime_id);
   /// Refreshes the Announced releases page and Home banner after list/dismiss changes.
   void refreshAnnouncedReleasesSurfaces();
-  /// Sync + auto-download after the embedded list-page watch-order panel or modeless guide edits the list.
+  /// Sync + auto-download after the embedded list-page watch-order panel or modeless guide edits
+  /// the list.
   void applyWatchNextListSideEffects();
 
 private slots:
@@ -140,7 +149,7 @@ private slots:
 protected:
   bool eventFilter(QObject* watched, QEvent* event) override;
   void changeEvent(QEvent* event) override;
-  void closeEvent(QCloseEvent *event) override;
+  void closeEvent(QCloseEvent* event) override;
   void showEvent(QShowEvent* event) override;
 
 private:

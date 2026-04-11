@@ -318,6 +318,10 @@ bool Settings::listHighlightAvailableOnTop() const {
   return value("list.highlightAvailableOnTop", false).toBool();
 }
 
+bool Settings::listShowMatureContent() const {
+  return value("list.showMatureContent", false).toBool();
+}
+
 std::string Settings::torrentDiscoverySearchUrl() const {
   return value("torrent.discovery.searchUrl").toString().toStdString();
 }
@@ -698,6 +702,10 @@ void Settings::setListHighlightNextEpisodeOnDisk(const bool enabled) const {
 
 void Settings::setListHighlightAvailableOnTop(const bool enabled) const {
   setValue("list.highlightAvailableOnTop", enabled);
+}
+
+void Settings::setListShowMatureContent(const bool enabled) const {
+  setValue("list.showMatureContent", enabled);
 }
 
 void Settings::setTorrentDiscoverySearchUrl(const std::string& url) const {

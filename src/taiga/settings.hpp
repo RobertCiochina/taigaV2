@@ -147,6 +147,8 @@ public:
   bool listHighlightNextEpisodeOnDisk() const;
   /// Legacy: program/list/filter/episodes/highlightedontop — sort those rows first (with active sort as tiebreaker).
   bool listHighlightAvailableOnTop() const;
+  /// When false (default), titles tagged as mature/NSFW are hidden from list, search, history, Home, and Announced releases.
+  bool listShowMatureContent() const;
 
   /// Legacy: `rss/torrent/search/address` — URL with `%title%` replaced by the URL-encoded query (HTTP GET).
   std::string torrentDiscoverySearchUrl() const;
@@ -256,6 +258,7 @@ public:
   void setListProgressShowAvailable(bool enabled) const;
   void setListHighlightNextEpisodeOnDisk(bool enabled) const;
   void setListHighlightAvailableOnTop(bool enabled) const;
+  void setListShowMatureContent(bool enabled) const;
   void setTorrentDiscoverySearchUrl(const std::string& url) const;
   void setTorrentDiscoveryFeedSourceUrl(const std::string& url) const;
   void setTorrentDiscoveryAutoCheckEnabled(bool enabled) const;

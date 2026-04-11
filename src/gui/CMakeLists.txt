@@ -47,6 +47,8 @@ target_sources(taiga-gui PRIVATE
 	main/stats_dialog.hpp
 	main/navigation_item_delegate.cpp
 	main/navigation_item_delegate.hpp
+	main/navigation_sidebar_refresh.cpp
+	main/navigation_sidebar_refresh.hpp
 	main/navigation_widget.cpp
 	main/navigation_widget.hpp
 	main/now_playing_widget.cpp

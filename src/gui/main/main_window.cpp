@@ -62,6 +62,7 @@
 #include "gui/list/watch_next_dialog.hpp"
 #include "gui/main/announced_releases_widget.hpp"
 #include "gui/main/about_dialog.hpp"
+#include "gui/main/navigation_sidebar_refresh.hpp"
 #include "gui/main/navigation_widget.hpp"
 #include "gui/main/now_playing_widget.hpp"
 #include "gui/main/stats_dialog.hpp"
@@ -75,6 +76,7 @@
 #include "gui/utils/widgets.hpp"
 #include "media/anime.hpp"
 #include "media/anime_db.hpp"
+#include "media/anime_utils.hpp"
 #include "media/announced_releases.hpp"
 #include "media/anime_history.hpp"
 #include "media/anime_list.hpp"
@@ -178,12 +180,12 @@ void MainWindow::init() {
   // Keep sidebar counts and Home dashboard in sync after list edits (Media dialog, menus, etc.).
   connect(&anime::db, &anime::Database::entryUpdated, this, [this](int) {
     if (m_watch_next_modal_open_) return;
-    if (m_navigationWidget) m_navigationWidget->refresh();
+    refreshNavigationSidebar();
     refreshHomeDashboard();
   });
   connect(&anime::db, &anime::Database::itemUpdated, this, [this](int) {
     if (m_watch_next_modal_open_) return;
-    if (m_navigationWidget) m_navigationWidget->refresh();
+    refreshNavigationSidebar();
     refreshHomeDashboard();
   });
 
@@ -485,7 +487,7 @@ void MainWindow::initNavigation() {
       if (!m_listWidget) {
         m_navHistorySuppress = true;
         const bool list_changed = run_watch_next_modal();
-        if (m_navigationWidget) m_navigationWidget->refresh();
+        refreshNavigationSidebar();
         refreshHomeDashboard();
         applyMainPage(MainWindowPage::List);
         {
@@ -501,7 +503,7 @@ void MainWindow::initNavigation() {
       }
 
       const bool list_changed = run_watch_next_modal();
-      if (m_navigationWidget) m_navigationWidget->refresh();
+      refreshNavigationSidebar();
       refreshHomeDashboard();
       restore_watch_next_nav();
       if (!list_changed) return;
@@ -807,10 +809,6 @@ void MainWindow::initTrayIcon() {
   menu->addSeparator();
   menu->addAction(ui_->actionSynchronize);
   menu->addAction(ui_->actionScanAvailableEpisodes);
-  menu->addAction(ui_->actionPlayNextEpisode);
-  menu->addSeparator();
-  menu->addAction(ui_->actionToggleDetection);
-  menu->addAction(ui_->actionToggleSynchronization);
   menu->addSeparator();
   menu->addAction(ui_->actionSettings);
   menu->addAction(ui_->actionOpenDataFolder);
@@ -1066,13 +1064,28 @@ void MainWindow::refreshServiceDependentUi() {
   ui_->actionSynchronize->setStatusTip(synchronizeDownloadListStatusTip(svc));
   refreshSyncActionState();
   updateToolbarSearchPlaceholder();
-  if (m_navigationWidget) m_navigationWidget->refresh();
+  refreshNavigationSidebar();
   // Home / Announced releases refresh only when their data can change (e.g. service or list
   // metadata), not on every Settings OK — callers invoke refreshHomeDashboard() / announced
   // refresh explicitly when needed.
   updateTrayTooltip();
   if (m_listWidget) m_listWidget->refreshListTitleDisplay();
   if (m_searchWidget) m_searchWidget->refreshListTitleDisplay();
+}
+
+void MainWindow::refreshNavigationSidebar() {
+  if (!m_navigationWidget || m_watch_next_modal_open_) return;
+
+  const MainWindowPage page = m_activePage;
+  std::optional<anime::list::Status> list_status;
+  if (page == MainWindowPage::List && m_listWidget) {
+    const AnimeListStatusFilter lf = m_listWidget->currentListSidebarFilter();
+    if (!lf.anyStatus && lf.status.has_value()) {
+      list_status = static_cast<anime::list::Status>(*lf.status);
+    }
+  }
+
+  refreshNavigationSidebarPreserving(m_navigationWidget, page, list_status);
 }
 
 void MainWindow::refreshAnimeListProgressDecorations() {
@@ -1083,6 +1096,14 @@ void MainWindow::refreshAnimeListProgressDecorations() {
 void MainWindow::refreshAnimeListNewEpisodeHighlight() {
   if (m_listWidget) m_listWidget->refreshNewEpisodeHighlightDisplay();
   if (m_searchWidget) m_searchWidget->refreshNewEpisodeHighlightDisplay();
+}
+
+void MainWindow::refreshMatureContentSurfaces() {
+  if (m_listWidget) m_listWidget->refreshMatureContentRowFilter();
+  if (m_searchWidget) m_searchWidget->refreshMatureContentRowFilter();
+  if (m_historyWidget) m_historyWidget->refreshMatureContentRowFilter();
+  if (m_announcedReleasesWidget) m_announcedReleasesWidget->refresh();
+  refreshHomeDashboard();
 }
 
 void MainWindow::applyListSynchronizationToggleFromSettings() {
@@ -1163,7 +1184,7 @@ void MainWindow::importAnimeListMalXml() {
     return;
   }
 
-  if (m_navigationWidget) m_navigationWidget->refresh();
+  refreshNavigationSidebar();
   if (m_listWidget) m_listWidget->reloadAnimeList();
   if (m_searchWidget) m_searchWidget->reloadAnimeList();
   refreshHomeDashboard();
@@ -1286,7 +1307,7 @@ void MainWindow::handleListSyncFinished(bool ok, QString message) {
     // Invalidate the recognition cache so newly-synced titles are indexed
     // on the next library scan / media-detection lookup.
     track::recognition::cache()->clear();
-    if (m_navigationWidget) m_navigationWidget->refresh();
+    refreshNavigationSidebar();
     if (m_listWidget) m_listWidget->reloadAnimeList();
     if (m_searchWidget) m_searchWidget->reloadAnimeList();
     refreshHomeDashboard();
@@ -1974,6 +1995,10 @@ void MainWindow::refreshHomeDashboard() {
     vl->addWidget(line);
   };
 
+  const auto hideMatureCatalogRow = [](const Anime* item) -> bool {
+    return item && !taiga::settings.listShowMatureContent() && anime::isNsfw(*item);
+  };
+
   // ── "Up next" section ────────────────────────────────────────────────────
   if (m_homeUpNextContainer) {
     clearContainer(m_homeUpNextContainer);
@@ -2004,6 +2029,7 @@ void MainWindow::refreshHomeDashboard() {
       if (!track::libraryHasLocalEpisode(entry.anime_id, next_ep)) continue;
       const auto* item = anime::db.item(entry.anime_id);
       if (!item) continue;
+      if (hideMatureCatalogRow(item)) continue;
       upNext.push_back({QString::fromStdString(anime::preferredListTitleString(
                             *item, anime::TitleLanguage::English)),
                         entry.anime_id, next_ep});
@@ -2145,6 +2171,7 @@ void MainWindow::refreshHomeDashboard() {
         continue;
       const auto* item = anime::db.item(entry.anime_id);
       if (!item || item->next_episode_time <= now_secs) continue;
+      if (hideMatureCatalogRow(item)) continue;
       const qint64 secs_until = item->next_episode_time - now_secs;
       if (secs_until > 7LL * 86400) continue;
       const int next_ep = item->last_aired_episode + 1;
@@ -2257,6 +2284,7 @@ void MainWindow::refreshHomeDashboard() {
       if (entry.status == anime::list::Status::Completed) continue;
       const auto* item = anime::db.item(entry.anime_id);
       if (!item || item->date_finished.empty()) continue;
+      if (hideMatureCatalogRow(item)) continue;
       const int yr = item->date_finished.year();
       const int mo = item->date_finished.month();
       const int dy = item->date_finished.day();
@@ -2378,7 +2406,14 @@ void MainWindow::updateHomeAnnouncedBanner() {
   }
   const auto cands = anime::computeAnnouncedReleaseCandidates(
       taiga::session.announcedReleasesDismissedAnimeIds());
-  if (cands.isEmpty()) {
+  int visible_announce = 0;
+  for (const auto& c : cands) {
+    const Anime* a = anime::db.item(c.anime_id);
+    if (!a) continue;
+    if (!taiga::settings.listShowMatureContent() && anime::isNsfw(*a)) continue;
+    ++visible_announce;
+  }
+  if (visible_announce == 0) {
     m_homeAnnouncedBannerHost->setVisible(false);
     return;
   }
@@ -2394,7 +2429,7 @@ void MainWindow::updateHomeAnnouncedBanner() {
   auto* msg = new QLabel(
       tr("<b>New seasons</b> — %1 announced sequel(s) matched your list. Open the tab to add them "
          "to Planning or explore watch order.")
-          .arg(cands.size()),
+          .arg(visible_announce),
       frame);
   msg->setWordWrap(true);
   msg->setTextFormat(Qt::RichText);

@@ -13,3 +13,5 @@
 /_PORTING_ARCHIVE.md
 /_PORTING_SCRATCH.md
 build-taiga-only.cmd
+run-tests-coverage.cmd
+run-tests.cmd

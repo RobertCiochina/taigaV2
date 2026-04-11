@@ -139,6 +139,7 @@ bool AnimeListProxyModel::filterAcceptsRow(int row, const QModelIndex& parent) c
   const auto index = model->index(row, 0, parent);
   const auto anime = getAnime(index);
   if (!anime) return false;
+  if (!taiga::settings.listShowMatureContent() && anime::isNsfw(*anime)) return false;
   const auto entry = getListEntry(index);
 
   static const auto contains = [](const std::string& str, const QStringView view) {

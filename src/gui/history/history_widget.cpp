@@ -30,12 +30,35 @@
 #include "gui/utils/ui_title.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_list.hpp"
+#include "media/anime_utils.hpp"
 #include "sync/service.hpp"
+#include "taiga/settings.hpp"
 #include "track/play.hpp"
 
 namespace gui {
 
 namespace {
+
+/// Extends the toolbar text filter with the global “hide mature titles” setting.
+class HistoryToolbarProxyModel final : public QSortFilterProxyModel {
+public:
+  using QSortFilterProxyModel::QSortFilterProxyModel;
+
+protected:
+  bool filterAcceptsRow(int source_row, const QModelIndex& source_parent) const override {
+    if (!QSortFilterProxyModel::filterAcceptsRow(source_row, source_parent)) return false;
+    if (taiga::settings.listShowMatureContent()) return true;
+    const QAbstractItemModel* const src = sourceModel();
+    if (!src) return false;
+    const QModelIndex idx = src->index(source_row, 0, source_parent);
+    if (!idx.isValid()) return false;
+    const int anime_id = idx.data(HistoryModel::AnimeIdRole).toInt();
+    if (anime_id <= 0) return true;
+    const auto* item = anime::db.item(anime_id);
+    if (!item) return true;
+    return !anime::isNsfw(*item);
+  }
+};
 
 class HistoryTreeView final : public QTreeView {
 public:
@@ -93,7 +116,7 @@ protected:
 HistoryWidget::HistoryWidget(QWidget* parent)
     : PageWidget{parent},
       m_model(new HistoryModel(parent)),
-      m_proxyModel(new QSortFilterProxyModel(parent)),
+      m_proxyModel(new HistoryToolbarProxyModel(parent)),
       m_view(new HistoryTreeView(parent)) {
   m_proxyModel->setSourceModel(m_model);
   m_proxyModel->setFilterCaseSensitivity(Qt::CaseInsensitive);
@@ -141,6 +164,10 @@ HistoryWidget::HistoryWidget(QWidget* parent)
 
 void HistoryWidget::applyToolbarTextFilter(const QString& text) {
   m_proxyModel->setFilterFixedString(text);
+}
+
+void HistoryWidget::refreshMatureContentRowFilter() {
+  if (m_proxyModel) m_proxyModel->invalidate();
 }
 
 void HistoryWidget::openDetailsForProxyIndex(const QModelIndex& proxyIndex) const {
