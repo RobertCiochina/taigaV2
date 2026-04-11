@@ -97,6 +97,7 @@
          </item>
         </layout>
        </widget>
+       <widget class="QWidget" name="announcedPage"/>
       </widget>
      </widget>
     </item>

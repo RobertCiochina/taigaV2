@@ -60,6 +60,7 @@
 #include "gui/library/library_widget.hpp"
 #include "gui/list/list_widget.hpp"
 #include "gui/list/watch_next_dialog.hpp"
+#include "gui/main/announced_releases_widget.hpp"
 #include "gui/main/about_dialog.hpp"
 #include "gui/main/navigation_widget.hpp"
 #include "gui/main/now_playing_widget.hpp"
@@ -73,6 +74,7 @@
 #include "gui/utils/widgets.hpp"
 #include "media/anime.hpp"
 #include "media/anime_db.hpp"
+#include "media/announced_releases.hpp"
 #include "media/anime_history.hpp"
 #include "media/anime_list.hpp"
 #include "media/anime_list_export.hpp"
@@ -547,6 +549,13 @@ void MainWindow::initPage(MainWindowPage page) {
         lay->setContentsMargins(24, 16, 24, 16);
         lay->setSpacing(4);
 
+        m_homeAnnouncedBannerHost = new QWidget(body);
+        m_homeAnnouncedBannerHost->setVisible(false);
+        auto* announcedLay = new QVBoxLayout(m_homeAnnouncedBannerHost);
+        announcedLay->setContentsMargins(0, 0, 0, 12);
+        announcedLay->setSpacing(0);
+        lay->addWidget(m_homeAnnouncedBannerHost);
+
         // Stats summary (replaces the old m_homeBodyLabel text blob)
         auto* statsLabel = new QLabel(body);
         statsLabel->setWordWrap(true);
@@ -646,6 +655,11 @@ void MainWindow::initPage(MainWindowPage page) {
       }
       break;
     }
+
+    case MainWindowPage::AnnouncedReleases:
+      m_announcedReleasesWidget = new AnnouncedReleasesWidget(ui_->announcedPage);
+      init_page(ui_->announcedPage, m_announcedReleasesWidget);
+      break;
 
     case MainWindowPage::Profile: {
       if (auto* l = qobject_cast<QVBoxLayout*>(ui_->profilePage->layout())) {
@@ -962,6 +976,9 @@ void MainWindow::applyMainPage(const MainWindowPage page) {
   if (page == MainWindowPage::Home) {
     refreshHomeDashboard();
   }
+  if (page == MainWindowPage::AnnouncedReleases && m_announcedReleasesWidget) {
+    m_announcedReleasesWidget->refresh();
+  }
 }
 
 void MainWindow::recordNavHistory(const MainWindowPage page) {
@@ -1048,6 +1065,7 @@ void MainWindow::refreshServiceDependentUi() {
   updateToolbarSearchPlaceholder();
   if (m_navigationWidget) m_navigationWidget->refresh();
   refreshHomeDashboard();
+  if (m_announcedReleasesWidget) m_announcedReleasesWidget->refresh();
   updateTrayTooltip();
   if (m_listWidget) m_listWidget->refreshListTitleDisplay();
   if (m_searchWidget) m_searchWidget->refreshListTitleDisplay();
@@ -1271,6 +1289,7 @@ void MainWindow::handleListSyncFinished(bool ok, QString message) {
     if (m_listWidget) m_listWidget->reloadAnimeList();
     if (m_searchWidget) m_searchWidget->reloadAnimeList();
     refreshHomeDashboard();
+    if (m_announcedReleasesWidget) m_announcedReleasesWidget->refresh();
     statusBar()->showMessage(message.isEmpty() ? tr("Synchronized.") : message, 5000);
 
     // On the very first sync after startup, trigger a silent auto-download
@@ -1327,6 +1346,9 @@ void MainWindow::updateToolbarSearchPlaceholder() {
       break;
     case MainWindowPage::Torrents:
       m_searchBox->setPlaceholderText(tr("Anime title — Enter or F5 fetches RSS…"));
+      break;
+    case MainWindowPage::AnnouncedReleases:
+      m_searchBox->setPlaceholderText(tr("Filter announced titles…"));
       break;
     case MainWindowPage::Home:
       m_searchBox->setPlaceholderText(tr("Filter list (open Anime list from the sidebar)…"));
@@ -2332,6 +2354,50 @@ void MainWindow::refreshHomeDashboard() {
     if (m_homeRecentHeader) m_homeRecentHeader->setVisible(anyContent);
     if (m_homeRecentContainer) m_homeRecentContainer->setVisible(anyContent);
   }
+
+  updateHomeAnnouncedBanner();
+}
+
+void MainWindow::refreshAnnouncedReleasesSurfaces() {
+  if (m_announcedReleasesWidget) m_announcedReleasesWidget->refresh();
+  updateHomeAnnouncedBanner();
+}
+
+void MainWindow::updateHomeAnnouncedBanner() {
+  if (!m_homeAnnouncedBannerHost) return;
+  QLayout* outerLay = m_homeAnnouncedBannerHost->layout();
+  if (!outerLay) return;
+  while (QLayoutItem* it = outerLay->takeAt(0)) {
+    if (it->widget()) it->widget()->deleteLater();
+    delete it;
+  }
+  const auto cands = anime::computeAnnouncedReleaseCandidates(
+      taiga::session.announcedReleasesDismissedAnimeIds());
+  if (cands.isEmpty()) {
+    m_homeAnnouncedBannerHost->setVisible(false);
+    return;
+  }
+  m_homeAnnouncedBannerHost->setVisible(true);
+  auto* frame = new QFrame(m_homeAnnouncedBannerHost);
+  frame->setObjectName(QStringLiteral("homeAnnouncedBanner"));
+  frame->setStyleSheet(QStringLiteral(
+      "QFrame#homeAnnouncedBanner{border:1px solid palette(mid); border-radius:8px; padding:8px; "
+      "background: palette(alternate-base);}"));
+  auto* hl = new QHBoxLayout(frame);
+  hl->setContentsMargins(10, 8, 10, 8);
+  hl->setSpacing(12);
+  auto* msg = new QLabel(
+      tr("<b>New seasons</b> — %1 announced sequel(s) matched your list. Open the tab to add them "
+         "to Planning or explore watch order.")
+          .arg(cands.size()),
+      frame);
+  msg->setWordWrap(true);
+  msg->setTextFormat(Qt::RichText);
+  hl->addWidget(msg, 1);
+  auto* btn = new QPushButton(tr("Announced releases"), frame);
+  connect(btn, &QPushButton::clicked, this, [this]() { setPage(MainWindowPage::AnnouncedReleases); });
+  hl->addWidget(btn, 0, Qt::AlignVCenter);
+  outerLay->addWidget(frame);
 }
 
 void MainWindow::refreshListColors() {
@@ -2431,6 +2497,9 @@ void MainWindow::routeToolbarSearchToActivePage() {
       break;
     case MainWindowPage::History:
       if (m_historyWidget) m_historyWidget->applyToolbarTextFilter(text);
+      break;
+    case MainWindowPage::AnnouncedReleases:
+      if (m_announcedReleasesWidget) m_announcedReleasesWidget->applyToolbarTextFilter(text);
       break;
     default:
       break;

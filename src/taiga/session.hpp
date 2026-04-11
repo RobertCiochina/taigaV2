@@ -19,6 +19,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 
@@ -79,6 +80,8 @@ public:
   QStringList torrentCatalogSeenFingerprints() const;
   /// `QHeaderView::saveState` for the Torrents RSS table (column widths / order / visibility).
   QByteArray torrentRssTableHeaderState() const;
+  /// Dismissed anime ids for the Announced releases tab (stored as JSON in session.json).
+  QSet<int> announcedReleasesDismissedAnimeIds() const;
 
   void setAnimeListSortColumn(const int column) const;
   void setAnimeListSortOrder(const Qt::SortOrder order) const;
@@ -110,6 +113,8 @@ public:
   void setTorrentPanelResultFilter(const QString& text) const;
   void setTorrentCatalogSeenFingerprints(const QStringList& keys) const;
   void setTorrentRssTableHeaderState(const QByteArray& state) const;
+  void setAnnouncedReleasesDismissedAnimeIds(const QSet<int>& ids) const;
+  void addAnnouncedReleaseDismissedAnimeId(int anime_id) const;
 
 private:
   QString fileName() const override;

@@ -70,6 +70,7 @@ void NavigationWidget::refresh() {
 
   addItem(tr("Home"), "home", MainWindowPage::Home);
   addItem(tr("Search"), "search", MainWindowPage::Search);
+  addItem(tr("Announced releases"), "add_box", MainWindowPage::AnnouncedReleases);
   {
     auto item = addItem(tr("What to watch next"), "shuffle", MainWindowPage::List);
     setItemData(item, NavigationItemDataRole::IsActionWatchNext, true);

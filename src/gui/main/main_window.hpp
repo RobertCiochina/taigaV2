@@ -46,6 +46,7 @@ class Episode;
 namespace gui {
 
 class WatchNextDialog;
+class AnnouncedReleasesWidget;
 
 class HistoryWidget;
 class LibraryWidget;
@@ -64,6 +65,7 @@ enum class MainWindowPage {
   Library,
   Torrents,
   Profile,
+  AnnouncedReleases,
 };
 
 class MainWindow final : public QMainWindow {
@@ -114,6 +116,8 @@ public slots:
   void openDataFolder();
   /// Non-modal franchise / watch-order graph for one anime (from list context menu).
   void openWatchOrderGuideForAnime(int anime_id);
+  /// Refreshes the Announced releases page and Home banner after list/dismiss changes.
+  void refreshAnnouncedReleasesSurfaces();
   /// Sync + auto-download after the embedded list-page watch-order panel or modeless guide edits the list.
   void applyWatchNextListSideEffects();
 
@@ -170,6 +174,7 @@ private:
   void maybeNotifyMediaDetectionBalloon(const std::optional<track::Episode>& episode);
   void ensureWatchOrderGuideWindow();
   void refreshHomeQBitPlayButtons();
+  void updateHomeAnnouncedBanner();
 
   Ui::MainWindow* ui_ = nullptr;
 
@@ -182,6 +187,7 @@ private:
   QLineEdit* m_searchBox = nullptr;
   SearchWidget* m_searchWidget = nullptr;
   TorrentFeedWidget* m_torrentFeedWidget = nullptr;
+  AnnouncedReleasesWidget* m_announcedReleasesWidget = nullptr;
   TrayIcon* m_trayIcon = nullptr;
   QTimer* m_catalog_autocheck_timer_ = nullptr;
   QTimer* m_auto_download_timer_ = nullptr;
@@ -193,6 +199,7 @@ private:
   QLabel* m_homeUpNextHeader = nullptr;
   QWidget* m_homeRecentContainer = nullptr;
   QLabel* m_homeRecentHeader = nullptr;
+  QWidget* m_homeAnnouncedBannerHost = nullptr;
 
   struct HomeUpNextButton {
     QPointer<QPushButton> btn;

@@ -43,6 +43,8 @@ set(TAIGA_CORE_SOURCES
 	media/anime_utils.cpp
 	media/anime_utils.hpp
 	media/anime.hpp
+	media/announced_releases.cpp
+	media/announced_releases.hpp
 
 	sync/anilist.cpp
 	sync/anilist.hpp

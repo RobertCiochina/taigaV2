@@ -39,6 +39,8 @@ target_sources(taiga-gui PRIVATE
 
 	main/about_dialog.cpp
 	main/about_dialog.hpp
+	main/announced_releases_widget.cpp
+	main/announced_releases_widget.hpp
 	main/main_window.cpp
 	main/main_window.hpp
 	main/stats_dialog.cpp

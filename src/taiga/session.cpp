@@ -18,7 +18,10 @@
 
 #include "session.hpp"
 
+#include <algorithm>
+
 #include <QByteArray>
+#include <QSet>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -349,6 +352,34 @@ void Session::setTorrentCatalogSeenFingerprints(const QStringList& keys) const {
 
 void Session::setTorrentRssTableHeaderState(const QByteArray& state) const {
   setValue("torrentPanel.rssTableHeaderState", state.toBase64().toStdString());
+}
+
+QSet<int> Session::announcedReleasesDismissedAnimeIds() const {
+  QSet<int> s;
+  const QString j = value("announcedReleases.dismissedIdsJson", QStringLiteral("[]")).toString();
+  const QJsonDocument doc = QJsonDocument::fromJson(j.toUtf8());
+  if (!doc.isArray()) return s;
+  for (const QJsonValue& v : doc.array()) {
+    const int id = v.toInt();
+    if (id > 0) s.insert(id);
+  }
+  return s;
+}
+
+void Session::setAnnouncedReleasesDismissedAnimeIds(const QSet<int>& ids) const {
+  QList<int> sorted = ids.values();
+  std::sort(sorted.begin(), sorted.end());
+  QJsonArray arr;
+  for (const int id : sorted) arr.append(id);
+  setValue("announcedReleases.dismissedIdsJson",
+           QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact)));
+}
+
+void Session::addAnnouncedReleaseDismissedAnimeId(const int anime_id) const {
+  if (anime_id <= 0) return;
+  QSet<int> s = announcedReleasesDismissedAnimeIds();
+  s.insert(anime_id);
+  setAnnouncedReleasesDismissedAnimeIds(s);
 }
 
 }  // namespace taiga
