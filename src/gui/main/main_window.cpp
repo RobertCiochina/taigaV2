@@ -1064,8 +1064,9 @@ void MainWindow::refreshServiceDependentUi() {
   refreshSyncActionState();
   updateToolbarSearchPlaceholder();
   if (m_navigationWidget) m_navigationWidget->refresh();
-  refreshHomeDashboard();
-  if (m_announcedReleasesWidget) m_announcedReleasesWidget->refresh();
+  // Home / Announced releases refresh only when their data can change (e.g. service or list
+  // metadata), not on every Settings OK — callers invoke refreshHomeDashboard() / announced
+  // refresh explicitly when needed.
   updateTrayTooltip();
   if (m_listWidget) m_listWidget->refreshListTitleDisplay();
   if (m_searchWidget) m_searchWidget->refreshListTitleDisplay();
@@ -2356,6 +2357,10 @@ void MainWindow::refreshHomeDashboard() {
   }
 
   updateHomeAnnouncedBanner();
+}
+
+void MainWindow::refreshAnnouncedReleasesPageAfterServiceChange() {
+  if (m_announcedReleasesWidget) m_announcedReleasesWidget->refresh();
 }
 
 void MainWindow::refreshAnnouncedReleasesSurfaces() {

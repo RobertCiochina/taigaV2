@@ -92,6 +92,8 @@ public slots:
   void runInteractiveLibraryScan();
   void showUserFeedback(QString message, bool error);
   /// Call after settings change the active list site or sync permissions (toolbar, search hint, nav).
+  /// Does not rebuild Home or the Announced releases page — call `refreshHomeDashboard` /
+  /// `refreshAnnouncedReleasesPageAfterServiceChange` when those surfaces must update.
   void refreshServiceDependentUi();
   void refreshAnimeListProgressDecorations();
   void refreshAnimeListNewEpisodeHighlight();
@@ -111,6 +113,9 @@ public slots:
   /// Kick off the auto-download run (checks all watching anime for new episodes and downloads best match).
   void runAutoDownload(bool silent = false);
   void refreshHomeDashboard();
+  /// Refreshes the Announced releases sidebar page after the active list service changes (Home banner is
+  /// handled by `refreshHomeDashboard` when needed).
+  void refreshAnnouncedReleasesPageAfterServiceChange();
   void refreshListColors();
   void updateAutoDownloadCountdownLabel();
   void openDataFolder();

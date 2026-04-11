@@ -20,12 +20,26 @@
 
 #include <QSettings>
 #include <QString>
+#include <memory>
 #include <string_view>
 
 namespace base {
 
 class Settings {
-protected:
+public:
+  /// Groups multiple `setValue` calls into a single `QSettings` instance (one disk sync on scope end).
+  class BatchScope {
+   public:
+    explicit BatchScope(const Settings* owner) : owner_(owner) { owner_->enterBatch(); }
+    ~BatchScope() { owner_->leaveBatch(); }
+    BatchScope(const BatchScope&) = delete;
+    BatchScope& operator=(const BatchScope&) = delete;
+
+   private:
+    const Settings* owner_;
+  };
+
+ protected:
   virtual QString fileName() const = 0;
 
   QVariant value(QAnyStringView key) const;
@@ -33,7 +47,12 @@ protected:
   void setValue(QAnyStringView key, const QVariant& value) const;
   void setValue(QAnyStringView key, const std::string_view value) const;
 
-  QSettings settings() const;
+ private:
+  void enterBatch() const;
+  void leaveBatch() const;
+
+  mutable std::unique_ptr<QSettings> batch_;
+  mutable int batch_depth_ = 0;
 };
 
 }  // namespace base

@@ -5,6 +5,7 @@
 
 #include "settings_dialog.hpp"
 
+#include <QApplication>
 #include <QCheckBox>
 #include <QClipboard>
 #include <QComboBox>
@@ -31,6 +32,7 @@
 #include <algorithm>
 #include <chrono>
 
+#include "base/settings.hpp"
 #include "base/string.hpp"
 #include "gui/main/main_window.hpp"
 #include "gui/settings/anilist_auth_dialog.hpp"
@@ -868,15 +870,26 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
 }
 
 void SettingsDialog::accept() {
-  // Close the dialog first so heavy “apply” work doesn’t block the UI.
-  // Settings are still saved synchronously below; expensive refreshes run after close.
-  QDialog::accept();
+  // Snapshot settings that affect Home / Announced so we only refresh those surfaces when needed.
+  const std::string prev_service = taiga::settings.service();
+  const std::vector<std::string> prev_library_folders = taiga::settings.libraryFolders();
+  const bool prev_scan_library_on_startup = taiga::settings.scanLibraryOnStartup();
+  const qint64 prev_library_min_file_bytes = taiga::settings.libraryScanMinFileSizeBytes();
+  const bool prev_library_watch = taiga::settings.libraryWatchFoldersEnabled();
+  const std::string prev_torrent_client_path = taiga::settings.torrentClientDownloadPath();
+  const bool prev_torrent_create_subfolder = taiga::settings.torrentDownloadCreateSubfolder();
+  const bool prev_qbit_api = taiga::settings.torrentQBitApiEnabled();
+  const std::string prev_qbit_url = taiga::settings.torrentQBitApiUrl();
 
-  const auto apply_after_close = [=]() {
+  // Persist all values from the UI while this dialog still exists (show() uses
+  // WA_DeleteOnClose — do not defer writes on `this`). Batch JSON writes so OK is not delayed
+  // by dozens of separate QSettings opens. Heavy UI refresh runs on the next event-loop tick.
+  const base::Settings::BatchScope batch_settings(&taiga::settings);
+  const base::Settings::BatchScope batch_accounts(&taiga::accounts);
+
   taiga::settings.setSyncAutoOnStart(ui_->checkSyncOnStart->isChecked());
   taiga::settings.setAppColorScheme(
       static_cast<Qt::ColorScheme>(ui_->comboColorScheme->currentData().toInt()));
-  gui::theme.refreshFromSettings();
 
   taiga::settings.setMediaDetectionEnabled(ui_->checkMediaDetection->isChecked());
   taiga::settings.setMediaDetectionPlayersEnabled(ui_->checkMediaPlayerPolling->isChecked());
@@ -902,7 +915,6 @@ void SettingsDialog::accept() {
   taiga::settings.setLibraryScanLookupParentDirectories(ui_->checkLibraryLookupParent->isChecked());
   taiga::settings.setMediaPlayerExecutablePath(
       ui_->lineMediaPlayerExecutable->text().trimmed().toStdString());
-  track::media::detection()->refreshPollingFromSettings();
 
   taiga::settings.setCheckForUpdatesOnStartup(ui_->checkUpdatesOnStartup->isChecked());
   taiga::settings.setScanLibraryOnStartup(ui_->checkScanLibraryOnStartup->isChecked());
@@ -916,7 +928,6 @@ void SettingsDialog::accept() {
   taiga::settings.setProxyUsername(ui_->lineProxyUsername->text().toStdString());
   taiga::settings.setProxyPassword(ui_->lineProxyPassword->text().toStdString());
   taiga::settings.setNetworkRelaxedTls(ui_->checkNetworkRelaxedTls->isChecked());
-  taiga::network()->applyProxyFromSettings();
   taiga::settings.setSyncOnWindowFocus(ui_->checkSyncOnFocus->isChecked());
   taiga::settings.setSyncOnWindowFocusMinutes(ui_->spinFocusMinutes->value());
 
@@ -938,11 +949,9 @@ void SettingsDialog::accept() {
       folders.push_back(ui_->libraryFolderList->item(i)->text().toStdString());
     }
     taiga::settings.setLibraryFolders(std::move(folders));
-    if (gui::mainWindow()) gui::mainWindow()->refreshLibraryRootsFromSettings();
   }
 
   taiga::settings.setLibraryWatchFoldersEnabled(ui_->checkLibraryWatchFolders->isChecked());
-  track::libraryFolderWatcher()->refreshFromSettings();
 
   {
     constexpr qint64 kMiB = 1024LL * 1024;
@@ -975,19 +984,44 @@ void SettingsDialog::accept() {
   taiga::settings.setListProgressShowAvailable(ui_->checkListProgressShowAvailable->isChecked());
   taiga::settings.setListHighlightNextEpisodeOnDisk(ui_->checkListHighlightNextOnDisk->isChecked());
   taiga::settings.setListHighlightAvailableOnTop(ui_->checkListHighlightOnTop->isChecked());
-  if (auto* mw = gui::mainWindow()) {
-    mw->applyListSynchronizationToggleFromSettings();
-    mw->applyMediaDetectionToggleFromSettings();
-    track::media::detection()->setPollingEnabled(taiga::settings.mediaDetectionPollingActive());
-    mw->refreshServiceDependentUi();
-    mw->refreshAnimeListProgressDecorations();
-    mw->refreshAnimeListNewEpisodeHighlight();
-    mw->refreshTorrentCatalogAutocheckTimer();
-    mw->resortTorrentRssTableFromSettings();
-  }
-  };
 
-  QTimer::singleShot(0, this, apply_after_close);
+  QDialog::accept();
+
+  MainWindow* const mw = gui::mainWindow();
+  QTimer::singleShot(
+      0, qApp,
+      [mw, prev_service, prev_library_folders, prev_scan_library_on_startup, prev_library_min_file_bytes,
+       prev_library_watch, prev_torrent_client_path, prev_torrent_create_subfolder, prev_qbit_api,
+       prev_qbit_url]() {
+        const bool home_data_changed =
+            prev_service != taiga::settings.service() ||
+            prev_library_folders != taiga::settings.libraryFolders() ||
+            prev_scan_library_on_startup != taiga::settings.scanLibraryOnStartup() ||
+            prev_library_min_file_bytes != taiga::settings.libraryScanMinFileSizeBytes() ||
+            prev_library_watch != taiga::settings.libraryWatchFoldersEnabled() ||
+            prev_torrent_client_path != taiga::settings.torrentClientDownloadPath() ||
+            prev_torrent_create_subfolder != taiga::settings.torrentDownloadCreateSubfolder() ||
+            prev_qbit_api != taiga::settings.torrentQBitApiEnabled() ||
+            prev_qbit_url != taiga::settings.torrentQBitApiUrl();
+        const bool service_changed = prev_service != taiga::settings.service();
+
+        gui::theme.refreshFromSettings();
+        track::media::detection()->refreshPollingFromSettings();
+        taiga::network()->applyProxyFromSettings();
+        if (mw) mw->refreshLibraryRootsFromSettings();
+        if (mw) {
+          mw->applyListSynchronizationToggleFromSettings();
+          mw->applyMediaDetectionToggleFromSettings();
+          track::media::detection()->setPollingEnabled(taiga::settings.mediaDetectionPollingActive());
+          mw->refreshServiceDependentUi();
+          mw->refreshAnimeListProgressDecorations();
+          mw->refreshAnimeListNewEpisodeHighlight();
+          mw->refreshTorrentCatalogAutocheckTimer();
+          mw->resortTorrentRssTableFromSettings();
+          if (home_data_changed) mw->refreshHomeDashboard();
+          if (service_changed) mw->refreshAnnouncedReleasesPageAfterServiceChange();
+        }
+      });
 }
 
 void SettingsDialog::show(QWidget* parent) {

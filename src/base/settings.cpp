@@ -18,6 +18,8 @@
 
 #include "settings.hpp"
 
+#include <memory>
+
 #include <QIODevice>
 #include <QJsonDocument>
 #include <QJsonParseError>
@@ -44,24 +46,43 @@ QSettings::Format jsonSettingsFormat() {
 
 namespace base {
 
+void Settings::enterBatch() const {
+  if (batch_depth_++ == 0) {
+    batch_ = std::make_unique<QSettings>(fileName(), jsonSettingsFormat());
+  }
+}
+
+void Settings::leaveBatch() const {
+  Q_ASSERT(batch_depth_ > 0);
+  if (--batch_depth_ == 0 && batch_) {
+    batch_->sync();
+    batch_.reset();
+  }
+}
+
 QVariant Settings::value(QAnyStringView key) const {
-  return settings().value(key);
+  if (batch_depth_ > 0) return batch_->value(key);
+  QSettings s(fileName(), jsonSettingsFormat());
+  return s.value(key);
 }
 
 QVariant Settings::value(QAnyStringView key, const QVariant& defaultValue) const {
-  return settings().value(key, defaultValue);
+  if (batch_depth_ > 0) return batch_->value(key, defaultValue);
+  QSettings s(fileName(), jsonSettingsFormat());
+  return s.value(key, defaultValue);
 }
 
 void Settings::setValue(QAnyStringView key, const QVariant& value) const {
-  settings().setValue(key, value);
+  if (batch_depth_ > 0) {
+    batch_->setValue(key, value);
+    return;
+  }
+  QSettings s(fileName(), jsonSettingsFormat());
+  s.setValue(key, value);
 }
 
 void Settings::setValue(QAnyStringView key, const std::string_view value) const {
   setValue(key, QString::fromUtf8(value));
-}
-
-QSettings Settings::settings() const {
-  return QSettings(fileName(), jsonSettingsFormat());
 }
 
 }  // namespace base
