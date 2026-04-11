@@ -20,6 +20,7 @@
 
 #include <QDateTime>
 #include <QDesktopServices>
+#include <cmath>
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -36,6 +37,7 @@
 #include "gui/utils/list_commit.hpp"
 #include "gui/utils/image_provider.hpp"
 #include "gui/utils/theme.hpp"
+#include "gui/utils/ui_strings.hpp"
 #include "gui/utils/widgets.hpp"
 #include "media/anime.hpp"
 #include "media/anime_db.hpp"
@@ -66,6 +68,7 @@ MediaDialog::MediaDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::MediaDi
   }
 
   ui_->posterLabel->setFrameShape(QFrame::Shape::NoFrame);
+  ui_->posterLabel->setScaledContents(false);
 
   ui_->splitter->setSizes({ui_->posterLabel->minimumWidth(), ui_->posterLabel->minimumWidth() * 4});
   if (const auto state = taiga::session.mediaDialogSplitterState(); !state.isEmpty()) {
@@ -138,7 +141,8 @@ MediaDialog::MediaDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::MediaDi
   ui_->tabWidget->setTabVisible(static_cast<int>(MediaDialogPage::Settings), false);
 
   // Add a "Play next episode" button to the left side of the button box
-  auto* playBtn = ui_->buttonBox->addButton(tr("Play next episode"), QDialogButtonBox::ActionRole);
+  auto* playBtn =
+      ui_->buttonBox->addButton(playNextEpisodeActionLabel(), QDialogButtonBox::ActionRole);
   playBtn->setObjectName("playNextEpisodeBtn");
   connect(playBtn, &QPushButton::clicked, this, [this]() {
     const int anime_id = m_anime.id;
@@ -146,7 +150,7 @@ MediaDialog::MediaDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::MediaDi
     if (!track::playNextEpisode(anime_id)) {
       QMessageBox::information(
           this, tr("Taiga"),
-          tr("Could not find the next episode in your library folders for this title."));
+          playNextEpisodeNotFoundMessage());
     }
   });
 }
@@ -456,26 +460,40 @@ void MediaDialog::initList() {
 }
 
 void MediaDialog::loadPosterImage() {
-  const auto posterPixmap = imageProvider.loadPoster(m_anime.id);
-  ui_->posterLabel->setPixmap(*posterPixmap);
+  imageProvider.loadPoster(m_anime.id);
   resizePosterImage();
-  if (posterPixmap->isNull()) imageProvider.fetchPoster(m_anime.id);
+  if (const QPixmap* p = imageProvider.loadPoster(m_anime.id); p->isNull()) {
+    imageProvider.fetchPoster(m_anime.id);
+  }
 }
 
 void MediaDialog::resizePosterImage() {
-  const auto& posterPixmap = ui_->posterLabel->pixmap();
   const int label_w = ui_->posterLabel->width();
-
-  if (posterPixmap.isNull()) {
-    ui_->posterLabel->setFixedHeight(label_w * 3 / 2);
+  if (label_w <= 0) {
     return;
   }
 
-  const int w = posterPixmap.width();
-  const int h = posterPixmap.height();
-  const int height = h * (label_w / static_cast<float>(w));
+  const QPixmap* full = imageProvider.loadPoster(m_anime.id);
+  if (!full || full->isNull()) {
+    ui_->posterLabel->clear();
+    ui_->posterLabel->setFixedHeight(qMax(1, (label_w * 3 + 1) / 2));
+    return;
+  }
 
-  ui_->posterLabel->setFixedHeight(height);
+  const int w = full->width();
+  const int h = full->height();
+  if (w <= 0 || h <= 0) {
+    ui_->posterLabel->clear();
+    ui_->posterLabel->setFixedHeight(qMax(1, (label_w * 3 + 1) / 2));
+    return;
+  }
+
+  const int out_h = static_cast<int>(
+      std::lround(static_cast<double>(h) * (static_cast<double>(label_w) / static_cast<double>(w))));
+  const QPixmap scaled =
+      full->scaled(label_w, out_h, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+  ui_->posterLabel->setPixmap(scaled);
+  ui_->posterLabel->setFixedSize(label_w, scaled.height());
 }
 
 void MediaDialog::accept() {

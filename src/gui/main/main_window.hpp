@@ -97,7 +97,7 @@ public slots:
   void refreshServiceDependentUi();
   void refreshAnimeListProgressDecorations();
   void refreshAnimeListNewEpisodeHighlight();
-  /// Keeps View → Enable synchronization in sync with `taiga::settings` without emitting toggled.
+  /// Keeps the Enable synchronization toggle in sync with `taiga::settings` without emitting toggled.
   void applyListSynchronizationToggleFromSettings();
   /// Keeps View → Enable media detection in sync after changing recognition options in Settings.
   void applyMediaDetectionToggleFromSettings();

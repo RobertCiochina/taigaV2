@@ -94,11 +94,16 @@ int Application::run() {
 
   window_ = new gui::MainWindow();
   window_->init();
-  window_->show();
-  if (taiga::settings.startMinimized()) {
-    if (taiga::settings.minimizeToTray() && QSystemTrayIcon::isSystemTrayAvailable()) {
-      window_->hide();
-    } else {
+
+  // If we map the window and then hide() to the tray, Windows briefly paints a normal
+  // frame first. Match legacy behavior: keep the main window unmapped until the user
+  // opens it from the tray (see MainWindow::displayWindow).
+  const bool start_to_tray = taiga::settings.startMinimized() &&
+                             taiga::settings.minimizeToTray() &&
+                             QSystemTrayIcon::isSystemTrayAvailable();
+  if (!start_to_tray) {
+    window_->show();
+    if (taiga::settings.startMinimized()) {
       window_->showMinimized();
     }
   }

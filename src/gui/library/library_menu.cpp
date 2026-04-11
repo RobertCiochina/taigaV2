@@ -39,6 +39,7 @@
 #include "gui/media/media_menu.hpp"
 #include "gui/models/library_model.hpp"
 #include "gui/utils/theme.hpp"
+#include "gui/utils/ui_strings.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_list.hpp"
 
@@ -63,7 +64,7 @@ void LibraryMenu::popup() {
 
   if (const auto item = anime::db.item(m_anime_id)) {
     addSeparator();
-    addAction(theme.getIcon("info"), tr("Details"), this, &LibraryMenu::viewDetails);
+    addAction(theme.getIcon("info"), mediaViewDetailsActionLabel(), this, &LibraryMenu::viewDetails);
   }
 
   // Allow manual assignment for files (identified or not).

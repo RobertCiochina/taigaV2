@@ -36,6 +36,7 @@
 #include "gui/models/anime_list_model.hpp"
 #include "gui/models/anime_list_proxy_model.hpp"
 #include "gui/utils/format.hpp"
+#include "gui/utils/ui_strings.hpp"
 #include "media/anime.hpp"
 #include "media/anime_list.hpp"
 #include "sync/service.hpp"
@@ -123,15 +124,13 @@ void ListViewBase::runListRowAction(const taiga::ListRowAction action, const QMo
           return;
         }
       }
-      QMessageBox::information(anchor, tr("Open folder"),
-                                 tr("Could not find a library folder for this title."));
+      QMessageBox::information(anchor, libraryOpenFolderMessageTitle(),
+                               libraryNoFolderForTitleMessage());
       return;
     }
     case taiga::ListRowAction::PlayNext:
       if (!track::playNextEpisode(anime->id)) {
-        QMessageBox::information(anchor, tr("Taiga"),
-                                   tr("Could not find the next episode file in your library "
-                                      "folders for this title."));
+        QMessageBox::information(anchor, tr("Taiga"), playNextEpisodeNotFoundMessage());
       }
       return;
     case taiga::ListRowAction::ShowDetails:

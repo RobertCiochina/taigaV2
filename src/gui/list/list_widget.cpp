@@ -52,6 +52,7 @@
 #include "gui/models/anime_list_proxy_model.hpp"
 #include "gui/utils/format.hpp"
 #include "gui/utils/theme.hpp"
+#include "gui/utils/ui_strings.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_list.hpp"
 #include "media/anime_list_export.hpp"
@@ -361,9 +362,9 @@ void ListWidget::initMoreMenu() {
     const auto timestamp = QDateTime::currentDateTime().toSecsSinceEpoch();
     const auto path = u"{}/animelist_{}.{}"_s.arg(directory).arg(timestamp).arg(extension);
     if (export_function(path.toStdString())) {
-      taiga::userFeedback(tr("Exported list to %1").arg(path), false);
+      taiga::userFeedback(listExportSucceededMessage(path), false);
     } else {
-      taiga::userFeedback(tr("Could not write the export file."), true);
+      taiga::userFeedback(listExportWriteFailedMessage(), true);
     }
   };
 

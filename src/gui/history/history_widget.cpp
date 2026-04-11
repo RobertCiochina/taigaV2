@@ -26,6 +26,7 @@
 #include "gui/media/media_dialog.hpp"
 #include "gui/models/history_model.hpp"
 #include "gui/utils/painters.hpp"
+#include "gui/utils/ui_strings.hpp"
 #include "gui/utils/ui_title.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_list.hpp"
@@ -131,11 +132,9 @@ HistoryWidget::HistoryWidget(QWidget* parent)
     const int anime_id = idx.data(HistoryModel::AnimeIdRole).toInt();
     if (anime_id <= 0) return;
     if (track::playNextEpisode(anime_id)) {
-      mainWindow()->statusBar()->showMessage(tr("Playing next episode…"), 4000);
+      mainWindow()->statusBar()->showMessage(playingNextEpisodeStatusMessage(), 4000);
     } else {
-      QMessageBox::information(
-          mainWindow(), tr("Taiga"),
-          tr("Could not find the next episode in your library folders for this title."));
+      QMessageBox::information(mainWindow(), tr("Taiga"), playNextEpisodeNotFoundMessage());
     }
   };
 }
@@ -166,22 +165,21 @@ void HistoryWidget::showContextMenu() const {
   const auto* anime_item = anime::db.item(anime_id);
 
   QMenu menu;
-  menu.addAction(tr("View details…"), [this, index]() { openDetailsForProxyIndex(index); });
-  menu.addAction(tr("Play next episode"), [this, anime_id]() {
+  menu.addAction(mediaViewDetailsActionLabel(),
+                 [this, index]() { openDetailsForProxyIndex(index); });
+  menu.addAction(playNextEpisodeActionLabel(), [this, anime_id]() {
     if (track::playNextEpisode(anime_id)) {
-      mainWindow()->statusBar()->showMessage(tr("Playing next episode…"), 4000);
+      mainWindow()->statusBar()->showMessage(playingNextEpisodeStatusMessage(), 4000);
     } else {
-      QMessageBox::information(
-          mainWindow(), tr("Taiga"),
-          tr("Could not find the next episode in your library folders for this title."));
+      QMessageBox::information(mainWindow(), tr("Taiga"), playNextEpisodeNotFoundMessage());
     }
   });
   menu.addSeparator();
   if (anime_item) {
-    menu.addAction(tr("Copy title"), [this, anime_id]() {
+    menu.addAction(copyTitleActionLabel(), [this, anime_id]() {
       if (const auto* a = anime::db.item(anime_id)) {
         QGuiApplication::clipboard()->setText(gui::uiTitle(*a));
-        mainWindow()->statusBar()->showMessage(tr("Copied title to clipboard."), 2500);
+        mainWindow()->statusBar()->showMessage(copiedTitleToClipboardStatus(), 2500);
       }
     });
     const QString page = sync::animePageUrl(anime_id);

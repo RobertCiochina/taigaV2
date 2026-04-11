@@ -70,6 +70,7 @@
 #include "gui/settings/settings_dialog.hpp"
 #include "gui/torrent/torrent_feed_widget.hpp"
 #include "gui/utils/theme.hpp"
+#include "gui/utils/ui_strings.hpp"
 #include "gui/utils/tray_icon.hpp"
 #include "gui/utils/widgets.hpp"
 #include "media/anime.hpp"
@@ -325,16 +326,15 @@ void MainWindow::init() {
 void MainWindow::initActions() {
   ui_->actionProfile->setToolTip(tr("Profile"));
   ui_->actionSynchronize->setToolTip(
-      tr("Synchronize with %1").arg(sync::serviceName(sync::currentServiceId())));
+      synchronizeWithServiceToolTip(sync::serviceName(sync::currentServiceId())));
 
   connect(ui_->actionAddNewFolder, &QAction::triggered, this, &MainWindow::addNewFolder);
   // Use window-close path so close-to-tray and "save on close" behavior runs consistently.
   connect(ui_->actionExit, &QAction::triggered, this, [this]() { close(); }, Qt::QueuedConnection);
   connect(ui_->actionOpenDataFolder, &QAction::triggered, this, &MainWindow::openDataFolder);
   connect(ui_->actionSettings, &QAction::triggered, this, [this]() { SettingsDialog::show(this); });
-  ui_->actionSettings->setToolTip(
-      tr("Preferences (%1)")
-          .arg(QKeySequence(QKeySequence::Preferences).toString(QKeySequence::NativeText)));
+  ui_->actionSettings->setToolTip(settingsActionToolTipWithShortcut(
+      QKeySequence(QKeySequence::Preferences).toString(QKeySequence::NativeText)));
   connect(ui_->actionAbout, &QAction::triggered, this, &MainWindow::about);
   connect(ui_->actionDonate, &QAction::triggered, this, &MainWindow::donate);
   connect(ui_->actionSupport, &QAction::triggered, this, &MainWindow::support);
@@ -347,8 +347,8 @@ void MainWindow::initActions() {
   ui_->actionSynchronize->setShortcuts(
       {QKeySequence{QKeySequence::Refresh}, QKeySequence{Qt::CTRL | Qt::Key_S}});
   ui_->actionSynchronize->setShortcutContext(Qt::ApplicationShortcut);
-  ui_->actionSynchronize->setStatusTip(tr("Download your list from %1 (F5 or Ctrl+S).")
-                                           .arg(sync::serviceName(sync::currentServiceId())));
+  ui_->actionSynchronize->setStatusTip(
+      synchronizeDownloadListStatusTip(sync::serviceName(sync::currentServiceId())));
   connect(ui_->actionCheckForUpdates, &QAction::triggered, this,
           &MainWindow::checkForUpdatesManually);
   connect(ui_->actionScanAvailableEpisodes, &QAction::triggered, this,
@@ -412,13 +412,16 @@ void MainWindow::initIcons() {
   ui_->actionCheckForUpdates->setIcon(theme.getIcon("cloud_download"));
   ui_->actionDonate->setIcon(theme.getIcon("favorite"));
   ui_->actionOpenDataFolder->setIcon(theme.getIcon("folder"));
-  ui_->actionOpenDataFolder->setText(tr("Open anime folder"));
-  ui_->actionOpenDataFolder->setToolTip(tr("Open the configured anime library folder in Explorer"));
+  ui_->actionOpenDataFolder->setText(openPrimaryLibraryOrDataFolderActionLabel());
+  ui_->actionOpenDataFolder->setToolTip(openPrimaryLibraryOrDataFolderToolTip());
   ui_->actionExit->setIcon(theme.getIcon("logout"));
   ui_->actionForward->setIcon(theme.getIcon("arrow_forward"));
   ui_->actionLibraryFolders->setIcon(theme.getIcon("folder"));
   ui_->actionMenu->setIcon(theme.getIcon("menu"));
   ui_->actionPlayNextEpisode->setIcon(theme.getIcon("skip_next"));
+  ui_->actionPlayNextEpisode->setText(playNextEpisodeActionLabel());
+  ui_->actionSynchronize->setText(synchronizeActionLabel());
+  ui_->actionSettings->setText(settingsActionLabel());
   ui_->actionPlayRandomAnime->setIcon(theme.getIcon("shuffle"));
   ui_->actionProfile->setIcon(theme.getIcon("account_circle"));
   ui_->actionScanAvailableEpisodes->setIcon(theme.getIcon("pageview"));
@@ -1059,8 +1062,8 @@ void MainWindow::refreshSyncActionState() {
 
 void MainWindow::refreshServiceDependentUi() {
   const QString svc = sync::serviceName(sync::currentServiceId());
-  ui_->actionSynchronize->setToolTip(tr("Synchronize with %1").arg(svc));
-  ui_->actionSynchronize->setStatusTip(tr("Download your list from %1 (F5 or Ctrl+S).").arg(svc));
+  ui_->actionSynchronize->setToolTip(synchronizeWithServiceToolTip(svc));
+  ui_->actionSynchronize->setStatusTip(synchronizeDownloadListStatusTip(svc));
   refreshSyncActionState();
   updateToolbarSearchPlaceholder();
   if (m_navigationWidget) m_navigationWidget->refresh();
@@ -1117,9 +1120,9 @@ void MainWindow::exportAnimeListMarkdown() {
                                                     tr("Markdown (*.md);;All files (*)"));
   if (path.isEmpty()) return;
   if (anime::list::exportAsMarkdown(path.toStdString())) {
-    statusBar()->showMessage(tr("Exported list to %1").arg(path), 6000);
+    statusBar()->showMessage(listExportSucceededMessage(path), 6000);
   } else {
-    QMessageBox::warning(this, tr("Taiga"), tr("Could not write the export file."));
+    QMessageBox::warning(this, tr("Taiga"), listExportWriteFailedMessage());
   }
 }
 
@@ -1130,9 +1133,9 @@ void MainWindow::exportAnimeListXml() {
       this, tr("Export anime list as MyAnimeList XML"), def, tr("XML (*.xml);;All files (*)"));
   if (path.isEmpty()) return;
   if (anime::list::exportAsXml(path.toStdString())) {
-    statusBar()->showMessage(tr("Exported list to %1").arg(path), 6000);
+    statusBar()->showMessage(listExportSucceededMessage(path), 6000);
   } else {
-    QMessageBox::warning(this, tr("Taiga"), tr("Could not write the export file."));
+    QMessageBox::warning(this, tr("Taiga"), listExportWriteFailedMessage());
   }
 }
 
@@ -1143,9 +1146,9 @@ void MainWindow::exportAnimeListCsv() {
                                                     tr("CSV (*.csv);;All files (*)"));
   if (path.isEmpty()) return;
   if (anime::list::exportAsCsv(path.toStdString())) {
-    statusBar()->showMessage(tr("Exported list to %1").arg(path), 6000);
+    statusBar()->showMessage(listExportSucceededMessage(path), 6000);
   } else {
-    QMessageBox::warning(this, tr("Taiga"), tr("Could not write the export file."));
+    QMessageBox::warning(this, tr("Taiga"), listExportWriteFailedMessage());
   }
 }
 
@@ -1181,12 +1184,10 @@ void MainWindow::importAnimeListMalXml() {
 void MainWindow::playNextEpisodeFromMenu() {
   if (const auto id = animeIdForPlaybackContext()) {
     if (track::playNextEpisode(*id)) {
-      statusBar()->showMessage(tr("Playing next episode…"), 4000);
+      statusBar()->showMessage(playingNextEpisodeStatusMessage(), 4000);
       return;
     }
-    QMessageBox::information(
-        this, tr("Taiga"),
-        tr("Could not find the next episode file in your library folders for this title."));
+    QMessageBox::information(this, tr("Taiga"), playNextEpisodeNotFoundMessage());
     return;
   }
   QMessageBox::information(
@@ -1251,8 +1252,7 @@ void MainWindow::startListSynchronization(const bool queue_if_busy) {
     return;
   }
   if (!taiga::settings.listSynchronizationEnabled()) {
-    statusBar()->showMessage(tr("Synchronization is disabled (Tools → Enable synchronization)."),
-                             5000);
+    statusBar()->showMessage(synchronizationDisabledStatusHint(), 5000);
     return;
   }
   if (m_list_sync_in_progress_) {
@@ -1264,7 +1264,7 @@ void MainWindow::startListSynchronization(const bool queue_if_busy) {
 
   QPointer<MainWindow> guard(this);
   statusBar()->showMessage(
-      tr("Synchronizing with %1...").arg(sync::serviceName(sync::currentServiceId())));
+      synchronizingWithServiceStatus(sync::serviceName(sync::currentServiceId())));
 
   sync::fetchListEntries([guard](const bool ok, const QString& message) {
     if (!guard) return;
@@ -1291,7 +1291,7 @@ void MainWindow::handleListSyncFinished(bool ok, QString message) {
     if (m_searchWidget) m_searchWidget->reloadAnimeList();
     refreshHomeDashboard();
     if (m_announcedReleasesWidget) m_announcedReleasesWidget->refresh();
-    statusBar()->showMessage(message.isEmpty() ? tr("Synchronized.") : message, 5000);
+    statusBar()->showMessage(message.isEmpty() ? synchronizedDoneStatus() : message, 5000);
 
     // On the very first sync after startup, trigger a silent auto-download
     // so new episodes are picked up right away without waiting 2 hours.
@@ -1316,7 +1316,7 @@ void MainWindow::handleListSyncFinished(bool ok, QString message) {
       QTimer::singleShot(0, this, [this]() { runAutoDownload(true); });
     }
   } else {
-    statusBar()->showMessage(tr("Synchronization failed: %1").arg(message), 8000);
+    statusBar()->showMessage(synchronizationFailedStatus(message), 8000);
   }
 
   finalizeListSyncSession();
@@ -2070,7 +2070,7 @@ void MainWindow::refreshHomeDashboard() {
         const int aid = ue.anime_id;
         connect(playBtn, &QPushButton::clicked, this, [this, aid]() {
           if (!track::playNextEpisode(aid)) {
-            statusBar()->showMessage(tr("Episode not found in library folders."), 3000);
+            statusBar()->showMessage(playNextEpisodeNotFoundMessage(), 5000);
           }
         });
 
@@ -2518,21 +2518,19 @@ void MainWindow::openDataFolder() {
       !folders.empty() ? QString::fromStdString(folders.front())
                        : QDir::fromNativeSeparators(QString::fromStdString(taiga::get_data_path()));
   if (path.isEmpty()) {
-    QMessageBox::information(this, tr("Taiga"),
-                             tr("No anime library folder is configured.\n"
-                                "Add one in Settings → Library."));
+    QMessageBox::information(this, tr("Taiga"), noLibraryFolderConfiguredBody());
     return;
   }
   if (!QDir{}.mkpath(path)) {
-    QMessageBox::warning(this, tr("Taiga"), tr("Could not create or access the anime folder."));
+    QMessageBox::warning(this, tr("Taiga"), openPrimaryFolderCreateFailedMessage());
     return;
   }
   const QUrl url = QUrl::fromLocalFile(path.endsWith(u'/') ? path : path + u'/');
   if (!QDesktopServices::openUrl(url)) {
-    QMessageBox::warning(this, tr("Taiga"), tr("Could not open the anime folder."));
+    QMessageBox::warning(this, tr("Taiga"), openPrimaryFolderLaunchFailedMessage());
     return;
   }
-  statusBar()->showMessage(tr("Opened anime folder: %1").arg(path), 4000);
+  statusBar()->showMessage(openPrimaryFolderOpenedStatus(path), 4000);
 }
 
 void MainWindow::showLibraryFoldersDialog() {

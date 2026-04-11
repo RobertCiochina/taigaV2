@@ -42,6 +42,8 @@ void ImageProvider::fetchPoster(const int id) {
   const auto item = anime::db.item(id);
 
   if (!item || item->image_url.empty()) return;
+  // Disk decode may still be filling m_pixmaps; avoid a duplicate GET in parallel.
+  if (m_loading.contains(id)) return;
   if (m_network_fetch_pending.contains(id)) return;
   m_network_fetch_pending.insert(id);
 
@@ -181,7 +183,9 @@ void ImageProvider::reloadPoster(const int id) {
   m_pixmaps.remove(id);
   m_loading.remove(id);
   loadPoster(id);
-  emit posterChanged(id);
+  // Do not emit here: loadPoster often starts async disk decode; emitting now would paint an
+  // empty pixmap and then again when decode finishes (visible flicker). Decode / memory hits
+  // emit posterChanged where appropriate.
 }
 
 void ImageProvider::clearPosterCache() {

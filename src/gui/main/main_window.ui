@@ -259,10 +259,10 @@
   </action>
   <action name="actionOpenDataFolder">
    <property name="text">
-    <string>Open &amp;data folder</string>
+    <string>Open library folder</string>
    </property>
    <property name="statusTip">
-    <string>Open the folder where settings, database, and accounts are stored</string>
+    <string>Opens your first configured library folder, or the app data folder if none is set</string>
    </property>
   </action>
   <action name="actionExit">

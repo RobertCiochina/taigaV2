@@ -94,6 +94,7 @@ target_sources(taiga-gui PRIVATE
 	utils/svg_icon_engine.hpp
 	utils/theme.cpp
 	utils/theme.hpp
+	utils/ui_strings.hpp
 	utils/tray_icon.cpp
 	utils/tray_icon.hpp
 	utils/widgets.cpp

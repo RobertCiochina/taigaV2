@@ -1424,7 +1424,7 @@
               <item>
                <widget class="QCheckBox" name="checkListUpdatesEnabled">
                 <property name="text">
-                 <string>Allow downloading and uploading list changes (same as View → Enable synchronization)</string>
+                 <string>Allow downloading and uploading list changes (same as Enable synchronization in the tray menu)</string>
                 </property>
                 <property name="checked">
                  <bool>true</bool>

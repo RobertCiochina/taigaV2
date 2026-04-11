@@ -27,6 +27,7 @@
 #include "gui/main/main_window.hpp"
 #include "gui/models/library_model.hpp"
 #include "gui/utils/theme.hpp"
+#include "gui/utils/ui_strings.hpp"
 #include "taiga/settings.hpp"
 #include "ui_main_window.h"
 
@@ -62,8 +63,9 @@ LibraryWidget::LibraryWidget(QWidget* parent)
 
   // Toolbar: only the open-folder action — play/random/more are in the main toolbar already
   {
-    const auto actionOpenFolder = new QAction(theme.getIcon("folder_open"), tr("Open anime folder"), this);
-    actionOpenFolder->setToolTip(tr("Open the anime folder in Explorer"));
+    const auto actionOpenFolder =
+        new QAction(theme.getIcon("folder_open"), libraryOpenFolderActionLabel(), this);
+    actionOpenFolder->setToolTip(libraryOpenFolderForTitleToolTip());
     connect(actionOpenFolder, &QAction::triggered, this, []() {
       if (auto* mw = mainWindow()) mw->openDataFolder();
     });

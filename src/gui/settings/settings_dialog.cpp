@@ -39,6 +39,7 @@
 #include "gui/settings/torrent_filters_dialog.hpp"
 #include "gui/utils/image_provider.hpp"
 #include "gui/utils/theme.hpp"
+#include "gui/utils/ui_strings.hpp"
 #include "media/anime.hpp"
 #include "sync/anilist_utils.hpp"
 #include "sync/service.hpp"
@@ -833,11 +834,12 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
     const auto fill_row_actions = [this](QComboBox* box) {
       box->clear();
       box->addItem(tr("Do nothing"), static_cast<int>(taiga::ListRowAction::Nothing));
-      box->addItem(tr("Edit list entry"), static_cast<int>(taiga::ListRowAction::EditListEntry));
-      box->addItem(tr("Open folder"), static_cast<int>(taiga::ListRowAction::OpenFolder));
-      box->addItem(tr("Play next episode"), static_cast<int>(taiga::ListRowAction::PlayNext));
-      box->addItem(tr("Show details"), static_cast<int>(taiga::ListRowAction::ShowDetails));
-      box->addItem(tr("Open anime page in browser"),
+      box->addItem(editListEntryActionLabel(), static_cast<int>(taiga::ListRowAction::EditListEntry));
+      box->addItem(libraryOpenFolderActionLabel(), static_cast<int>(taiga::ListRowAction::OpenFolder));
+      box->addItem(playNextEpisodeActionLabel(), static_cast<int>(taiga::ListRowAction::PlayNext));
+      box->addItem(mediaViewDetailsActionLabel(),
+                   static_cast<int>(taiga::ListRowAction::ShowDetails));
+      box->addItem(openAnimePageInBrowserActionLabel(),
                    static_cast<int>(taiga::ListRowAction::OpenAnimePage));
     };
     fill_row_actions(ui_->comboListDoubleClick);

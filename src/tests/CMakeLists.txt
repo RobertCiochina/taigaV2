@@ -44,6 +44,7 @@ target_sources(taiga.tests.search_year_combo_popup PRIVATE gui/test_search_year_
 add_custom_target(taiga_all_tests)
 add_dependencies(
   taiga_all_tests
+  anitomy-tests
   taiga.tests.ui_title
   taiga.tests.search_toolbar
   taiga.tests.list_title_color

@@ -39,6 +39,7 @@
 #include "gui/utils/format.hpp"
 #include "gui/utils/list_commit.hpp"
 #include "gui/utils/theme.hpp"
+#include "gui/utils/ui_strings.hpp"
 #include "media/anime.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_list.hpp"
@@ -227,8 +228,9 @@ void MediaMenu::openFolder() const {
     }
   }
 
-  QMessageBox::information(nullptr, tr("Open Folder"),
-                           tr("Could not find folder for %1.").arg(item.titles.romaji));
+  QMessageBox::information(nullptr, libraryOpenFolderMessageTitle(),
+                           libraryNoFolderForNamedTitleMessage(
+                               QString::fromStdString(item.titles.romaji)));
 }
 
 void MediaMenu::removeFromList() const {
@@ -472,7 +474,8 @@ void MediaMenu::edit() const {
 
 void MediaMenu::addMediaItems() {
   if (!isBatch()) {
-    addAction(theme.getIcon("info"), tr("Details"), tr("Enter"), this, &MediaMenu::viewDetails);
+    addAction(theme.getIcon("info"), mediaViewDetailsActionLabel(), tr("Enter"), this,
+              &MediaMenu::viewDetails);
   }
 
   // External
@@ -593,7 +596,7 @@ void MediaMenu::addListItems() {
 }
 
 void MediaMenu::addLibraryItems() {
-  addAction(theme.getIcon("folder"), tr("Open folder"), this, &MediaMenu::openFolder);
+  addAction(theme.getIcon("folder"), libraryOpenFolderActionLabel(), this, &MediaMenu::openFolder);
 }
 
 void MediaMenu::addTorrentsItems() {
@@ -604,28 +607,28 @@ void MediaMenu::addTorrentsItems() {
 
 void MediaMenu::addMetaItems() {
   if (!isBatch()) {
-    addAction(tr("Copy title"), this, [this]() {
+    addAction(copyTitleActionLabel(), this, [this]() {
       const QString t = QString::fromStdString(m_items.front().titles.romaji);
       QGuiApplication::clipboard()->setText(t);
       if (auto* w = mainWindow()) {
-        w->statusBar()->showMessage(tr("Copied title to clipboard."), 2500);
+        w->statusBar()->showMessage(copiedTitleToClipboardStatus(), 2500);
       }
     });
     const auto& eng = m_items.front().titles.english;
     if (!eng.empty()) {
-      addAction(tr("Copy English title"), this, [this, eng]() {
+      addAction(copyEnglishTitleActionLabel(), this, [this, eng]() {
         QGuiApplication::clipboard()->setText(QString::fromStdString(eng));
         if (auto* w = mainWindow()) {
-          w->statusBar()->showMessage(tr("Copied English title to clipboard."), 2500);
+          w->statusBar()->showMessage(copiedEnglishTitleToClipboardStatus(), 2500);
         }
       });
     }
     const auto& native = m_items.front().titles.japanese;
     if (!native.empty()) {
-      addAction(tr("Copy native title"), this, [this, native]() {
+      addAction(copyNativeTitleActionLabel(), this, [this, native]() {
         QGuiApplication::clipboard()->setText(QString::fromStdString(native));
         if (auto* w = mainWindow()) {
-          w->statusBar()->showMessage(tr("Copied native title to clipboard."), 2500);
+          w->statusBar()->showMessage(copiedNativeTitleToClipboardStatus(), 2500);
         }
       });
     }
