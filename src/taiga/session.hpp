@@ -44,6 +44,9 @@ public:
   int animeListPinnedWatchOrderAnimeId() const;
   bool animeListWatchOrderPanelVisible() const;
   QByteArray animeListWatchOrderSplitterState() const;
+  /// Watch-next / watch-order layout: 0 horizontal timeline, 1 list+detail. Legacy raw 2 maps to 1;
+  /// former graph map (3) is normalized away on read.
+  int watchNextLayoutVariant() const;
   /// One-shot JSON array from v1 `settings.xml` list columns migration (consumed when list view opens).
   void setPendingV1ListColumnLayout(const QString& json) const;
   QString takePendingV1ListColumnLayout() const;
@@ -86,6 +89,7 @@ public:
   void setAnimeListPinnedWatchOrderAnimeId(int anime_id) const;
   void setAnimeListWatchOrderPanelVisible(bool visible) const;
   void setAnimeListWatchOrderSplitterState(const QByteArray& state) const;
+  void setWatchNextLayoutVariant(int variant) const;
   void setMainWindowGeometry(const QByteArray& geometry) const;
   void setMainWindowSplitterState(const QByteArray& state) const;
   void setMainWindowStatusBarVisible(bool visible) const;

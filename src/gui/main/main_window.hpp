@@ -228,6 +228,9 @@ private:
   int m_navHistoryPos = -1;
   bool m_navHistorySuppress = false;
   QString m_last_media_balloon_sig_;
+  /// While the modal "What to watch next" dialog runs, skip `NavigationWidget::refresh()` on DB
+  /// updates — refresh rebuilds/clears the tree and can crash with a modal session active.
+  bool m_watch_next_modal_open_ = false;
 
   WatchNextDialog* m_watchOrderGuide = nullptr;
 };

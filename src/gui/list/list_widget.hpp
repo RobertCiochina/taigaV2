@@ -23,6 +23,7 @@
 #include <optional>
 
 #include "gui/common/anime_list_view_base.hpp"
+#include "gui/models/anime_list_proxy_model.hpp"
 
 class QAction;
 class QSplitter;
@@ -61,6 +62,9 @@ public:
   std::optional<int> selectedAnimeId() const;
 
   void applyToolbarTextFilter(const QString& text);
+
+  /// Sidebar-driven list status filter (for restoring navigation after modal dialogs).
+  AnimeListStatusFilter currentListSidebarFilter() const;
 
 private:
   void initToolbar();

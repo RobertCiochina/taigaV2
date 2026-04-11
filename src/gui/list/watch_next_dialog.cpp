@@ -24,6 +24,7 @@
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDialogButtonBox>
+#include <QFont>
 #include <QFontMetrics>
 #include <QFormLayout>
 #include <QFrame>
@@ -31,7 +32,11 @@
 #include <QHash>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QTreeWidget>
+#include <QTreeWidgetItem>
+#include <QMouseEvent>
 #include <QLayout>
+#include <QPointer>
 #include <QPushButton>
 #include <QRandomGenerator>
 #include <QResizeEvent>
@@ -39,6 +44,8 @@
 #include <QScrollBar>
 #include <QSignalBlocker>
 #include <QSizePolicy>
+#include <QSplitter>
+#include <QTabWidget>
 #include <QTimer>
 #include <QToolButton>
 #include <QUrl>
@@ -48,14 +55,23 @@
 
 #include "base/string.hpp"
 #include "gui/common/clickable_label.hpp"
+#include "gui/models/list_title_color.hpp"
 #include "gui/utils/image_provider.hpp"
 #include "gui/utils/list_commit.hpp"
 #include "gui/utils/theme.hpp"
 #include "media/anime_db.hpp"
 #include "sync/anilist.hpp"
 #include "sync/service.hpp"
+#include "taiga/session.hpp"
+#include "taiga/settings.hpp"
+#include "track/scanner.hpp"
 
 namespace {
+
+/// Related tab: defer creating a widget for every orphan until the user asks (huge closures).
+constexpr int kRelatedTabInitialCap = 40;
+/// Horizontal timeline: switch to compact cards when the spine is long (density + less layout work).
+constexpr int kTimelineCompactFlowMin = 28;
 
 QString relationTypeLabel(const anime::RelationType t) {
   using anime::RelationType;
@@ -165,6 +181,60 @@ QString listStatusLabel(const anime::list::Status s) {
     case Status::NotInList:
     default:
       return QApplication::translate("WatchNext", "Not in list");
+  }
+}
+
+/// Same blue/green/grey title rules as the main anime list (`AnimeListModel` ForegroundRole).
+QColor watchNextListTitleForegroundForId(const int id) {
+  const QPalette& pal = QApplication::palette();
+  const Anime* a = anime::db.item(id);
+  const ListEntry* ent = anime::db.entry(id);
+  if (!a) return pal.color(QPalette::PlaceholderText);
+  if (!ent) return pal.color(QPalette::PlaceholderText);
+  const int last_aired = a->last_aired_episode;
+  const int watched = ent->watched_episodes;
+  const bool caught_up = last_aired > 0 && watched >= last_aired;
+  const bool fully_done = a->episode_count > 0 && watched >= a->episode_count;
+  const bool next_on_disk = taiga::settings.listHighlightNextEpisodeOnDisk() &&
+                            track::nextEpisodeIsOnDisk(id, a, ent);
+  const bool aired_not_downloaded = last_aired > watched;
+  if (const auto c = gui::decideListTitleColor(/*caught_up_or_done=*/(caught_up || fully_done),
+                                                 /*next_unwatched_episode_on_disk=*/next_on_disk,
+                                                 /*aired_but_not_downloaded=*/aired_not_downloaded)) {
+    return *c;
+  }
+  return pal.color(QPalette::Text);
+}
+
+QTreeWidgetItem* watchNextFindTreeItemByAnimeId(QTreeWidget* tree, const int want_id) {
+  if (!tree || want_id <= 0) return nullptr;
+  for (int i = 0; i < tree->topLevelItemCount(); ++i) {
+    QTreeWidgetItem* top = tree->topLevelItem(i);
+    if (top->data(0, Qt::UserRole).toInt() == want_id) return top;
+    for (int j = 0; j < top->childCount(); ++j) {
+      QTreeWidgetItem* ch = top->child(j);
+      if (ch->data(0, Qt::UserRole).toInt() == want_id) return ch;
+    }
+  }
+  return nullptr;
+}
+
+QColor listStatusAccentColor(const anime::list::Status s) {
+  using anime::list::Status;
+  switch (s) {
+    case Status::Watching:
+      return QColor(33, 150, 243);
+    case Status::Completed:
+      return QColor(76, 175, 80);
+    case Status::PlanToWatch:
+      return QColor(255, 152, 0);
+    case Status::OnHold:
+      return QColor(158, 158, 158);
+    case Status::Dropped:
+      return QColor(229, 57, 53);
+    case Status::NotInList:
+    default:
+      return QColor(100, 100, 100);
   }
 }
 
@@ -318,6 +388,29 @@ void clearVBoxLayoutWidgets(QVBoxLayout* const lay) {
   }
 }
 
+/// Clears a layout including nested sub-layouts (needed for master–detail refresh; `addLayout` rows
+/// are not handled by `clearVBoxLayoutWidgets`).
+void clearLayoutRecursive(QLayout* const lay) {
+  if (!lay) return;
+  while (QLayoutItem* it = lay->takeAt(0)) {
+    if (QLayout* child = it->layout()) {
+      clearLayoutRecursive(child);
+    } else if (QWidget* w = it->widget()) {
+      w->deleteLater();
+    }
+    delete it;
+  }
+}
+
+/// Normalizes session `watchNext.layoutVariant`: 0/1 horizontal or list+detail; legacy 2 →
+/// list+detail; removed graph map (3) → horizontal timeline.
+int normalizedWatchNextLayoutVariant(const int raw) {
+  if (raw == 0 || raw == 1) return raw;
+  if (raw == 2) return 1;
+  if (raw == 3) return 0;
+  return 0;
+}
+
 }  // namespace
 
 namespace gui {
@@ -345,6 +438,36 @@ WatchNextDialog::WatchNextDialog(QWidget* parent) : QDialog(parent) {
   m_subHeader->setText(
       tr("Pick a random title from Planning, then review all related seasons/releases."));
   root->addWidget(m_subHeader);
+
+  m_layoutSwitcherHost = new QWidget(this);
+  auto* lay_switch = new QHBoxLayout(m_layoutSwitcherHost);
+  lay_switch->setContentsMargins(0, 0, 0, 0);
+  lay_switch->setSpacing(8);
+  auto* lay_label = new QLabel(tr("Layout:"), m_layoutSwitcherHost);
+  lay_label->setStyleSheet(
+      QStringLiteral("QLabel{color: palette(placeholderText); font-size:12px;}"));
+  m_watchLayoutCombo = new QComboBox(m_layoutSwitcherHost);
+  m_watchLayoutCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  m_watchLayoutCombo->addItem(tr("Horizontal timeline"));
+  m_watchLayoutCombo->addItem(tr("List and detail"));
+  m_watchLayoutCombo->setToolTip(tr("Horizontal strip along the franchise spine, or a list with a "
+                                    "detail pane."));
+  const int raw_layout = taiga::session.watchNextLayoutVariant();
+  const int norm_session = normalizedWatchNextLayoutVariant(raw_layout);
+  if (norm_session != raw_layout) taiga::session.setWatchNextLayoutVariant(norm_session);
+  m_layoutMode = static_cast<WatchNextLayoutMode>(norm_session);
+  {
+    const QSignalBlocker blocker(m_watchLayoutCombo);
+    m_watchLayoutCombo->setCurrentIndex(norm_session);
+  }
+  connect(m_watchLayoutCombo, QOverload<int>::of(&QComboBox::activated), this, [this](int idx) {
+    m_layoutMode = static_cast<WatchNextLayoutMode>(idx);
+    taiga::session.setWatchNextLayoutVariant(idx);
+    rebuildCards();
+  });
+  lay_switch->addWidget(lay_label, 0, Qt::AlignVCenter);
+  lay_switch->addWidget(m_watchLayoutCombo, 1);
+  root->addWidget(m_layoutSwitcherHost);
 
   m_toolFrame = new QFrame(this);
   m_toolFrame->setObjectName(QStringLiteral("watchNextToolFrame"));
@@ -387,10 +510,21 @@ WatchNextDialog::WatchNextDialog(QWidget* parent) : QDialog(parent) {
   pickForm->addRow(tr("Start from Planning"), m_planningCombo);
   toolRoot->addLayout(pickForm);
 
+  m_toolFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
+
   root->addWidget(m_toolFrame);
 
-  // Cards live in a plain widget (no outer QScrollArea): a tall viewport was leaving a large empty
-  // alternate-base band above the legend. Horizontal scrolling stays on the timeline strip only.
+  // Outer scroll only for the card stack: avoids clipping long vertical/grid layouts while keeping
+  // the toolbar panel from absorbing extra height (empty blue band). Legend + fetch strip stay
+  // outside the scroll area.
+  m_cardsOuterScroll = new QScrollArea(this);
+  m_cardsOuterScroll->setObjectName(QStringLiteral("watchNextCardsOuterScroll"));
+  m_cardsOuterScroll->setFrameShape(QFrame::NoFrame);
+  m_cardsOuterScroll->setWidgetResizable(true);
+  m_cardsOuterScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  m_cardsOuterScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  m_cardsOuterScroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+
   m_cardsHost = new QWidget(this);
   m_cardsHost->setObjectName(QStringLiteral("watchNextCardsHost"));
   m_cardsHost->setStyleSheet(QStringLiteral("QWidget#watchNextCardsHost{background:transparent;}"));
@@ -398,7 +532,8 @@ WatchNextDialog::WatchNextDialog(QWidget* parent) : QDialog(parent) {
   m_cardsLayout = new QVBoxLayout(m_cardsHost);
   m_cardsLayout->setContentsMargins(0, 0, 0, 0);
   m_cardsLayout->setSpacing(7);
-  root->addWidget(m_cardsHost);
+  m_cardsOuterScroll->setWidget(m_cardsHost);
+  root->addWidget(m_cardsOuterScroll, 1);
 
   m_buttonLegendHost = new QWidget(this);
   auto* legOuter = new QVBoxLayout(m_buttonLegendHost);
@@ -504,8 +639,47 @@ WatchNextDialog::WatchNextDialog(QWidget* parent) : QDialog(parent) {
           [this](const int id, const bool ok) { onAnilistMediaFetchFinished(id, ok); });
 }
 
+WatchNextDialog::~WatchNextDialog() {
+  // Crash seen in Qt6 QObjectPrivate::removeConnection when tearing down connections to
+  // process-global/singleton QObjects (AniList service, DB, image provider). Disconnect
+  // explicitly before ~QObject walks connection lists, and block re-entrant slots.
+  blockSignals(true);
+  if (auto* svc = sync::anilist::Service::instance()) {
+    QObject::disconnect(svc, nullptr, this, nullptr);
+  }
+  QObject::disconnect(&anime::db, nullptr, this, nullptr);
+  QObject::disconnect(&imageProvider, nullptr, this, nullptr);
+}
+
+void WatchNextDialog::syncLayoutSwitcherChrome() {
+  switch (m_sessionKind) {
+    case SessionKind::ModalRandomPlanning:
+      if (m_layoutSwitcherHost) m_layoutSwitcherHost->setVisible(true);
+      {
+        const int raw = taiga::session.watchNextLayoutVariant();
+        const int norm = normalizedWatchNextLayoutVariant(raw);
+        if (norm != raw) taiga::session.setWatchNextLayoutVariant(norm);
+        m_layoutMode = static_cast<WatchNextLayoutMode>(norm);
+        if (m_watchLayoutCombo) {
+          const QSignalBlocker blocker(m_watchLayoutCombo);
+          m_watchLayoutCombo->setCurrentIndex(static_cast<int>(m_layoutMode));
+        }
+      }
+      break;
+    case SessionKind::ModelessGuide:
+      if (m_layoutSwitcherHost) m_layoutSwitcherHost->setVisible(false);
+      m_layoutMode = WatchNextLayoutMode::MasterDetail;
+      break;
+    case SessionKind::EmbeddedGuide:
+      if (m_layoutSwitcherHost) m_layoutSwitcherHost->setVisible(false);
+      m_layoutMode = WatchNextLayoutMode::HorizontalTimeline;
+      break;
+  }
+}
+
 void WatchNextDialog::runModalRandomPlanningSession() {
   m_sessionKind = SessionKind::ModalRandomPlanning;
+  syncLayoutSwitcherChrome();
   setModal(true);
   setWindowTitle(tr("What to watch next"));
   randomizeFromPlanning();
@@ -514,15 +688,16 @@ void WatchNextDialog::runModalRandomPlanningSession() {
 
 void WatchNextDialog::presentModelessGuideForAnime(const int anime_id) {
   m_sessionKind = SessionKind::ModelessGuide;
+  syncLayoutSwitcherChrome();
   setModal(false);
   setWindowFlag(Qt::Window, true);
   setWindowTitle(tr("Watch order guide"));
   setAttribute(Qt::WA_DeleteOnClose, false);
   if (m_closeBtn) m_closeBtn->show();
   if (m_fetchStripScroll) {
-    m_fetchStripScroll->show();
-    m_fetchStripScroll->setMaximumHeight(120);
-    m_fetchStripScroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
+    m_fetchStripScroll->hide();
+    m_fetchStripScroll->setMaximumHeight(0);
+    m_fetchStripScroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Ignored);
   }
   if (anime_id > 0) setSeed(anime_id);
 }
@@ -552,19 +727,21 @@ void WatchNextDialog::applyEmbeddedPanelChrome() {
   }
 
   auto* root = qobject_cast<QVBoxLayout*>(layout());
-  if (root && m_toolFrame && m_cardsHost && m_buttonLegendHost) {
-    root->removeWidget(m_cardsHost);
+  if (root && m_toolFrame && m_cardsOuterScroll && m_buttonLegendHost) {
+    root->removeWidget(m_cardsOuterScroll);
     root->removeWidget(m_buttonLegendHost);
     const int ti = root->indexOf(m_toolFrame);
     if (ti >= 0) {
       root->insertWidget(ti + 1, m_buttonLegendHost);
-      root->insertWidget(ti + 2, m_cardsHost);
+      root->insertWidget(ti + 2, m_cardsOuterScroll);
     } else {
       root->addWidget(m_buttonLegendHost);
-      root->addWidget(m_cardsHost);
+      root->addWidget(m_cardsOuterScroll);
     }
     root->setContentsMargins(6, 6, 6, 6);
     root->setSpacing(6);
+    const int scroll_i = root->indexOf(m_cardsOuterScroll);
+    if (scroll_i >= 0) root->setStretch(scroll_i, 1);
   }
 
   if (m_buttonLegendHost) {
@@ -594,6 +771,7 @@ void WatchNextDialog::applyEmbeddedPanelChrome() {
 
 void WatchNextDialog::presentEmbeddedGuideForAnime(const int anime_id) {
   m_sessionKind = SessionKind::EmbeddedGuide;
+  syncLayoutSwitcherChrome();
   setModal(false);
   setWindowFlags(Qt::Widget);
   setWindowTitle(tr("Watch order"));
@@ -602,7 +780,7 @@ void WatchNextDialog::presentEmbeddedGuideForAnime(const int anime_id) {
   applyEmbeddedPanelChrome();
   setMinimumHeight(200);
   resize(800, 420);
-  setSeed(anime_id);
+  setSeed(anime_id, /*skip_closure_loading_gate=*/true);
 }
 
 bool WatchNextDialog::didChangeList() const {
@@ -619,7 +797,9 @@ void WatchNextDialog::randomizeFromPlanning() {
   }
 
   if (candidates.isEmpty()) {
+    m_watchNextClosureReady = true;
     m_seedId = 0;
+    m_masterDetailSelectedId = 0;
     m_alternativesOpenForId = 0;
     m_lastFetchAttemptMs.clear();
     m_fetchRetryCount.clear();
@@ -714,33 +894,42 @@ void WatchNextDialog::clearAnilistFetchRows() {
   updateRandomizeEnabled();
 }
 
+QString WatchNextDialog::formatAnilistFetchRowHtml(const int id) const {
+  const auto stIt = m_anilistRowState.constFind(id);
+  QString statusHtml;
+  if (stIt == m_anilistRowState.cend()) {
+    statusHtml = QStringLiteral("<span style=\"color:#888;\">%1</span>")
+                     .arg(tr("Waiting…").toHtmlEscaped());
+  } else {
+    switch (stIt.value()) {
+      case AnilistRowState::Queued:
+        statusHtml = QStringLiteral("<span style=\"color:#b8860b;\">%1</span>")
+                         .arg(tr("Queued").toHtmlEscaped());
+        break;
+      case AnilistRowState::Loading:
+        statusHtml = QStringLiteral("<span style=\"color:#1565c0;\">%1</span>")
+                         .arg(tr("Loading…").toHtmlEscaped());
+        break;
+      case AnilistRowState::Done:
+        statusHtml = QStringLiteral("<span style=\"color:#2e7d32;\">%1</span>")
+                         .arg(tr("Done").toHtmlEscaped());
+        break;
+      case AnilistRowState::Failed:
+        statusHtml = QStringLiteral("<span style=\"color:#c62828;\">%1</span>")
+                         .arg(tr("Failed").toHtmlEscaped());
+        break;
+    }
+  }
+  const QString title = animeDisplayTitle(anime::db.item(id), id).toHtmlEscaped();
+  return QStringLiteral("#%1 %2 — %3").arg(id).arg(title).arg(statusHtml);
+}
+
 void WatchNextDialog::refreshAnilistFetchRow(const int id) {
   if (id <= 0 || !m_fetchRowsLayout || !m_fetchStripTitle) return;
   const auto stIt = m_anilistRowState.constFind(id);
   if (stIt == m_anilistRowState.cend()) return;
 
-  QString statusHtml;
-  switch (stIt.value()) {
-    case AnilistRowState::Queued:
-      statusHtml = QStringLiteral("<span style=\"color:#b8860b;\">%1</span>")
-                       .arg(tr("Queued").toHtmlEscaped());
-      break;
-    case AnilistRowState::Loading:
-      statusHtml = QStringLiteral("<span style=\"color:#1565c0;\">%1</span>")
-                       .arg(tr("Loading…").toHtmlEscaped());
-      break;
-    case AnilistRowState::Done:
-      statusHtml = QStringLiteral("<span style=\"color:#2e7d32;\">%1</span>")
-                       .arg(tr("Done").toHtmlEscaped());
-      break;
-    case AnilistRowState::Failed:
-      statusHtml = QStringLiteral("<span style=\"color:#c62828;\">%1</span>")
-                       .arg(tr("Failed").toHtmlEscaped());
-      break;
-  }
-
-  const QString title = animeDisplayTitle(anime::db.item(id), id).toHtmlEscaped();
-  const QString html = QStringLiteral("#%1 %2 — %3").arg(id).arg(title).arg(statusHtml);
+  const QString html = formatAnilistFetchRowHtml(id);
 
   QLabel* lab = m_anilistFetchLabels.value(id);
   if (!lab) {
@@ -780,6 +969,7 @@ void WatchNextDialog::restoreTimelineHorizontalScroll(const int px) {
 void WatchNextDialog::syncCardsHostGeometry() {
   if (!m_cardsHost) return;
   m_cardsHost->updateGeometry();
+  if (m_cardsOuterScroll) m_cardsOuterScroll->updateGeometry();
 }
 
 void WatchNextDialog::resizeEvent(QResizeEvent* event) {
@@ -847,41 +1037,52 @@ void WatchNextDialog::repopulatePlanningCombo() {
 
 void WatchNextDialog::onAnilistMediaFetchQueued(const int id) {
   if (m_seedId <= 0 || !m_watchClosureIds.contains(id)) return;
+  const bool on_gate = shouldShowWatchNextLoadingScreen();
   if (!m_anilistFetchOrder.contains(id)) m_anilistFetchOrder.push_back(id);
   m_anilistRowState[id] = AnilistRowState::Queued;
   refreshAnilistFetchRow(id);
   updateRandomizeEnabled();
+  if (on_gate && !m_recomputingClosure) rebuildCards();
 }
 
 void WatchNextDialog::onAnilistMediaFetchStarted(const int id) {
   if (m_seedId <= 0 || !m_watchClosureIds.contains(id)) return;
+  const bool on_gate = shouldShowWatchNextLoadingScreen();
   m_anilistRowState[id] = AnilistRowState::Loading;
   refreshAnilistFetchRow(id);
   updateRandomizeEnabled();
+  if (on_gate && !m_recomputingClosure) rebuildCards();
 }
 
 void WatchNextDialog::onAnilistMediaFetchFinished(const int id, const bool ok) {
   if (m_seedId <= 0 || !m_watchClosureIds.contains(id)) return;
+  const bool on_gate = shouldShowWatchNextLoadingScreen();
   m_anilistRowState[id] = ok ? AnilistRowState::Done : AnilistRowState::Failed;
   refreshAnilistFetchRow(id);
   updateRandomizeEnabled();
+  updateSubHeaderHint();
+  tryFinishWatchNextLoadingGate();
+  if (on_gate && m_watchNextClosureReady && !m_recomputingClosure) rebuildCards();
 }
 
-void WatchNextDialog::setSeed(const int id) {
+void WatchNextDialog::setSeed(const int id, const bool skip_closure_loading_gate) {
   if (id <= 0) {
+    m_watchNextClosureReady = true;
     m_seedId = 0;
+    m_masterDetailSelectedId = 0;
     m_relationTypeFromSeed.clear();
     m_fetchedIds.clear();
     m_lastFetchAttemptMs.clear();
     m_fetchRetryCount.clear();
     m_watchClosureIds.clear();
     m_alternativesOpenForId = 0;
+    m_relatedShowAll = false;
     clearAnilistFetchRows();
     m_displayIds.clear();
     if (m_sessionKind == SessionKind::EmbeddedGuide) {
       m_header->setText(tr("<b>Watch order</b>"));
       m_subHeader->setText(
-          tr("Pin a title from the anime list toolbar to show its watch order graph here."));
+          tr("Pin a title from the anime list toolbar to show its watch order here."));
     } else {
       m_header->setText(tr("<b>What to watch next</b>"));
     }
@@ -892,13 +1093,16 @@ void WatchNextDialog::setSeed(const int id) {
     return;
   }
 
+  m_watchNextClosureReady = skip_closure_loading_gate;
   m_seedId = id;
+  m_masterDetailSelectedId = m_seedId;
   m_relationTypeFromSeed.clear();
   m_fetchedIds.clear();
   m_lastFetchAttemptMs.clear();
   m_fetchRetryCount.clear();
   m_watchClosureIds.clear();
   m_alternativesOpenForId = 0;
+  m_relatedShowAll = false;
   clearAnilistFetchRows();
 
   if (const Anime* a = anime::db.item(m_seedId)) {
@@ -913,8 +1117,7 @@ void WatchNextDialog::setSeed(const int id) {
     m_header->setText(tr("<b>Recommended:</b> #%1").arg(id));
   }
 
-  // Show a stable initial view immediately, then expand as relations load.
-  m_displayIds = {m_seedId};
+  recomputeClosure();
   rebuildCards();
   scheduleRecomputeAndRebuild();
   if (m_sessionKind != SessionKind::EmbeddedGuide) repopulatePlanningCombo();
@@ -954,6 +1157,12 @@ void WatchNextDialog::scheduleRecomputeAndRebuild() {
 void WatchNextDialog::recomputeClosure() {
   m_displayIds.clear();
   if (m_seedId <= 0) return;
+
+  struct RecomputingClosureGuard {
+    bool* flag;
+    explicit RecomputingClosureGuard(bool* f) : flag(f) { *flag = true; }
+    ~RecomputingClosureGuard() { *flag = false; }
+  } guard(&m_recomputingClosure);
 
   // BFS over all franchise-related edges (no cap): every reachable id is fetched so prequel/sequel
   // chains are complete once AniList data is present.
@@ -997,7 +1206,7 @@ void WatchNextDialog::rebuildCards() {
   if (m_seedId <= 0) {
     const QString emptyText =
         m_sessionKind == SessionKind::EmbeddedGuide
-            ? tr("Select a title in the list, then use “Pin watch order graph” on the toolbar.")
+            ? tr("Select a title in the list, then use “Pin watch order” on the toolbar.")
             : tr("Add some titles to Planning to use this feature.");
     auto* empty = new QLabel(emptyText, m_cardsHost);
     empty->setStyleSheet(QStringLiteral("QLabel{color: palette(placeholderText);}"));
@@ -1013,6 +1222,25 @@ void WatchNextDialog::rebuildCards() {
       m_fetchStripScroll->setVisible(false);
     }
     updateSubHeaderHint();
+    updateBulkActionButtons();
+    return;
+  }
+
+  tryFinishWatchNextLoadingGate();
+  if (shouldShowWatchNextLoadingScreen()) {
+    auto* loading = buildWatchNextLoadingWidget();
+    m_cardsLayout->addWidget(loading);
+    m_cardsHost->setUpdatesEnabled(true);
+    QTimer::singleShot(0, this, [this, saved_timeline_hscroll]() {
+      syncCardsHostGeometry();
+      applyPendingScrollRestore();
+      restoreTimelineHorizontalScroll(saved_timeline_hscroll);
+    });
+    if (m_fetchStripScroll && m_sessionKind != SessionKind::EmbeddedGuide) {
+      m_fetchStripScroll->setVisible(false);
+    }
+    updateSubHeaderHint();
+    updateRandomizeEnabled();
     updateBulkActionButtons();
     return;
   }
@@ -1038,8 +1266,6 @@ void WatchNextDialog::rebuildCards() {
     return {};
   };
 
-  m_cardsLayout->addWidget(buildMainTimelineRow(flow, idSet, flowSet, badgeForSpine));
-
   QVector<int> orphans;
   orphans.reserve(m_displayIds.size());
   for (const int id : m_displayIds) {
@@ -1048,8 +1274,44 @@ void WatchNextDialog::rebuildCards() {
     orphans.push_back(id);
   }
   sortIdsByStartDate(orphans);
-  for (const int oid : orphans) {
-    m_cardsLayout->addWidget(buildRowWithAlternatives(oid, {}, tr("Related")));
+
+  if (m_layoutMode == WatchNextLayoutMode::MasterDetail) {
+    if (flow.isEmpty()) {
+      m_masterDetailSelectedId = 0;
+    } else if (!flow.contains(m_masterDetailSelectedId)) {
+      m_masterDetailSelectedId = m_seedId;
+      if (!flow.contains(m_masterDetailSelectedId)) m_masterDetailSelectedId = flow.first();
+    }
+  }
+
+  QWidget* main_section = nullptr;
+  switch (m_layoutMode) {
+    case WatchNextLayoutMode::HorizontalTimeline:
+      main_section = buildMainTimelineRow(flow, idSet, flowSet, badgeForSpine);
+      break;
+    case WatchNextLayoutMode::MasterDetail:
+      main_section =
+          buildMasterDetailSection(flow, orphans, idSet, flowSet, badgeForSpine);
+      break;
+  }
+  if (main_section) {
+    if (orphans.isEmpty()) {
+      m_cardsLayout->addWidget(main_section);
+    } else {
+      QVector<int> related_slice = orphans;
+      bool related_has_more = false;
+      if (!m_relatedShowAll && orphans.size() > kRelatedTabInitialCap) {
+        related_slice = orphans.mid(0, kRelatedTabInitialCap);
+        related_has_more = true;
+      }
+      auto* tabs = new QTabWidget(m_cardsHost);
+      tabs->setDocumentMode(true);
+      tabs->addTab(main_section, tr("Watch order"));
+      tabs->addTab(buildRelatedTitlesTabContent(related_slice, static_cast<int>(orphans.size()),
+                                                related_has_more),
+                   tr("Related (%1)").arg(orphans.size()));
+      m_cardsLayout->addWidget(tabs);
+    }
   }
 
   m_cardsHost->setUpdatesEnabled(true);
@@ -1060,7 +1322,7 @@ void WatchNextDialog::rebuildCards() {
   });
 
   if (m_fetchStripScroll && m_sessionKind != SessionKind::EmbeddedGuide) {
-    m_fetchStripScroll->setVisible(m_seedId > 0);
+    m_fetchStripScroll->setVisible(false);
   }
 
   updateSubHeaderHint();
@@ -1068,14 +1330,100 @@ void WatchNextDialog::rebuildCards() {
   updateBulkActionButtons();
 }
 
+bool WatchNextDialog::watchClosureAnilistBusy() const {
+  for (const int id : m_watchClosureIds) {
+    const auto it = m_anilistRowState.constFind(id);
+    if (it == m_anilistRowState.cend()) return true;
+    if (it.value() == AnilistRowState::Queued || it.value() == AnilistRowState::Loading)
+      return true;
+  }
+  return false;
+}
+
+bool WatchNextDialog::shouldShowWatchNextLoadingScreen() const {
+  if (m_seedId <= 0) return false;
+  if (m_sessionKind == SessionKind::EmbeddedGuide) return false;
+  return !m_watchNextClosureReady;
+}
+
+void WatchNextDialog::tryFinishWatchNextLoadingGate() {
+  if (m_watchNextClosureReady) return;
+  if (m_sessionKind == SessionKind::EmbeddedGuide) {
+    m_watchNextClosureReady = true;
+    return;
+  }
+  if (watchClosureAnilistBusy()) return;
+  if (m_rebuildTimer && m_rebuildTimer->isActive()) return;
+  m_watchNextClosureReady = true;
+}
+
+QWidget* WatchNextDialog::buildWatchNextLoadingWidget() {
+  auto* outer = new QWidget(m_cardsHost);
+  auto* vl = new QVBoxLayout(outer);
+  vl->setContentsMargins(8, 8, 8, 8);
+  vl->setSpacing(12);
+  auto* title = new QLabel(tr("Loading related titles from AniList…"), outer);
+  title->setStyleSheet(QStringLiteral("QLabel{font-weight:600;font-size:14px;}"));
+  title->setWordWrap(true);
+  vl->addWidget(title);
+  auto* sub = new QLabel(
+      tr("Media details are stored in your local library so revisiting this guide needs fewer "
+         "network requests."),
+      outer);
+  sub->setWordWrap(true);
+  sub->setStyleSheet(QStringLiteral("QLabel{color:palette(placeholderText);font-size:12px;}"));
+  vl->addWidget(sub);
+  auto* scroll = new QScrollArea(outer);
+  scroll->setWidgetResizable(true);
+  scroll->setFrameShape(QFrame::NoFrame);
+  scroll->setMinimumHeight(220);
+  auto* inner = new QWidget(scroll);
+  auto* inner_vl = new QVBoxLayout(inner);
+  inner_vl->setContentsMargins(0, 0, 0, 0);
+  inner_vl->setSpacing(4);
+  if (m_anilistFetchOrder.isEmpty()) {
+    auto* ph = new QLabel(tr("Preparing…"), inner);
+    ph->setStyleSheet(QStringLiteral("QLabel{color:palette(placeholderText);}"));
+    inner_vl->addWidget(ph);
+  } else {
+    for (const int fid : m_anilistFetchOrder) {
+      auto* row = new QLabel(inner);
+      row->setTextFormat(Qt::RichText);
+      row->setWordWrap(true);
+      row->setStyleSheet(QStringLiteral("QLabel{font-size:11px;}"));
+      row->setText(formatAnilistFetchRowHtml(fid));
+      inner_vl->addWidget(row);
+    }
+  }
+  inner_vl->addStretch(1);
+  scroll->setWidget(inner);
+  vl->addWidget(scroll, 1);
+  return outer;
+}
+
+bool WatchNextDialog::seedAnilistFetchSettled() const {
+  if (m_seedId <= 0) return true;
+  if (!m_anilistRowState.contains(m_seedId)) {
+    return !m_watchClosureIds.contains(m_seedId);
+  }
+  const AnilistRowState st = m_anilistRowState.value(m_seedId);
+  return st == AnilistRowState::Done || st == AnilistRowState::Failed;
+}
+
 void WatchNextDialog::updateSubHeaderHint() {
   if (m_seedId <= 0) return;
   if (m_displayIds.size() <= 1) {
+    if (!seedAnilistFetchSettled()) {
+      m_subHeader->setText(tr("Loading related titles from AniList…"));
+      return;
+    }
     const Anime* a = anime::db.item(m_seedId);
-    if (a && a->relations.empty()) {
+    if (!a || a->relations.empty()) {
       m_subHeader->setText(tr("No related titles found on AniList for this entry."));
     } else {
-      m_subHeader->setText(tr("Loading related titles from AniList…"));
+      m_subHeader->setText(
+          tr("This title has AniList relations, but no other anime entries are linked into this "
+             "suggested watch order yet."));
     }
   } else {
     if (m_sessionKind == SessionKind::ModelessGuide) {
@@ -1092,6 +1440,42 @@ void WatchNextDialog::updateSubHeaderHint() {
           tr("Pick a random title from Planning, then review all related seasons/releases."));
     }
   }
+}
+
+QWidget* WatchNextDialog::buildRelatedTitlesTabContent(const QVector<int>& orphans_slice,
+                                                       const int total_orphan_count,
+                                                       const bool has_more) {
+  auto* scroll = new QScrollArea(m_cardsHost);
+  scroll->setWidgetResizable(true);
+  scroll->setFrameShape(QFrame::NoFrame);
+  scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  auto* inner = new QWidget(scroll);
+  auto* vl = new QVBoxLayout(inner);
+  vl->setContentsMargins(0, 0, 0, 0);
+  vl->setSpacing(8);
+  for (const int oid : orphans_slice) {
+    vl->addWidget(buildRowWithAlternatives(oid, {}, tr("Related")));
+  }
+  if (has_more) {
+    auto* hint = new QLabel(
+        tr("Showing %1 of %2 related titles. Loading the rest can take a moment on large franchises.")
+            .arg(orphans_slice.size())
+            .arg(total_orphan_count),
+        inner);
+    hint->setWordWrap(true);
+    hint->setStyleSheet(QStringLiteral("QLabel{color: palette(placeholderText); font-size:12px;}"));
+    vl->addWidget(hint);
+    auto* btn = new QPushButton(
+        tr("Show all %1 related titles").arg(total_orphan_count), inner);
+    connect(btn, &QPushButton::clicked, this, [this]() {
+      m_relatedShowAll = true;
+      rebuildCards();
+    });
+    vl->addWidget(btn, 0, Qt::AlignHCenter);
+  }
+  vl->addStretch(1);
+  scroll->setWidget(inner);
+  return scroll;
 }
 
 QWidget* WatchNextDialog::buildRowWithAlternatives(const int main_id, const QVector<int>& alt_ids,
@@ -1127,6 +1511,8 @@ QWidget* WatchNextDialog::buildRowWithAlternatives(const int main_id, const QVec
 QWidget* WatchNextDialog::buildMainTimelineRow(const QVector<int>& flow, const QSet<int>& idSet,
                                                const QSet<int>& flowSet,
                                                const std::function<QString(int)>& badge_for_spine) {
+  const bool compact_spine = flow.size() > kTimelineCompactFlowMin;
+
   auto* outer = new QWidget(m_cardsHost);
   auto* rootLay = new QVBoxLayout(outer);
   rootLay->setContentsMargins(0, 0, 0, 0);
@@ -1152,7 +1538,7 @@ QWidget* WatchNextDialog::buildMainTimelineRow(const QVector<int>& flow, const Q
     auto* cellLay = new QHBoxLayout(cell);
     cellLay->setContentsMargins(0, 0, 0, 0);
     cellLay->setSpacing(6);
-    cellLay->addWidget(buildCard(mainId, false, badge_for_spine(mainId)), 1);
+    cellLay->addWidget(buildCard(mainId, compact_spine, badge_for_spine(mainId)), 1);
 
     const QVector<int> altsForCard = alternativesFromAnchor(mainId, idSet);
     if (!altsForCard.isEmpty()) {
@@ -1193,45 +1579,227 @@ QWidget* WatchNextDialog::buildMainTimelineRow(const QVector<int>& flow, const Q
   rootLay->addWidget(scroll);
   m_timelineStripScroll = scroll;
 
-  if (m_alternativesOpenForId != 0) {
-    const QVector<int> panelAlts = alternativesFromAnchor(m_alternativesOpenForId, idSet);
-    if (!panelAlts.isEmpty()) {
-      auto* panel = new QFrame(outer);
-      panel->setObjectName(QStringLiteral("watchNextAltPanel"));
-      panel->setStyleSheet(QStringLiteral(
-          "QFrame#watchNextAltPanel{border:1px solid palette(mid); border-radius:8px; background: "
-          "palette(alternate-base);}"));
-      auto* pl = new QVBoxLayout(panel);
-      pl->setContentsMargins(8, 6, 8, 6);
-      pl->setSpacing(4);
-      QString t =
-          animeDisplayTitle(anime::db.item(m_alternativesOpenForId), m_alternativesOpenForId);
-      auto* hdr = new QLabel(panel);
-      hdr->setStyleSheet(QStringLiteral("QLabel{font-weight:600; font-size:12px;}"));
-      hdr->setWordWrap(false);
-      hdr->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-      {
-        const QFontMetrics fm(hdr->font());
-        const int dlgW = std::max(0, width());
-        const int hdrMaxW = std::max(160, dlgW - 80);
-        const QString full = tr("Alternatives: %1").arg(t);
-        hdr->setText(fm.elidedText(full, Qt::ElideRight, hdrMaxW));
-        hdr->setFixedHeight(fm.height() + 2);
-        hdr->setToolTip(full);
-      }
-      pl->addWidget(hdr);
-      auto* ph = new QHBoxLayout();
-      ph->setContentsMargins(0, 0, 0, 0);
-      ph->setSpacing(8);
-      for (const int aid : panelAlts) {
-        ph->addWidget(buildCard(aid, true, tr("Alternative")));
-      }
-      ph->addStretch(1);
-      pl->addLayout(ph);
-      rootLay->addWidget(panel);
+  appendAlternativesPanel(outer, rootLay, idSet);
+
+  outer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
+  return outer;
+}
+
+void WatchNextDialog::appendAlternativesPanel(QWidget* outer, QVBoxLayout* root_lay,
+                                              const QSet<int>& id_set) {
+  if (m_alternativesOpenForId == 0) return;
+  const QVector<int> panel_alts = alternativesFromAnchor(m_alternativesOpenForId, id_set);
+  if (panel_alts.isEmpty()) return;
+
+  auto* panel = new QFrame(outer);
+  panel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
+  panel->setObjectName(QStringLiteral("watchNextAltPanel"));
+  panel->setStyleSheet(QStringLiteral(
+      "QFrame#watchNextAltPanel{border:1px solid palette(mid); border-radius:8px; background: "
+      "palette(alternate-base);}"));
+  auto* pl = new QVBoxLayout(panel);
+  pl->setContentsMargins(8, 6, 8, 6);
+  pl->setSpacing(4);
+  QString t =
+      animeDisplayTitle(anime::db.item(m_alternativesOpenForId), m_alternativesOpenForId);
+  auto* hdr = new QLabel(panel);
+  hdr->setStyleSheet(QStringLiteral("QLabel{font-weight:600; font-size:12px;}"));
+  hdr->setWordWrap(false);
+  hdr->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  {
+    const QFontMetrics fm(hdr->font());
+    const int dlg_w = std::max(0, width());
+    const int hdr_max_w = std::max(160, dlg_w - 80);
+    const QString full = tr("Alternatives: %1").arg(t);
+    hdr->setText(fm.elidedText(full, Qt::ElideRight, hdr_max_w));
+    hdr->setFixedHeight(fm.height() + 2);
+    hdr->setToolTip(full);
+  }
+  pl->addWidget(hdr);
+  auto* ph = new QHBoxLayout();
+  ph->setContentsMargins(0, 0, 0, 0);
+  ph->setSpacing(8);
+  for (const int aid : panel_alts) {
+    ph->addWidget(buildCard(aid, true, tr("Alternative")));
+  }
+  pl->addLayout(ph);
+  root_lay->addWidget(panel);
+}
+
+void WatchNextDialog::fillWatchNextDetailPane(QWidget* detail_host, const int sel_id,
+                                              const QSet<int>& id_set,
+                                              const QHash<int, QString>& badge_by_id,
+                                              const QSet<int>& flow_set) {
+  auto* lay = qobject_cast<QVBoxLayout*>(detail_host->layout());
+  if (!lay) return;
+  clearLayoutRecursive(lay);
+  if (sel_id <= 0) return;
+
+  lay->addWidget(buildCard(sel_id, false, badge_by_id.value(sel_id, QString{})));
+
+  // Alternative rows in the tree are not spine entries — show only the main card (no duplicate block).
+  if (!flow_set.contains(sel_id)) {
+    lay->addStretch(1);
+    return;
+  }
+
+  const QVector<int> alts = alternativesFromAnchor(sel_id, id_set);
+  if (alts.isEmpty()) {
+    lay->addStretch(1);
+    return;
+  }
+
+  auto* hdr = new QLabel(tr("Alternatives"), detail_host);
+  hdr->setStyleSheet(QStringLiteral(
+      "QLabel{font-weight:600; font-size:11px; color: palette(placeholderText);}"));
+  lay->addWidget(hdr);
+
+  auto* alt_scroll = new QScrollArea(detail_host);
+  alt_scroll->setFrameShape(QFrame::NoFrame);
+  alt_scroll->setWidgetResizable(false);
+  alt_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  alt_scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  alt_scroll->setMinimumHeight(96);
+  alt_scroll->setMaximumHeight(240);
+
+  auto* alt_row = new QWidget(alt_scroll);
+  auto* ph = new QHBoxLayout(alt_row);
+  ph->setContentsMargins(0, 0, 0, 0);
+  ph->setSpacing(8);
+  for (const int aid : alts) {
+    ph->addWidget(buildCard(aid, true, tr("Alternative")));
+  }
+  ph->addStretch(0);
+  alt_scroll->setWidget(alt_row);
+  alt_row->adjustSize();
+  const int h = alt_row->sizeHint().height();
+  alt_scroll->setFixedHeight(qMin(240, qMax(96, h + 6)));
+
+  lay->addWidget(alt_scroll);
+  lay->addStretch(1);
+}
+
+QWidget* WatchNextDialog::buildMasterDetailSection(
+    const QVector<int>& flow, const QVector<int>& orphans, const QSet<int>& idSet,
+    const QSet<int>& flowSet, const std::function<QString(int)>& badge_for_spine) {
+  auto* outer = new QWidget(m_cardsHost);
+  auto* outer_lay = new QVBoxLayout(outer);
+  outer_lay->setContentsMargins(0, 0, 0, 0);
+  outer_lay->setSpacing(0);
+
+  auto* splitter = new QSplitter(Qt::Horizontal, outer);
+  splitter->setChildrenCollapsible(false);
+
+  auto* list = new QTreeWidget(splitter);
+  list->setMinimumWidth(220);
+  list->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+  list->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  list->setHeaderHidden(true);
+  list->setRootIsDecorated(true);
+  list->setIndentation(18);
+  list->setAnimated(true);
+  list->setWordWrap(true);
+  list->setTextElideMode(Qt::ElideNone);
+
+  auto* detail_scroll = new QScrollArea(splitter);
+  detail_scroll->setFrameShape(QFrame::NoFrame);
+  detail_scroll->setWidgetResizable(true);
+  detail_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  detail_scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+
+  auto* detail_host = new QWidget();
+  auto* dv = new QVBoxLayout(detail_host);
+  dv->setContentsMargins(0, 0, 0, 0);
+  dv->setSpacing(8);
+  detail_scroll->setWidget(detail_host);
+
+  splitter->addWidget(list);
+  splitter->addWidget(detail_scroll);
+  splitter->setStretchFactor(0, 0);
+  splitter->setStretchFactor(1, 1);
+  splitter->setSizes({260, 640});
+
+  QVector<int> ordered_ids;
+  ordered_ids.reserve(flow.size() + orphans.size());
+  for (const int id : flow) ordered_ids.push_back(id);
+  for (const int id : orphans) ordered_ids.push_back(id);
+
+  // Copy closure data: `currentRowChanged` runs after `rebuildCards` returns; captures must not
+  // reference locals from `rebuildCards` / this stack frame (was a use-after-free crash).
+  const QSet<int> id_set_owned = idSet;
+  QHash<int, QString> detail_badge_by_id;
+  detail_badge_by_id.reserve(ordered_ids.size() * 2 + 4);
+  for (const int oid : ordered_ids) {
+    if (flowSet.contains(oid))
+      detail_badge_by_id.insert(oid, badge_for_spine(oid));
+    else
+      detail_badge_by_id.insert(oid, tr("Related"));
+  }
+
+  int select_id = m_masterDetailSelectedId;
+  if (flow.isEmpty()) {
+    select_id = 0;
+  } else {
+    if (select_id <= 0 || !id_set_owned.contains(select_id)) {
+      select_id = m_seedId;
+      if (!flow.contains(select_id)) select_id = flow.first();
     }
   }
 
+  const QSet<int> flow_set_owned = flowSet;
+  const auto refresh_detail = [this, detail_host, id_set_owned, detail_badge_by_id,
+                               flow_set_owned](const int sel_id) {
+    fillWatchNextDetailPane(detail_host, sel_id, id_set_owned, detail_badge_by_id, flow_set_owned);
+  };
+
+  for (const int id : flow) {
+    const Anime* a = anime::db.item(id);
+    const QString title = animeDisplayTitle(a, id);
+    const QString badge = detail_badge_by_id.value(id, QString{});
+    const QString line1 = badge.isEmpty() ? title : tr("%1 — %2").arg(badge, title);
+    const ListEntry* ent = anime::db.entry(id);
+    const QString st = listStatusLabel(ent ? ent->status : anime::list::Status::NotInList);
+    auto* top = new QTreeWidgetItem(QStringList{QStringLiteral("%1\n%2").arg(line1, st)});
+    top->setData(0, Qt::UserRole, id);
+    top->setToolTip(0, QStringLiteral("%1\n%2").arg(title, st));
+    top->setForeground(0, QBrush(watchNextListTitleForegroundForId(id)));
+    list->addTopLevelItem(top);
+
+    const QVector<int> alts = alternativesFromAnchor(id, id_set_owned);
+    for (const int aid : alts) {
+      const Anime* aa = anime::db.item(aid);
+      const QString atitle = animeDisplayTitle(aa, aid);
+      const ListEntry* aent = anime::db.entry(aid);
+      const QString ast = listStatusLabel(aent ? aent->status : anime::list::Status::NotInList);
+      auto* ch = new QTreeWidgetItem(QStringList{QStringLiteral("%1\n%2")
+                                                    .arg(tr("Alternative — %1").arg(atitle), ast)});
+      ch->setData(0, Qt::UserRole, aid);
+      ch->setToolTip(0, QStringLiteral("%1\n%2").arg(atitle, ast));
+      ch->setForeground(0, QBrush(watchNextListTitleForegroundForId(aid)));
+      top->addChild(ch);
+    }
+  }
+  list->expandAll();
+
+  connect(list, &QTreeWidget::currentItemChanged, this,
+          [this, refresh_detail](QTreeWidgetItem* cur, QTreeWidgetItem*) {
+            if (!cur) return;
+            const int id = cur->data(0, Qt::UserRole).toInt();
+            if (id <= 0) return;
+            m_masterDetailSelectedId = id;
+            refresh_detail(id);
+          });
+
+  if (list->topLevelItemCount() > 0) {
+    QTreeWidgetItem* pick = watchNextFindTreeItemByAnimeId(list, select_id);
+    if (!pick) pick = list->topLevelItem(0);
+    const QSignalBlocker blocker(list);
+    list->setCurrentItem(pick);
+  }
+  refresh_detail(select_id);
+  m_masterDetailSelectedId = select_id;
+
+  outer_lay->addWidget(splitter, 1);
   return outer;
 }
 
@@ -1245,10 +1813,21 @@ QWidget* WatchNextDialog::buildCard(const int id, const bool compact,
   } else {
     card->setMinimumWidth(200);
   }
-  card->setStyleSheet(
-      QStringLiteral("QFrame#watchNextCard{border:1px solid palette(mid); border-radius:10px; "
-                     "background: palette(base);}"
-                     "QFrame#watchNextCard:hover{border-color: palette(highlight);}"));
+  const ListEntry* e = anime::db.entry(id);
+  const auto listStatus = e ? e->status : anime::list::Status::NotInList;
+  const QString accent_hex = listStatusAccentColor(listStatus).name(QColor::HexRgb);
+  card->setStyleSheet(QStringLiteral(
+      "QFrame#watchNextCard{"
+      "border:1px solid palette(mid);"
+      "border-left:5px solid %1;"
+      "border-radius:10px;"
+      "background: palette(base);"
+      "}"
+      "QFrame#watchNextCard:hover{"
+      "border:1px solid palette(highlight);"
+      "border-left:5px solid %2;"
+      "}"
+      ).arg(accent_hex, accent_hex));
 
   auto* hl = new QHBoxLayout(card);
   hl->setContentsMargins(compact ? 6 : 8, compact ? 6 : 8, compact ? 6 : 8, compact ? 6 : 8);
@@ -1329,9 +1908,6 @@ QWidget* WatchNextDialog::buildCard(const int id, const bool compact,
             .arg(compact ? 9 : 10));
     vl->addWidget(metaLabel);
   }
-
-  const ListEntry* e = anime::db.entry(id);
-  const auto listStatus = e ? e->status : anime::list::Status::NotInList;
 
   if (!compact) {
     auto* statusLabel = new QLabel(tr("List: %1").arg(listStatusLabel(listStatus)), card);

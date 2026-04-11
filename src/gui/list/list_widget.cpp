@@ -118,6 +118,10 @@ ListWidget::ListWidget(QWidget* parent)
   });
 }
 
+AnimeListStatusFilter ListWidget::currentListSidebarFilter() const {
+  return m_proxyModel ? m_proxyModel->filters().listStatus : AnimeListStatusFilter{};
+}
+
 ListViewMode ListWidget::viewMode() const {
   return m_viewMode;
 }
@@ -300,11 +304,11 @@ void ListWidget::initToolbar() {
   m_showWatchOrderPanelAction->setCheckable(true);
   m_showWatchOrderPanelAction->setChecked(taiga::session.animeListWatchOrderPanelVisible());
   m_showWatchOrderPanelAction->setToolTip(
-      tr("Show or hide the pinned franchise / watch-order graph under the anime list."));
+      tr("Show or hide the pinned franchise watch-order panel under the anime list."));
   connect(m_showWatchOrderPanelAction, &QAction::toggled, this,
           &ListWidget::onWatchOrderPanelToggled);
 
-  m_pinWatchOrderAction = new QAction(theme.getIcon("shuffle"), tr("Pin watch order graph"), this);
+  m_pinWatchOrderAction = new QAction(theme.getIcon("shuffle"), tr("Pin watch order"), this);
   m_pinWatchOrderAction->setToolTip(
       tr("Use the selected list row as the pinned title for the watch-order panel."));
 

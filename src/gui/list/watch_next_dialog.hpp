@@ -44,25 +44,30 @@ class QWidget;
 
 namespace gui {
 
+enum class WatchNextLayoutMode : int {
+  HorizontalTimeline = 0,
+  MasterDetail = 1,
+};
+
 class WatchNextDialog final : public QDialog {
   Q_OBJECT
   Q_DISABLE_COPY_MOVE(WatchNextDialog)
 
 public:
   explicit WatchNextDialog(QWidget* parent = nullptr);
-  ~WatchNextDialog() override = default;
+  ~WatchNextDialog() override;
 
   bool didChangeList() const;
 
   /// Sidebar / modal flow: call before `exec()` to pick a random Planning seed and titles.
   void runModalRandomPlanningSession();
 
-  /// Non-modal guide for a specific list entry (user can keep using the main window).
+  /// Non-modal guide for a specific list entry (user can keep using the main window). Always uses
+  /// list + detail layout (no layout switcher).
   void presentModelessGuideForAnime(int anime_id);
 
-  /// Embedded panel below the anime list: same graph as the modeless guide, no window frame, no
-  /// toolbar (Randomize / add-all / Planning combo) or AniList fetch strip — compact legend +
-  /// cards.
+  /// Embedded panel below the anime list: horizontal timeline only, no window frame, no toolbar
+  /// (Randomize / add-all / Planning combo) or AniList fetch strip — compact legend + cards.
   void presentEmbeddedGuideForAnime(int anime_id);
 
   /// Select a new random seed from Planning-only entries and (re)load relations.
@@ -85,8 +90,18 @@ private:
   QWidget* buildMainTimelineRow(const QVector<int>& flow, const QSet<int>& idSet,
                                 const QSet<int>& flowSet,
                                 const std::function<QString(int)>& badge_for_spine);
+  QWidget* buildMasterDetailSection(const QVector<int>& flow, const QVector<int>& orphans,
+                                    const QSet<int>& idSet, const QSet<int>& flowSet,
+                                    const std::function<QString(int)>& badge_for_spine);
+  void fillWatchNextDetailPane(QWidget* detail_host, int sel_id, const QSet<int>& id_set,
+                                const QHash<int, QString>& badge_by_id, const QSet<int>& flow_set);
+  void appendAlternativesPanel(QWidget* outer, QVBoxLayout* root_lay, const QSet<int>& id_set);
+  /// Scrollable column of full-width “Related” rows (separate from the main watch-order tab).
+  /// When `has_more` is true, a button expands to the full orphan list (see `m_relatedShowAll`).
+  QWidget* buildRelatedTitlesTabContent(const QVector<int>& orphans_slice, int total_orphan_count,
+                                        bool has_more);
   void rebuildCards();
-  void setSeed(int id);
+  void setSeed(int id, bool skip_closure_loading_gate = false);
   void repopulatePlanningCombo();
   void ensureFetched(int id);
   void recomputeClosure();
@@ -101,6 +116,7 @@ private:
   void applyRandomizeEnableIfSettled();
   void clearAnilistFetchRows();
   void refreshAnilistFetchRow(int id);
+  QString formatAnilistFetchRowHtml(int id) const;
   void applyPendingScrollRestore();
   int readTimelineHorizontalScrollValue() const;
   void restoreTimelineHorizontalScroll(int px);
@@ -112,12 +128,22 @@ private:
   void onAnilistMediaFetchStarted(int id);
   void onAnilistMediaFetchFinished(int id, bool ok);
   void applyEmbeddedPanelChrome();
+  /// Modal "What to watch next" shows the layout combo + persisted variant; embedded pin is always
+  /// horizontal timeline; modeless guide is always list+detail (no combo, no session writes).
+  void syncLayoutSwitcherChrome();
+  bool seedAnilistFetchSettled() const;
+  bool watchClosureAnilistBusy() const;
+  bool shouldShowWatchNextLoadingScreen() const;
+  void tryFinishWatchNextLoadingGate();
+  QWidget* buildWatchNextLoadingWidget();
 
   int m_seedId = 0;
   bool m_didChange = false;
 
   QLabel* m_header = nullptr;
   QLabel* m_subHeader = nullptr;
+  QWidget* m_layoutSwitcherHost = nullptr;
+  QComboBox* m_watchLayoutCombo = nullptr;
   QFrame* m_toolFrame = nullptr;
   QWidget* m_buttonLegendHost = nullptr;
   QPushButton* m_randomBtn = nullptr;
@@ -128,6 +154,7 @@ private:
   SessionKind m_sessionKind = SessionKind::ModalRandomPlanning;
   /// Delays re-enabling Randomize so brief gaps between sequential AniList completions don’t flash.
   QTimer* m_randomizeSettleTimer = nullptr;
+  QScrollArea* m_cardsOuterScroll = nullptr;
   QWidget* m_cardsHost = nullptr;
   QVBoxLayout* m_cardsLayout = nullptr;
   /// Horizontal franchise timeline strip (recreated on each `rebuildCards()`).
@@ -150,9 +177,18 @@ private:
   /// Every id we have called `ensureFetched` for this session — used so `itemUpdated` is not
   /// ignored when a fetch completes before that id was added to `m_displayIds`.
   QSet<int> m_watchClosureIds;
+  /// `ensureFetched` emits AniList `mediaFetchQueued` synchronously; `onAnilistMediaFetchQueued`
+  /// must not call `rebuildCards()` while `recomputeClosure()` is still building `m_displayIds`.
+  bool m_recomputingClosure = false;
   /// Flow card id whose alternative versions are shown below the timeline (only one at a time).
   int m_alternativesOpenForId = 0;
+  /// Related tab: user expanded past the initial cap (`kRelatedTabInitialCap` ids).
+  bool m_relatedShowAll = false;
+  WatchNextLayoutMode m_layoutMode = WatchNextLayoutMode::HorizontalTimeline;
+  int m_masterDetailSelectedId = 0;
   QTimer* m_rebuildTimer = nullptr;
+  /// Modal/modeless: false until AniList work for the current seed + debounced recompute settles.
+  bool m_watchNextClosureReady = true;
   /// Suppress per-row `listChangeCommitted` while running add-all bulk commits (embedded panel).
   bool m_bulkListCommit = false;
   bool m_embeddedChromeApplied = false;

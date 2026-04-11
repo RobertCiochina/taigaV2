@@ -52,6 +52,7 @@
 #include <anitomy.hpp>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <ranges>
 
 #include "base/string.hpp"
@@ -173,10 +174,12 @@ void MainWindow::init() {
 
   // Keep sidebar counts and Home dashboard in sync after list edits (Media dialog, menus, etc.).
   connect(&anime::db, &anime::Database::entryUpdated, this, [this](int) {
+    if (m_watch_next_modal_open_) return;
     if (m_navigationWidget) m_navigationWidget->refresh();
     refreshHomeDashboard();
   });
   connect(&anime::db, &anime::Database::itemUpdated, this, [this](int) {
+    if (m_watch_next_modal_open_) return;
     if (m_navigationWidget) m_navigationWidget->refresh();
     refreshHomeDashboard();
   });
@@ -431,15 +434,74 @@ void MainWindow::initNavigation() {
   connect(m_navigationWidget, &NavigationWidget::currentListStatusChanged, this,
           [this](anime::list::Status) { updateToolbarSearchPlaceholder(); });
   connect(m_navigationWidget, &NavigationWidget::watchNextRequested, this, [this]() {
-    // Keep selection on the List page (avoids leaving the sidebar highlight on an action row).
-    navigateTo(MainWindowPage::List);
-    applyMainPage(MainWindowPage::List);
+    // Defer so we are not inside `QTreeWidget::currentItemChanged` while showing the modal, and so
+    // AniList-driven DB updates can safely skip sidebar refresh until the modal closes.
+    QTimer::singleShot(0, this, [this]() {
+      const MainWindowPage saved_page = m_activePage;
+      std::optional<anime::list::Status> saved_list_status;
+      if (saved_page == MainWindowPage::List && m_listWidget) {
+        const auto lf = m_listWidget->currentListSidebarFilter();
+        if (!lf.anyStatus && lf.status.has_value()) {
+          saved_list_status = static_cast<anime::list::Status>(*lf.status);
+        }
+      }
 
-    WatchNextDialog dlg(this);
-    dlg.runModalRandomPlanningSession();
-    dlg.exec();
-    if (!dlg.didChangeList()) return;
-    applyWatchNextListSideEffects();
+      const auto restore_watch_next_nav = [this, saved_page, saved_list_status]() {
+        if (!m_navigationWidget) return;
+        m_navHistorySuppress = true;
+        {
+          const QSignalBlocker blocker(m_navigationWidget);
+          m_navigationWidget->setCurrentNavigationPage(saved_page, saved_list_status);
+        }
+        applyMainPage(saved_page);
+        m_navHistorySuppress = false;
+        updateNavHistoryActions();
+      };
+
+      const auto run_watch_next_modal = [this]() -> bool {
+        m_watch_next_modal_open_ = true;
+        WatchNextDialog dlg(nullptr);
+        dlg.setWindowModality(Qt::ApplicationModal);
+        dlg.runModalRandomPlanningSession();
+        if (MainWindow* mw = mainWindow()) {
+          dlg.adjustSize();
+          const QRect ag = mw->frameGeometry();
+          dlg.move(ag.center() - QPoint(dlg.width() / 2, dlg.height() / 2));
+        }
+        dlg.exec();
+        m_watch_next_modal_open_ = false;
+        return dlg.didChangeList();
+      };
+
+      // First visit to the anime list: do not call `navigateTo(List)` before the List page exists.
+      // That would highlight List in the sidebar while the stacked widget is still on Home, which
+      // can desync navigation state and crash. Run the modal first, then `setPage(List)` to create
+      // the list page, then restore the sidebar/content to where the user was (often Home).
+      if (!m_listWidget) {
+        m_navHistorySuppress = true;
+        const bool list_changed = run_watch_next_modal();
+        if (m_navigationWidget) m_navigationWidget->refresh();
+        refreshHomeDashboard();
+        applyMainPage(MainWindowPage::List);
+        {
+          const QSignalBlocker blocker(m_navigationWidget);
+          m_navigationWidget->setCurrentNavigationPage(saved_page, std::nullopt);
+        }
+        applyMainPage(saved_page);
+        m_navHistorySuppress = false;
+        updateNavHistoryActions();
+        if (!list_changed) return;
+        applyWatchNextListSideEffects();
+        return;
+      }
+
+      const bool list_changed = run_watch_next_modal();
+      if (m_navigationWidget) m_navigationWidget->refresh();
+      refreshHomeDashboard();
+      restore_watch_next_nav();
+      if (!list_changed) return;
+      applyWatchNextListSideEffects();
+    });
   });
 
   navigateTo(MainWindowPage::Home);

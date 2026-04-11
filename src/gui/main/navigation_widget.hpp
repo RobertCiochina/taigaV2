@@ -19,6 +19,7 @@
 #pragma once
 
 #include <QTreeWidget>
+#include <optional>
 
 namespace anime::list {
 enum class Status;
@@ -38,6 +39,11 @@ public:
   ~NavigationWidget() = default;
 
   QTreeWidgetItem* findItemByPage(MainWindowPage page) const;
+
+  /// Updates the sidebar selection without emitting signals (caller should use `QSignalBlocker`).
+  /// For `List`, pass a status to select a status tab; `std::nullopt` selects the parent row (all).
+  void setCurrentNavigationPage(MainWindowPage page,
+                                  std::optional<anime::list::Status> listStatusForListPage = {});
 
 public slots:
   void refresh();

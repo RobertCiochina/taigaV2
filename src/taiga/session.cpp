@@ -77,6 +77,10 @@ QByteArray Session::animeListWatchOrderSplitterState() const {
   return QByteArray::fromBase64(value("animeList.watchOrderSplitterState", QByteArray{}).toByteArray());
 }
 
+int Session::watchNextLayoutVariant() const {
+  return value("watchNext.layoutVariant", 0).toInt();
+}
+
 void Session::setPendingV1ListColumnLayout(const QString& json) const {
   setValue("animeList.pendingV1ColumnLayout", json);
 }
@@ -242,6 +246,10 @@ void Session::setAnimeListWatchOrderPanelVisible(const bool visible) const {
 
 void Session::setAnimeListWatchOrderSplitterState(const QByteArray& state) const {
   setValue("animeList.watchOrderSplitterState", state.toBase64().toStdString());
+}
+
+void Session::setWatchNextLayoutVariant(const int variant) const {
+  setValue("watchNext.layoutVariant", variant);
 }
 
 void Session::setMainWindowGeometry(const QByteArray& geometry) const {

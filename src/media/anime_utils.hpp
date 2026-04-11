@@ -35,7 +35,9 @@ bool isNsfw(const Details& item);
 bool isStale(const Details& item);
 
 /// Seconds: skip another remote “full media” fetch when local row is this fresh and has relations.
-inline constexpr int kRedundantMediaFetchTtlSeconds = 3600;
+/// One day limits repeat AniList traffic when reopening watch-order / list UIs (DB still has
+/// `relations_json` from the last successful response).
+inline constexpr int kRedundantMediaFetchTtlSeconds = 86400;
 
 /// True when a recent `fetchAnime`-style response already populated relation edges (watch-order graph).
 bool shouldSkipRedundantMediaFetch(const Details& item);

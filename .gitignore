@@ -12,3 +12,4 @@
 # Local porting notes (local only)
 /_PORTING_ARCHIVE.md
 /_PORTING_SCRATCH.md
+build-taiga-only.cmd

@@ -19,6 +19,7 @@
 #include "navigation_widget.hpp"
 
 #include <QMouseEvent>
+#include <optional>
 
 #include "gui/main/main_window.hpp"
 #include "gui/main/navigation_item_delegate.hpp"
@@ -163,6 +164,32 @@ void NavigationWidget::addSeparator() {
 void NavigationWidget::setItemData(QTreeWidgetItem* item, NavigationItemDataRole role,
                                    const QVariant& value) {
   item->setData(0, static_cast<int>(role), value);
+}
+
+void NavigationWidget::setCurrentNavigationPage(
+    const MainWindowPage page, const std::optional<anime::list::Status> listStatusForListPage) {
+  constexpr auto statusRole = static_cast<int>(NavigationItemDataRole::ListStatus);
+
+  if (page == MainWindowPage::List) {
+    QTreeWidgetItem* const listParent = findItemByPage(MainWindowPage::List);
+    if (!listParent) return;
+    if (listStatusForListPage.has_value()) {
+      for (int i = 0; i < listParent->childCount(); ++i) {
+        QTreeWidgetItem* const child = listParent->child(i);
+        const auto st = child->data(0, statusRole).value<anime::list::Status>();
+        if (st == listStatusForListPage.value()) {
+          setCurrentItem(child);
+          return;
+        }
+      }
+    }
+    setCurrentItem(listParent);
+    return;
+  }
+
+  if (QTreeWidgetItem* const item = findItemByPage(page)) {
+    setCurrentItem(item);
+  }
 }
 
 QTreeWidgetItem* NavigationWidget::findItemByPage(MainWindowPage page) const {
