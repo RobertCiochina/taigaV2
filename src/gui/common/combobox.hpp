@@ -48,7 +48,6 @@ private:
   void ensurePopup();
   void positionAndShowPopup();
 
-  QPointer<QWidget> popup_window_;  // legacy/compat: kept for safety when styles create containers
   QPointer<QFrame> popup_frame_;
   QListView* popup_list_ = nullptr;
 };

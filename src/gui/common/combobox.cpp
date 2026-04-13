@@ -18,6 +18,7 @@
 
 #include "combobox.hpp"
 
+#include <algorithm>
 #include <QAbstractItemView>
 #include <QApplication>
 #include <QEvent>
@@ -28,8 +29,8 @@
 #include <QListView>
 #include <QMouseEvent>
 #include <QPainter>
-#include <QScreen>
 #include <QScrollBar>
+#include <QScreen>
 #include <QStyledItemDelegate>
 
 namespace gui {
@@ -117,113 +118,7 @@ public:
 }  // namespace
 
 ComboBox::ComboBox(QWidget* parent) : QComboBox(parent) {
-  // We intentionally do NOT rely on the native QComboBox popup container because some platforms
-  // show an edge-hover "scroll zone" (small arrow strips). We'll show a simple Qt::Popup frame
-  // with our own QListView instead.
   ensurePopup();
-}
-
-void ComboBox::ensurePopup() {
-  if (popup_frame_) return;
-
-  popup_frame_ = new QFrame(nullptr, Qt::Popup);
-  popup_frame_->setObjectName(QStringLiteral("taigaComboPopup"));
-  popup_frame_->setFrameShape(QFrame::StyledPanel);
-  popup_frame_->setFrameShadow(QFrame::Plain);
-
-  auto* layout = new QHBoxLayout(popup_frame_);
-  layout->setContentsMargins(0, 0, 0, 0);
-  layout->setSpacing(0);
-
-  popup_list_ = new ComboPopupListView(popup_frame_);
-  popup_list_->setUniformItemSizes(true);
-  popup_list_->setTextElideMode(Qt::ElideNone);
-  popup_list_->setMouseTracking(true);  // used only for hover highlight (no selection/scroll)
-  popup_list_->setAutoScroll(false);
-  popup_list_->setAutoScrollMargin(0);
-  popup_list_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-  popup_list_->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-  popup_list_->setCursor(Qt::PointingHandCursor);
-  popup_list_->setItemDelegate(new ComboPopupItemDelegate(popup_list_));
-  if (auto* vp = popup_list_->viewport()) vp->setMouseTracking(true);
-
-  layout->addWidget(popup_list_);
-
-  // Close on focus/activation loss.
-  popup_frame_->installEventFilter(this);
-
-  // Click / keyboard activation selects + closes. Must emit `activated(int)` like the native
-  // popup — slots (e.g. Watch Next layout → `rebuildCards`) connect to that, not
-  // `currentIndexChanged`.
-  const auto apply_popup_choice = [this](const QModelIndex& idx) {
-    if (!idx.isValid()) return;
-    if (!popup_frame_ || !popup_frame_->isVisible()) return;
-    const int row = idx.row();
-    if (row < 0 || row >= count()) return;
-    setCurrentIndex(row);
-    hidePopup();
-    emit activated(row);
-  };
-  connect(popup_list_, &QListView::clicked, this, apply_popup_choice);
-  connect(popup_list_, &QAbstractItemView::activated, this, apply_popup_choice);
-}
-
-void ComboBox::positionAndShowPopup() {
-  ensurePopup();
-  if (!popup_frame_ || !popup_list_) return;
-
-  popup_list_->setModel(model());
-  popup_list_->setRootIndex(rootModelIndex());
-
-  // Selection: keep current row visible (best-effort).
-  if (currentIndex() >= 0) {
-    popup_list_->setCurrentIndex(model()->index(currentIndex(), modelColumn(), rootModelIndex()));
-    popup_list_->scrollTo(popup_list_->currentIndex(), QAbstractItemView::PositionAtCenter);
-  }
-
-  // Size.
-  const int max_rows = std::max(1, maxVisibleItems());
-  const int total_rows = model() ? model()->rowCount(rootModelIndex()) : 0;
-  const int visible_rows = std::clamp(total_rows, 1, max_rows);
-  int row_h = popup_list_->sizeHintForRow(0);
-  if (row_h <= 0) row_h = fontMetrics().height() + 6;
-  const int fw = popup_frame_->frameWidth();
-  const int chrome_h = std::max(2, fw * 2 + 2);
-  const int max_h = row_h * visible_rows + chrome_h;
-
-  // Fixed height prevents unused blank space for short lists (Season/Type/Status).
-  popup_frame_->setFixedHeight(max_h);
-  popup_list_->setFixedHeight(std::max(1, max_h - fw * 2));
-
-  const int col_w = std::max(0, popup_list_->sizeHintForColumn(0));
-  const int sb_w =
-      popup_list_->verticalScrollBar() ? popup_list_->verticalScrollBar()->sizeHint().width() : 0;
-  const bool content_width =
-      this->property("taiga.popupWidthMode").toString() == QStringLiteral("content");
-  const int want_w =
-      content_width ? std::max(60, col_w + sb_w + 24) : std::max(width(), col_w + sb_w + 24);
-  // Use fixed width (min=max) so the popup doesn't expand to the wide toolbar combobox.
-  popup_list_->setMinimumWidth(want_w);
-  popup_list_->setMaximumWidth(want_w);
-  popup_frame_->setMinimumWidth(want_w);
-  popup_frame_->setMaximumWidth(want_w);
-  popup_frame_->resize(want_w, max_h);
-
-  // Position under the combobox, clamped to the current screen.
-  const QPoint below = mapToGlobal(QPoint(0, height()));
-  QScreen* screen = QGuiApplication::screenAt(below);
-  if (!screen) screen = QGuiApplication::primaryScreen();
-  const QRect avail = screen ? screen->availableGeometry() : QRect{};
-
-  QPoint pos = below;
-  if (avail.isValid()) {
-    if (pos.x() + want_w > avail.right()) pos.setX(std::max(avail.left(), avail.right() - want_w));
-    if (pos.y() + max_h > avail.bottom()) pos.setY(std::max(avail.top(), avail.bottom() - max_h));
-  }
-
-  popup_frame_->move(pos);
-  popup_frame_->show();
-  popup_frame_->raise();
 }
 
 void ComboBox::showPopup() {
@@ -235,8 +130,96 @@ void ComboBox::hidePopup() {
   QComboBox::hidePopup();
 }
 
+void ComboBox::ensurePopup() {
+  if (popup_frame_) return;
+
+  popup_frame_ = new QFrame(nullptr, Qt::Popup);
+  popup_frame_->setObjectName(QStringLiteral("taigaComboPopup"));
+  popup_frame_->setFrameShape(QFrame::StyledPanel);
+  popup_frame_->setFrameShadow(QFrame::Plain);
+  popup_frame_->setAttribute(Qt::WA_NoMouseReplay, true);
+
+  auto* layout = new QHBoxLayout(popup_frame_);
+  layout->setContentsMargins(0, 0, 0, 0);
+  layout->setSpacing(0);
+
+  popup_list_ = new ComboPopupListView(popup_frame_);
+  popup_list_->setUniformItemSizes(true);
+  popup_list_->setTextElideMode(Qt::ElideNone);
+  popup_list_->setMouseTracking(true);
+  popup_list_->setAutoScroll(false);
+  popup_list_->setAutoScrollMargin(0);
+  popup_list_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  popup_list_->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  popup_list_->setCursor(Qt::PointingHandCursor);
+  popup_list_->setItemDelegate(new ComboPopupItemDelegate(popup_list_));
+  if (auto* vp = popup_list_->viewport()) vp->setMouseTracking(true);
+  layout->addWidget(popup_list_);
+
+  popup_frame_->installEventFilter(this);
+
+  const auto apply_choice = [this](const QModelIndex& idx) {
+    if (!idx.isValid()) return;
+    if (!popup_frame_ || !popup_frame_->isVisible()) return;
+    const int row = idx.row();
+    if (row < 0 || row >= count()) return;
+    setCurrentIndex(row);
+    hidePopup();
+    emit activated(row);
+  };
+  connect(popup_list_, &QListView::clicked, this, apply_choice);
+  connect(popup_list_, &QAbstractItemView::activated, this, apply_choice);
+}
+
+void ComboBox::positionAndShowPopup() {
+  ensurePopup();
+  if (!popup_frame_ || !popup_list_) return;
+
+  popup_list_->setModel(model());
+  popup_list_->setRootIndex(rootModelIndex());
+
+  // Keep current row visible (best-effort).
+  if (currentIndex() >= 0) {
+    popup_list_->setCurrentIndex(model()->index(currentIndex(), modelColumn(), rootModelIndex()));
+    popup_list_->scrollTo(popup_list_->currentIndex(), QAbstractItemView::PositionAtCenter);
+  }
+
+  // Width: never wider than the combo (prevents covering adjacent buttons).
+  const int col_w = std::max(0, popup_list_->sizeHintForColumn(0));
+  const int sb_w =
+      popup_list_->verticalScrollBar() ? popup_list_->verticalScrollBar()->sizeHint().width() : 0;
+  const bool content_width =
+      this->property("taiga.popupWidthMode").toString() == QStringLiteral("content");
+  const int content_w = std::max(60, col_w + sb_w + 24);
+  const int want_w = content_width ? std::min(width(), content_w) : width();
+
+  // Height: always open downward; clamp height to space below (scroll if needed).
+  const int max_rows = std::max(1, maxVisibleItems());
+  const int total_rows = model() ? model()->rowCount(rootModelIndex()) : 0;
+  const int visible_rows = std::clamp(total_rows, 1, max_rows);
+  int row_h = popup_list_->sizeHintForRow(0);
+  if (row_h <= 0) row_h = fontMetrics().height() + 6;
+  const int fw = popup_frame_->frameWidth();
+  const int desired_h = row_h * visible_rows + std::max(2, fw * 2 + 2);
+
+  const QPoint below = mapToGlobal(QPoint(0, height()));
+  QScreen* screen = QGuiApplication::screenAt(below);
+  if (!screen) screen = QGuiApplication::primaryScreen();
+  const QRect avail = screen ? screen->availableGeometry() : QRect{};
+  const int space_below = avail.isValid() ? std::max(0, avail.bottom() - below.y()) : desired_h;
+  const int max_h = std::max(row_h + fw * 2 + 2, std::min(desired_h, space_below));
+
+  popup_list_->setFixedWidth(want_w);
+  popup_frame_->setFixedWidth(want_w);
+  popup_frame_->setFixedHeight(max_h);
+  popup_list_->setFixedHeight(std::max(1, max_h - fw * 2));
+
+  popup_frame_->move(below);
+  popup_frame_->show();
+  popup_frame_->raise();
+}
+
 bool ComboBox::eventFilter(QObject* watched, QEvent* event) {
-  // Close custom popup when it loses activation/focus.
   if (popup_frame_ && watched == popup_frame_ && event) {
     if (event->type() == QEvent::WindowDeactivate || event->type() == QEvent::FocusOut) {
       hidePopup();
@@ -270,6 +253,15 @@ void ComboBox::mousePressEvent(QMouseEvent* event) {
   if (clear_on_chord && (event->button() == Qt::MouseButton::MiddleButton ||
                          event->button() == Qt::MouseButton::RightButton)) {
     setCurrentIndex(-1);
+    return;
+  }
+
+  if (event && event->button() == Qt::MouseButton::LeftButton) {
+    if (popup_frame_ && popup_frame_->isVisible())
+      hidePopup();
+    else
+      showPopup();
+    event->accept();
     return;
   }
 
