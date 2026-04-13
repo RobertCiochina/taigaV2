@@ -23,11 +23,20 @@
 #include <QLocalSocket>
 #include <QSystemTrayIcon>
 #include <QTranslator>
+#include <QEventLoop>
+#include <QAbstractItemView>
+#include <QTimer>
+#include <QThread>
+#include <QElapsedTimer>
 #include <format>
+#include <memory>
+#include <optional>
 
 #include "base/log.hpp"
 #include "base/string.hpp"
 #include "gui/main/main_window.hpp"
+#include "gui/main/startup_splash.hpp"
+#include "gui/utils/table_view_defaults.hpp"
 #include "gui/utils/theme.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_history.hpp"
@@ -35,9 +44,11 @@
 #include "taiga/network.hpp"
 #include "taiga/path.hpp"
 #include "taiga/settings.hpp"
+#include "taiga/update_check.hpp"
 #include "taiga/version.hpp"
 #include "track/library_watcher.hpp"
 #include "track/media.hpp"
+#include "track/scanner.hpp"
 
 namespace taiga {
 
@@ -92,21 +103,157 @@ int Application::run() {
     installTranslator(&translator);
   }
 
-  window_ = new gui::MainWindow();
-  window_->init();
-
   // If we map the window and then hide() to the tray, Windows briefly paints a normal
   // frame first. Match legacy behavior: keep the main window unmapped until the user
   // opens it from the tray (see MainWindow::displayWindow).
   const bool start_to_tray = taiga::settings.startMinimized() &&
                              taiga::settings.minimizeToTray() &&
                              QSystemTrayIcon::isSystemTrayAvailable();
+  window_ = new gui::MainWindow();
+  window_->initUi(/*startup_blocking=*/true);
+
+  std::unique_ptr<gui::StartupSplash> splash;
+  if (!start_to_tray) {
+    splash = std::make_unique<gui::StartupSplash>();
+    splash->setStepText(QObject::tr("Preparing startup tasks…"));
+    splash->appendLine(QObject::tr("Preparing startup tasks…"));
+    splash->show();
+    splash->raise();
+    splash->activateWindow();
+  }
+
+  const auto setStep = [&](const QString& step) {
+    if (!splash) return;
+    splash->setStepText(step);
+    splash->appendLine(step);
+    splash->repaint();
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+  };
+
+  // ── Startup pipeline (blocking, before first show) ─────────────────────────
+  // 1) Startup sync (if enabled).
+  bool startup_sync_ok = true;
+  bool startup_sync_ran = false;
+  if (taiga::settings.syncAutoOnStart() && taiga::settings.listSynchronizationEnabled()) {
+    setStep(QObject::tr("Synchronizing list…"));
+    startup_sync_ran = true;
+    QEventLoop loop;
+    QObject::connect(window_.get(), &gui::MainWindow::listSyncFinished, &loop,
+                     [&loop, &startup_sync_ok](const bool ok, const QString&) {
+                       startup_sync_ok = ok;
+                       loop.quit();
+                     });
+    window_->startListSynchronization(false);
+    loop.exec();
+  }
+
+  // 2) One scan after sync.
+  // If scan-on-startup is disabled, we still run this scan when startup sync ran successfully.
+  // If scan-on-startup is enabled, we also only scan here (no pre-sync scan).
+  const bool should_scan_after_sync =
+      taiga::settings.scanLibraryOnStartup() || (startup_sync_ran && startup_sync_ok);
+  if (should_scan_after_sync) {
+    setStep(QObject::tr("Scanning library…"));
+    QEventLoop loop;
+    QObject::connect(window_.get(), &gui::MainWindow::libraryScanFinished, &loop,
+                     [&loop](const QString& reason, const QString&) {
+                       if (reason == QStringLiteral("startup-post-sync")) loop.quit();
+                     });
+    window_->runStartupPostSyncScan();
+    loop.exec();
+  }
+
+  // 3) Startup auto-download (only if sync succeeded when it ran, and scan produced an index).
+  if (!startup_sync_ran || startup_sync_ok) {
+    setStep(QObject::tr("Auto-downloading new episodes…"));
+    QEventLoop dlLoop;
+    QObject::connect(window_.get(), &gui::MainWindow::autoDownloadFinished, &dlLoop,
+                     [&dlLoop](int, int) { dlLoop.quit(); });
+    window_->runAutoDownload(/*silent=*/true);
+    dlLoop.exec();
+  }
+
+  // 4) Update check (network only) before first show; prompt after show if needed.
+  std::optional<taiga::UpdateCheckResult> update_res;
+  if (taiga::settings.checkForUpdatesOnStartup()) {
+    setStep(QObject::tr("Checking for updates…"));
+    QEventLoop loop;
+    taiga::checkForUpdatesSilent([&](taiga::UpdateCheckResult r) {
+      update_res = std::move(r);
+      loop.quit();
+    });
+    loop.exec();
+  }
+
+  // 5) Pre-warm Anime List layout as the LAST pre-show step.
+  setStep(QObject::tr("Pre-warming Anime List layout…"));
+  QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+  window_->ensurePageInitialized(gui::MainWindowPage::List);
+  QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+  if (auto* v = window_->findChild<QAbstractItemView*>(QStringLiteral("animeList"))) {
+    gui::tables::warmupSizingNow(v);
+  }
+  QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+
+  // 6) Prepare the initial Home UI so first paint doesn't hitch.
+  setStep(QObject::tr("Preparing main window UI…"));
+  QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+  window_->prepareForFirstShow();
+  QCoreApplication::processEvents(QEventLoop::AllEvents, 100);
+
+  // 7) Adaptive "settle" while the window is still hidden.
+  // Some expensive first-run timers/slots can still execute shortly after `show()`. Process queued
+  // work now behind the splash so the first visible seconds feel responsive, without forcing a
+  // fixed long delay on every startup.
+  setStep(QObject::tr("Finalizing…"));
+  {
+    QElapsedTimer settle;
+    settle.start();
+    // Minimum covers common 1s/2s/3s startup timers; quiet window ensures we exit only after
+    // no long pump iterations have occurred recently.
+    constexpr qint64 kMinMs = 3500;
+    constexpr qint64 kMaxMs = 20000;
+    constexpr qint64 kQuietWindowMs = 1500;
+    qint64 last_long_pump_ms = 0;
+    qint64 last_iter_ms = settle.elapsed();
+    while (settle.elapsed() < kMaxMs) {
+      QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+      // Short sleep to avoid pegging CPU but keep splash responsive.
+      QThread::msleep(2);
+
+      const qint64 now = settle.elapsed();
+      const qint64 iter_ms = now - last_iter_ms;
+      last_iter_ms = now;
+      if (iter_ms >= 120) last_long_pump_ms = now;
+
+      // Past minimum: if we've had no long iterations for a while, we can show the window.
+      if (now >= kMinMs && last_long_pump_ms > 0 && now - last_long_pump_ms >= kQuietWindowMs) {
+        break;
+      }
+      // If nothing ever took long, just exit at min.
+      if (now >= kMinMs && last_long_pump_ms == 0) break;
+    }
+  }
+
+  // End of blocking startup.
+  window_->setStartupBlockingMode(false);
+  if (splash) {
+    splash->hide();
+    splash.reset();
+  }
+
   if (!start_to_tray) {
     window_->show();
     if (taiga::settings.startMinimized()) {
       window_->showMinimized();
     }
   }
+
+  // Present any deferred update prompt after the main window is visible.
+  if (update_res && update_res->ok && update_res->has_newer && !start_to_tray) {
+    taiga::promptUpdateAvailable(window_.get(), update_res->latest, update_res->link);
+  }
+
   startInstanceServer();
 
   return QApplication::exec();

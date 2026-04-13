@@ -44,5 +44,10 @@ void applyDefaults(QAbstractItemView* view, const Defaults& d = {});
 /// Safe to call multiple times.
 void applyHeaderDefaults(QHeaderView* header, const Defaults& d = {});
 
+/// Forces an immediate one-time "initial sizing" + relayout pass, using the same logic as
+/// `applyDefaults`. Useful to pre-warm expensive layout work (e.g. at startup) so the first time
+/// a page is shown doesn't hitch.
+void warmupSizingNow(QAbstractItemView* view);
+
 }  // namespace gui::tables
 

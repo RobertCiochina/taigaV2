@@ -43,6 +43,8 @@ target_sources(taiga-gui PRIVATE
 	main/announced_releases_widget.hpp
 	main/main_window.cpp
 	main/main_window.hpp
+	main/startup_splash.cpp
+	main/startup_splash.hpp
 	main/stats_dialog.cpp
 	main/stats_dialog.hpp
 	main/navigation_item_delegate.cpp

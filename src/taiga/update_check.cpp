@@ -11,6 +11,8 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPointer>
+#include <QString>
+#include <QTimer>
 #include <QUrlQuery>
 #include <QXmlStreamReader>
 
@@ -88,6 +90,18 @@ ParsedUpdate parseUpdateRss(const QByteArray& body) {
 
 }  // namespace
 
+void promptUpdateAvailable(QWidget* parent_context, const QString& latest, const QString& link) {
+  if (!parent_context) return;
+  QPointer<QWidget> guard(parent_context);
+  const QString msg = QObject::tr("A newer version (%1) is available.\n\nOpen the download page?")
+                          .arg(latest.isEmpty() ? QObject::tr("?") : latest);
+  if (QMessageBox::question(guard, QObject::tr("Taiga"), msg,
+                            QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
+    const QUrl open = link.isEmpty() ? QUrl(QStringLiteral("https://taiga.moe")) : QUrl(link);
+    QDesktopServices::openUrl(open);
+  }
+}
+
 void checkForUpdates(QWidget* parent_context, const bool silent) {
   if (!parent_context) return;
   QPointer<QWidget> guard(parent_context);
@@ -155,15 +169,77 @@ void checkForUpdates(QWidget* parent_context, const bool silent) {
       return;
     }
 
-    const QString msg =
-        QObject::tr("A newer version (%1) is available.\n\nOpen the download page?")
-            .arg(QString::fromStdString(parsed.latest.to_string()));
-    if (QMessageBox::question(guard, QObject::tr("Taiga"), msg,
-                              QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
-      const QUrl open =
-          parsed.link.isEmpty() ? QUrl(QStringLiteral("https://taiga.moe")) : QUrl(parsed.link);
-      QDesktopServices::openUrl(open);
+    promptUpdateAvailable(guard, QString::fromStdString(parsed.latest.to_string()), parsed.link);
+  });
+}
+
+void checkForUpdatesSilent(std::function<void(UpdateCheckResult)> callback) {
+  UpdateCheckResult out;
+  const qint64 now = QDateTime::currentMSecsSinceEpoch();
+  if (g_last_silent_update_attempt_ms > 0 &&
+      now - g_last_silent_update_attempt_ms < kSilentUpdateCheckMinIntervalMs) {
+    out.ok = true;
+    out.has_newer = false;
+    QTimer::singleShot(0, [cb = std::move(callback), out]() mutable { cb(out); });
+    return;
+  }
+  if (g_update_reply) {
+    out.ok = false;
+    out.error = QObject::tr("Update check already in progress.");
+    QTimer::singleShot(0, [cb = std::move(callback), out]() mutable { cb(out); });
+    return;
+  }
+  g_last_silent_update_attempt_ms = now;
+
+  QUrl url(QStringLiteral("https://taiga.moe/update.php"));
+  QUrlQuery q;
+  const std::string pre = version().prerelease;
+  q.addQueryItem(QStringLiteral("channel"),
+                 pre.empty() ? QStringLiteral("stable") : QString::fromStdString(pre));
+  q.addQueryItem(QStringLiteral("check"), QStringLiteral("auto"));
+  q.addQueryItem(QStringLiteral("version"), QString::fromStdString(version().to_string()));
+  q.addQueryItem(QStringLiteral("service"), QString::fromStdString(taiga::settings.service()));
+  q.addQueryItem(QStringLiteral("username"),
+                 QString::fromStdString(taiga::accounts.serviceUsername(taiga::settings.service())));
+  url.setQuery(q);
+
+  QNetworkRequest req(url);
+  applyCommonHeaders(req);
+
+  QNetworkReply* reply = taiga::network()->get(req);
+  g_update_reply = reply;
+  const quint64 my_seq = ++g_update_seq;
+  QObject::connect(reply, &QNetworkReply::finished, reply, [reply, cb = std::move(callback), my_seq]() mutable {
+    reply->deleteLater();
+    if (my_seq != g_update_seq) {
+      UpdateCheckResult r;
+      r.ok = false;
+      r.error = QObject::tr("Update check superseded.");
+      cb(r);
+      return;
     }
+    g_update_reply.clear();
+    UpdateCheckResult r;
+    if (reply->error() != QNetworkReply::NoError) {
+      r.ok = false;
+      r.error = reply->errorString();
+      cb(r);
+      return;
+    }
+    const ParsedUpdate parsed = parseUpdateRss(reply->readAll());
+    if (!parsed.parse_ok) {
+      r.ok = false;
+      r.error = QObject::tr("Could not read update information from the server.");
+      cb(r);
+      return;
+    }
+    r.ok = true;
+    r.has_newer = parsed.has_newer;
+    if (parsed.has_newer) {
+      r.latest = QString::fromStdString(parsed.latest.to_string());
+      r.link = parsed.link;
+    }
+    cb(r);
   });
 }
 

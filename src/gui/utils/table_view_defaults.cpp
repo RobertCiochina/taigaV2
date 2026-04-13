@@ -36,6 +36,81 @@ namespace gui::tables {
 
 namespace {
 
+void relayoutNow(QAbstractItemView* view) {
+  if (!view) return;
+  if (auto* tv = qobject_cast<QTableView*>(view)) {
+    tv->resizeRowsToContents();
+    if (tv->viewport()) tv->viewport()->update();
+  } else if (auto* tr = qobject_cast<QTreeView*>(view)) {
+    tr->doItemsLayout();
+    if (tr->viewport()) tr->viewport()->update();
+  }
+}
+
+void autosizeColumnsNow(QAbstractItemView* view) {
+  if (!view) return;
+  QHeaderView* h = nullptr;
+  QTableView* tv = qobject_cast<QTableView*>(view);
+  QTreeView* tr = tv ? nullptr : qobject_cast<QTreeView*>(view);
+  if (tv) h = tv->horizontalHeader();
+  if (tr) h = tr->header();
+  if (!h) return;
+  if (h->count() <= 0) return;
+  const int cap = view->property("_taiga_max_auto_col_w").toInt();
+  if (cap <= 0) return;
+  const int min_text = view->property("_taiga_min_text_col_w").toInt();
+  const int min_first = view->property("_taiga_min_first_col_w").toInt();
+  const auto* m = view->model();
+  const QFontMetrics hfm(h->font());
+  const int row_count = m ? m->rowCount() : 0;
+  const bool use_qt_resize_to_contents = (row_count > 0 && row_count <= 500);
+  int first_visible = -1;
+  for (int c = 0; c < h->count(); ++c) {
+    if (!h->isSectionHidden(c)) { first_visible = c; break; }
+  }
+  for (int c = 0; c < h->count(); ++c) {
+    if (h->isSectionHidden(c)) continue;
+    int w = 0;
+    if (use_qt_resize_to_contents) {
+      if (tv) tv->resizeColumnToContents(c);
+      if (tr) tr->resizeColumnToContents(c);
+      w = h->sectionSize(c);
+    } else if (m) {
+      w = 0;
+      const int sample_n = std::min(row_count, 200);
+      const int step = (sample_n > 0) ? std::max(1, row_count / sample_n) : 1;
+      QFontMetrics fm(view->font());
+      for (int r = 0, taken = 0; r < row_count && taken < sample_n; r += step, ++taken) {
+        const QModelIndex idx = m->index(r, c);
+        const QString text = idx.data(Qt::DisplayRole).toString();
+        if (text.isEmpty()) continue;
+        w = std::max(w, fm.horizontalAdvance(text));
+        if (w > cap) break;
+      }
+      w += 24;
+    } else {
+      w = h->sectionSize(c);
+    }
+    if (w > cap) w = cap;
+
+    int minw = std::max(0, h->minimumSectionSize());
+    if (m) {
+      const QString label = m->headerData(c, Qt::Horizontal, Qt::DisplayRole).toString();
+      if (!label.isEmpty()) minw = std::max(minw, hfm.horizontalAdvance(label) + 18);
+      const auto align_v = m->headerData(c, Qt::Horizontal, Qt::TextAlignmentRole);
+      const int align = align_v.isValid() ? align_v.toInt() : 0;
+      const bool numeric_like = (align & Qt::AlignRight) != 0;
+      if (!numeric_like && min_text > 0) minw = std::max(minw, min_text);
+    } else if (min_text > 0) {
+      minw = std::max(minw, min_text);
+    }
+    if (c == first_visible && min_first > 0) minw = std::max(minw, min_first);
+
+    if (w < minw) w = minw;
+    h->resizeSection(c, w);
+  }
+}
+
 class DelegatingWrapDelegate final : public QAbstractItemDelegate {
 public:
   DelegatingWrapDelegate(QAbstractItemView* view, QAbstractItemDelegate* inner, QObject* parent)
@@ -174,19 +249,11 @@ void ensureAdaptiveWrapHook(QAbstractItemView* view) {
   // once the resize has settled. Keep it centralized and consistent.
   auto* t = new QTimer(view);
   t->setSingleShot(true);
-  t->setInterval(0);
+  t->setInterval(25);
 
-  const auto relayoutNow = [view]() {
-    if (auto* tv = qobject_cast<QTableView*>(view)) {
-      tv->resizeRowsToContents();
-      if (tv->viewport()) tv->viewport()->update();
-    } else if (auto* tr = qobject_cast<QTreeView*>(view)) {
-      tr->doItemsLayout();
-      if (tr->viewport()) tr->viewport()->update();
-    }
-  };
+  const auto relayoutNowFn = [view]() { relayoutNow(view); };
 
-  QObject::connect(t, &QTimer::timeout, view, [relayoutNow]() { relayoutNow(); });
+  QObject::connect(t, &QTimer::timeout, view, [relayoutNowFn]() { relayoutNowFn(); });
 
   const auto relayout = [t]() {
     if (!t) return;
@@ -194,47 +261,7 @@ void ensureAdaptiveWrapHook(QAbstractItemView* view) {
   };
 
   auto autosize_columns = [view, relayout]() {
-    QHeaderView* h = nullptr;
-    QTableView* tv = qobject_cast<QTableView*>(view);
-    QTreeView* tr = tv ? nullptr : qobject_cast<QTreeView*>(view);
-    if (tv) h = tv->horizontalHeader();
-    if (tr) h = tr->header();
-    if (!h) return;
-    if (h->count() <= 0) return;
-    const int cap = view->property("_taiga_max_auto_col_w").toInt();
-    if (cap <= 0) return;
-    const int min_text = view->property("_taiga_min_text_col_w").toInt();
-    const int min_first = view->property("_taiga_min_first_col_w").toInt();
-    const auto* m = view->model();
-    const QFontMetrics hfm(h->font());
-    int first_visible = -1;
-    for (int c = 0; c < h->count(); ++c) {
-      if (!h->isSectionHidden(c)) { first_visible = c; break; }
-    }
-    for (int c = 0; c < h->count(); ++c) {
-      if (h->isSectionHidden(c)) continue;
-      if (tv) tv->resizeColumnToContents(c);
-      if (tr) tr->resizeColumnToContents(c);
-      int w = h->sectionSize(c);
-      if (w > cap) w = cap;
-
-      // Ensure a sane minimum so text columns don't collapse to unreadable widths.
-      int minw = std::max(0, h->minimumSectionSize());
-      if (m) {
-        const QString label = m->headerData(c, Qt::Horizontal, Qt::DisplayRole).toString();
-        if (!label.isEmpty()) minw = std::max(minw, hfm.horizontalAdvance(label) + 18);
-        const auto align_v = m->headerData(c, Qt::Horizontal, Qt::TextAlignmentRole);
-        const int align = align_v.isValid() ? align_v.toInt() : 0;
-        const bool numeric_like = (align & Qt::AlignRight) != 0;
-        if (!numeric_like && min_text > 0) minw = std::max(minw, min_text);
-      } else if (min_text > 0) {
-        minw = std::max(minw, min_text);
-      }
-      if (c == first_visible && min_first > 0) minw = std::max(minw, min_first);
-
-      if (w < minw) w = minw;
-      h->resizeSection(c, w);
-    }
+    autosizeColumnsNow(view);
     relayout();
   };
 
@@ -254,8 +281,11 @@ void ensureAdaptiveWrapHook(QAbstractItemView* view) {
     });
   }
 
-  // Initial sizing once (after the view is shown/laid out).
-  QTimer::singleShot(0, view, autosize_columns);
+  const bool do_auto_size = view->property("_taiga_auto_size_cols").toBool();
+  if (do_auto_size) {
+    // Initial sizing once (after the view is shown/laid out).
+    QTimer::singleShot(0, view, autosize_columns);
+  }
 
   // Relayout when a user resizes columns (wrapped text depends on width).
   if (auto* tv = qobject_cast<QTableView*>(view)) {
@@ -292,6 +322,7 @@ void applyDefaults(QAbstractItemView* view, const Defaults& d) {
   view->setSelectionMode(QAbstractItemView::ExtendedSelection);
   view->setAlternatingRowColors(d.alternating_row_colors);
 
+  view->setProperty("_taiga_auto_size_cols", d.auto_size_columns_to_contents);
   if (d.wrap_cell_text) {
     view->setProperty("_taiga_max_auto_col_w", d.max_auto_column_width_px);
     view->setProperty("_taiga_min_text_col_w", d.min_text_column_width_px);
@@ -316,6 +347,13 @@ void applyDefaults(QAbstractItemView* view, const Defaults& d) {
   } else if (auto* tr = qobject_cast<QTreeView*>(view)) {
     if (auto* h = tr->header()) applyHeaderDefaults(h, d);
   }
+}
+
+void warmupSizingNow(QAbstractItemView* view) {
+  if (!view) return;
+  if (!view->property("_taiga_auto_size_cols").toBool()) return;
+  autosizeColumnsNow(view);
+  relayoutNow(view);
 }
 
 }  // namespace gui::tables

@@ -82,6 +82,16 @@ public:
   Ui::MainWindow* ui() const;
 
   void init();
+  void initUi(bool startup_blocking);
+  void scheduleStartupWork();
+  bool startupBlockingActive() const;
+  void setStartupBlockingMode(bool on);
+
+  // Startup pipeline helpers (used to block before first show).
+  void ensurePageInitialized(MainWindowPage page);
+  void runStartupPreSyncScan();
+  void runStartupPostSyncScan();
+  void prepareForFirstShow();
 
 public slots:
   void addNewFolder();
@@ -136,6 +146,11 @@ public slots:
   /// Sync + auto-download after the embedded list-page watch-order panel or modeless guide edits
   /// the list.
   void applyWatchNextListSideEffects();
+
+signals:
+  void listSyncFinished(bool ok, const QString& message);
+  void libraryScanFinished(const QString& reason_label, const QString& message);
+  void autoDownloadFinished(int torrents_sent, int anime_total);
 
 private slots:
   void about();
@@ -192,6 +207,11 @@ private:
   void refreshHomeQBitPlayButtons();
   void updateHomeAnnouncedBanner();
   void initNoStartupSyncBanner();
+  void setStartupBlockingActive(bool on);
+  void scheduleWelcomeSetupPrompt();
+  void scheduleUpdateCheckStartup();
+  void scheduleLibraryScanStartup();
+  void scheduleListSyncStartup();
 
   Ui::MainWindow* ui_ = nullptr;
 
@@ -249,6 +269,8 @@ private:
   QHash<int, QString> m_pageSearchTexts_;
   bool m_welcomeCheckScheduled = false;
   qint64 m_lastDeactivateMs = 0;
+  bool m_startup_blocking_active_ = false;
+  bool m_welcome_prompt_deferred_ = false;
 
   std::vector<MainWindowPage> m_navStack;
   int m_navHistoryPos = -1;
