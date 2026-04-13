@@ -430,6 +430,11 @@ bool Settings::torrentAutoDownloadSkipAfterTwoFailuresToday() const {
   return value("torrent.autodownload.skipAfterTwoFailuresToday", true).toBool();
 }
 
+int Settings::torrentAutoDownloadReleaseEventDelayMinutes() const {
+  const int m = value("torrent.autodownload.releaseEventDelayMinutes", 10).toInt();
+  return std::clamp(m, 1, 180);
+}
+
 bool Settings::torrentDownloadUseAnimeFolder() const {
   return value("torrent.options.useAnimeFolder", true).toBool();
 }
@@ -815,6 +820,10 @@ void Settings::setTorrentFileSavePath(const std::string& path) const {
 
 void Settings::setTorrentAutoDownloadSkipAfterTwoFailuresToday(const bool enabled) const {
   setValue("torrent.autodownload.skipAfterTwoFailuresToday", enabled);
+}
+
+void Settings::setTorrentAutoDownloadReleaseEventDelayMinutes(const int minutes) const {
+  setValue("torrent.autodownload.releaseEventDelayMinutes", std::clamp(minutes, 1, 180));
 }
 
 void Settings::setTorrentDownloadUseAnimeFolder(const bool enabled) const {

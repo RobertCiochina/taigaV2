@@ -160,7 +160,6 @@ private slots:
   void profile();
   void statistics();
   void onTorrentCatalogAutocheckTimer();
-  void onAutoDownloadTimer();
   void onWatchOrderGuideListCommitted();
 
 protected:
@@ -182,8 +181,13 @@ private:
   void trySyncAfterFocusReturn();
   void updateToolbarSearchPlaceholder();
   void checkForUpdatesManually();
-  enum class LibraryScanReason { StartupPreSync, StartupPostSync, Watcher, Manual };
+  enum class LibraryScanReason { StartupPreSync, StartupPostSync, DelayedAutoDownload, Watcher, Manual };
   void runLibraryScan(bool startup_silent, LibraryScanReason reason);
+  void scheduleDelayedAutoDownload(int delay_minutes);
+  void cancelDelayedAutoDownload(const QString& reason);
+  void beginDelayedAutoDownloadRun();
+  void updateAutoDownloadActionLabel();
+  void checkWatchingReleaseEvent();
   void initFeatureToggleActions();
   void applyMainPage(MainWindowPage page);
   void recordNavHistory(MainWindowPage page);
@@ -227,10 +231,11 @@ private:
   AnnouncedReleasesWidget* m_announcedReleasesWidget = nullptr;
   TrayIcon* m_trayIcon = nullptr;
   QTimer* m_catalog_autocheck_timer_ = nullptr;
-  QTimer* m_auto_download_timer_ = nullptr;
-  QTimer* m_home_countdown_timer_ = nullptr;  // 1-second tick to update the countdown label
+  QTimer* m_home_countdown_timer_ = nullptr;  // light periodic tick for toolbar label refresh
+  QTimer* m_release_event_timer_ = nullptr;   // lightweight release-event detection
+  QTimer* m_delayed_autodl_timer_ = nullptr;  // single-shot delayed auto-download
   QTimer* m_home_qbit_poll_timer_ = nullptr;
-  QLabel* m_toolbarCountdownLabel = nullptr;  // permanent toolbar countdown (all pages)
+  QAction* m_autoDownloadAction = nullptr;    // permanent toolbar action (all pages)
   QLabel* m_homeBodyLabel = nullptr;
   QWidget* m_homeUpNextContainer = nullptr;
   QLabel* m_homeUpNextHeader = nullptr;
@@ -255,9 +260,10 @@ private:
   bool m_list_sync_queued_ = false;
   bool m_post_sync_auto_download_ = false;
   bool m_startup_auto_download_pending_ = false;
-  bool m_upcoming_release_sync_in_progress_ = false;
-  bool m_upcoming_release_auto_download_pending_ = false;
-  qint64 m_last_upcoming_release_sync_trigger_secs_ = 0;
+  bool m_delayed_autodl_after_sync_pending_ = false;
+  bool m_delayed_autodl_after_scan_pending_ = false;
+  qint64 m_delayed_autodl_scheduled_at_secs_ = 0;
+  qint64 m_last_release_event_trigger_secs_ = 0;
 
   QDate m_auto_download_fail_day_;
   QHash<int, int> m_auto_download_fail_streak_today_;

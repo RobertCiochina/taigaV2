@@ -1325,6 +1325,21 @@ void SettingsDialog::buildDownloadsPage() {
          "not affected."));
   layout->addWidget(m_dl_autodl_skip_failed_twice_today_);
 
+  {
+    auto* row = new QHBoxLayout();
+    row->addWidget(new QLabel(tr("Release event delay (minutes):"), page));
+    m_dl_autodl_release_delay_mins_ = new QSpinBox(page);
+    m_dl_autodl_release_delay_mins_->setRange(1, 180);
+    m_dl_autodl_release_delay_mins_->setValue(
+        taiga::settings.torrentAutoDownloadReleaseEventDelayMinutes());
+    m_dl_autodl_release_delay_mins_->setToolTip(
+        tr("When a new episode is detected as released for Watching titles, Taiga waits this long "
+           "before running sync → scan → auto-download."));
+    row->addWidget(m_dl_autodl_release_delay_mins_);
+    row->addStretch();
+    layout->addLayout(row);
+  }
+
   // ── qBittorrent Web API ─────────────────────────────────────────────────
   layout->addSpacing(8);
   addSection(tr("qBittorrent Web API (recommended for auto-downloads)"));
@@ -1404,6 +1419,10 @@ void SettingsDialog::saveDownloadsPage() {
   if (m_dl_autodl_skip_failed_twice_today_) {
     taiga::settings.setTorrentAutoDownloadSkipAfterTwoFailuresToday(
         m_dl_autodl_skip_failed_twice_today_->isChecked());
+  }
+  if (m_dl_autodl_release_delay_mins_) {
+    taiga::settings.setTorrentAutoDownloadReleaseEventDelayMinutes(
+        m_dl_autodl_release_delay_mins_->value());
   }
   taiga::settings.setTorrentDownloadUseAnimeFolder(m_dl_use_anime_folder_->isChecked());
   taiga::settings.setTorrentDownloadFallbackOnClientPath(m_dl_fallback_client_->isChecked());

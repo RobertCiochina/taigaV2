@@ -373,13 +373,6 @@ void MainWindow::initUi(const bool startup_blocking) {
           &MainWindow::onTorrentCatalogAutocheckTimer);
   refreshTorrentCatalogAutocheckTimer();
 
-  // Auto-download every 2 hours (silent, no confirmation when timer fires).
-  m_auto_download_timer_ = new QTimer(this);
-  m_auto_download_timer_->setTimerType(Qt::VeryCoarseTimer);
-  m_auto_download_timer_->setInterval(2 * 60 * 60 * 1000);  // 2 hours
-  connect(m_auto_download_timer_, &QTimer::timeout, this, &MainWindow::onAutoDownloadTimer);
-  m_auto_download_timer_->start();
-
   {
     auto* shortcut_find = new QShortcut(QKeySequence::Find, this);
     shortcut_find->setContext(Qt::WidgetWithChildrenShortcut);
@@ -417,7 +410,10 @@ void MainWindow::initActions() {
   connect(ui_->actionDisplayWindow, &QAction::triggered, this, &MainWindow::displayWindow);
 
   connect(ui_->actionSynchronize, &QAction::triggered, this,
-          [this]() { startListSynchronization(true); });
+          [this]() {
+            cancelDelayedAutoDownload(tr("Manual sync"));
+            startListSynchronization(true);
+          });
   ui_->actionSynchronize->setShortcuts(
       {QKeySequence{QKeySequence::Refresh}, QKeySequence{Qt::CTRL | Qt::Key_S}});
   ui_->actionSynchronize->setShortcutContext(Qt::ApplicationShortcut);
@@ -850,30 +846,52 @@ void MainWindow::initToolbar() {
     });
   }
 
-  // Auto-download countdown label — visible on every page, right of the Scan button.
+  // Auto-download action — visible on every page, inline with toolbar actions.
   {
-    m_toolbarCountdownLabel = new QLabel(this);
-    // Plain text to avoid rich-text relayout costs on every 1-second tick.
-    m_toolbarCountdownLabel->setTextFormat(Qt::PlainText);
-    m_toolbarCountdownLabel->setContentsMargins(8, 0, 4, 0);
-    m_toolbarCountdownLabel->setCursor(Qt::PointingHandCursor);
-    m_toolbarCountdownLabel->setToolTip(tr("Click to run auto-download now"));
-    m_toolbarCountdownLabel->installEventFilter(this);
-    m_toolbarCountdownLabel->setStyleSheet(
-        QStringLiteral("QLabel{font-size:large; font-weight:600;}"));
+    if (!m_autoDownloadAction) {
+      m_autoDownloadAction = new QAction(tr("Auto-download"), this);
+      m_autoDownloadAction->setToolTip(tr("Download new episodes for Watching titles"));
+      // Use a known theme key (avoid blank icon if key is missing).
+      m_autoDownloadAction->setIcon(theme.getIcon("cloud_download"));
+      connect(m_autoDownloadAction, &QAction::triggered, this, [this]() {
+        cancelDelayedAutoDownload(tr("Manual auto-download"));
+        runAutoDownload(false);
+      });
+    }
+    // Place it between Sync and Scan.
+    if (ui_->actionScanAvailableEpisodes) {
+      ui_->toolbar->insertAction(ui_->actionScanAvailableEpisodes, m_autoDownloadAction);
+    } else {
+      ui_->toolbar->addAction(m_autoDownloadAction);
+    }
+    if (auto* btn = qobject_cast<QToolButton*>(ui_->toolbar->widgetForAction(m_autoDownloadAction))) {
+      btn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    }
 
-    // Place it right after the Scan action.
-    ui_->toolbar->insertWidget(ui_->actionSynchronize, m_toolbarCountdownLabel);
-
-    // 1-second timer shared between toolbar label and Home page label.
+    // Lightweight timer to refresh button text/countdown.
     if (!m_home_countdown_timer_) {
       m_home_countdown_timer_ = new QTimer(this);
-      m_home_countdown_timer_->setInterval(1000);
+      m_home_countdown_timer_->setInterval(10 * 1000);
       connect(m_home_countdown_timer_, &QTimer::timeout, this,
               &MainWindow::updateAutoDownloadCountdownLabel);
       m_home_countdown_timer_->start();
     }
     updateAutoDownloadCountdownLabel();
+
+    if (!m_delayed_autodl_timer_) {
+      m_delayed_autodl_timer_ = new QTimer(this);
+      m_delayed_autodl_timer_->setSingleShot(true);
+      connect(m_delayed_autodl_timer_, &QTimer::timeout, this,
+              &MainWindow::beginDelayedAutoDownloadRun);
+    }
+    if (!m_release_event_timer_) {
+      m_release_event_timer_ = new QTimer(this);
+      m_release_event_timer_->setTimerType(Qt::VeryCoarseTimer);
+      m_release_event_timer_->setInterval(20 * 1000);
+      connect(m_release_event_timer_, &QTimer::timeout, this,
+              &MainWindow::checkWatchingReleaseEvent);
+      m_release_event_timer_->start();
+    }
   }
 }
 
@@ -1451,7 +1469,7 @@ void MainWindow::handleListSyncFinished(bool ok, QString message) {
     statusBar()->showMessage(message.isEmpty() ? synchronizedDoneStatus() : message, 5000);
 
     // On the very first sync after startup, trigger a silent auto-download
-    // so new episodes are picked up right away without waiting 2 hours.
+    // so new episodes are picked up right away.
     if (!m_startup_sync_done_) {
       m_startup_sync_done_ = true;
       if (startupBlockingActive()) {
@@ -1478,12 +1496,20 @@ void MainWindow::handleListSyncFinished(bool ok, QString message) {
       QTimer::singleShot(0, this, [this]() { runAutoDownload(true); });
     }
 
-    if (m_upcoming_release_auto_download_pending_) {
-      m_upcoming_release_auto_download_pending_ = false;
-      QTimer::singleShot(0, this, [this]() { runAutoDownload(true); });
+    if (m_delayed_autodl_after_sync_pending_) {
+      m_delayed_autodl_after_sync_pending_ = false;
+      // Always scan before a background auto-download so the episode index isn't stale.
+      m_delayed_autodl_after_scan_pending_ = true;
+      runLibraryScan(true, LibraryScanReason::DelayedAutoDownload);
     }
   } else {
     statusBar()->showMessage(synchronizationFailedStatus(message), 8000);
+    if (m_delayed_autodl_after_sync_pending_) {
+      m_delayed_autodl_after_sync_pending_ = false;
+      // If sync fails, still try scan→auto-download to keep behavior resilient.
+      m_delayed_autodl_after_scan_pending_ = true;
+      runLibraryScan(true, LibraryScanReason::DelayedAutoDownload);
+    }
   }
 
   updateNoStartupSyncBanner();
@@ -1493,7 +1519,6 @@ void MainWindow::handleListSyncFinished(bool ok, QString message) {
 }
 
 void MainWindow::finalizeListSyncSession() {
-  m_upcoming_release_sync_in_progress_ = false;
   if (m_list_sync_queued_) {
     m_list_sync_queued_ = false;
     QTimer::singleShot(0, this, [this]() { startListSynchronization(false); });
@@ -1571,6 +1596,8 @@ void MainWindow::runLibraryScan(const bool startup_silent, const LibraryScanReas
         return QStringLiteral("startup-pre-sync");
       case LibraryScanReason::StartupPostSync:
         return QStringLiteral("startup-post-sync");
+      case LibraryScanReason::DelayedAutoDownload:
+        return QStringLiteral("autodl-delayed");
       case LibraryScanReason::Watcher:
         return QStringLiteral("watcher");
       case LibraryScanReason::Manual:
@@ -1640,6 +1667,12 @@ void MainWindow::runLibraryScan(const bool startup_silent, const LibraryScanReas
             track::saveLibraryEpisodeIndexCacheAfterScan(reasonLabel, allowRegress);
             if (w->m_startup_auto_download_pending_) {
               w->m_startup_auto_download_pending_ = false;
+              QTimer::singleShot(0, w.data(), [w]() {
+                if (w) w->runAutoDownload(true);
+              });
+            }
+            if (w->m_delayed_autodl_after_scan_pending_) {
+              w->m_delayed_autodl_after_scan_pending_ = false;
               QTimer::singleShot(0, w.data(), [w]() {
                 if (w) w->runAutoDownload(true);
               });
@@ -1772,10 +1805,6 @@ void MainWindow::onTorrentCatalogAutocheckTimer() {
   }
 }
 
-void MainWindow::onAutoDownloadTimer() {
-  runAutoDownload(/*silent=*/true);
-}
-
 void MainWindow::refreshHomeQBitPlayButtons() {
   if (m_activePage != MainWindowPage::Home) return;
   if (!taiga::settings.torrentQBitApiEnabled()) return;
@@ -1894,7 +1923,10 @@ void MainWindow::runAutoDownload(const bool silent) {
   };
   QList<Candidate> candidates;
   QStringList skipped_twice_today_labels;
-  const bool skip_failed = taiga::settings.torrentAutoDownloadSkipAfterTwoFailuresToday();
+  // The "skip after two failures today" throttle is only meant to reduce background noise.
+  // Manual auto-download should always attempt every candidate.
+  const bool skip_failed =
+      silent && taiga::settings.torrentAutoDownloadSkipAfterTwoFailuresToday();
   const QDate today = QDate::currentDate();
   if (skip_failed) {
     if (!m_auto_download_fail_day_.isValid() || m_auto_download_fail_day_ != today) {
@@ -2323,9 +2355,19 @@ void MainWindow::refreshHomeDashboard() {
         const qint64 secs_until = ue.air_time - now_secs;
         const int days = static_cast<int>(secs_until / 86400);
         const int hours = static_cast<int>((secs_until % 86400) / 3600);
+        const int minutes = static_cast<int>((secs_until % 3600) / 60);
         QString when;
-        if (days == 0)
-          when = hours > 0 ? tr("in %1 h").arg(hours) : tr("today");
+        if (days == 0) {
+          if (secs_until < 60) {
+            when = tr("soon");
+          } else if (hours <= 0) {
+            when = tr("in %1 min").arg(std::max(1, minutes));
+          } else if (minutes > 0) {
+            when = tr("in %1 h %2 min").arg(hours).arg(minutes);
+          } else {
+            when = tr("in %1 h").arg(hours);
+          }
+        }
         else if (days == 1)
           when = tr("tomorrow");
         else
@@ -2361,7 +2403,7 @@ void MainWindow::refreshHomeDashboard() {
             row);
         whenLbl->setTextFormat(Qt::RichText);
         whenLbl->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        whenLbl->setFixedWidth(90);
+        whenLbl->setFixedWidth(120);
 
         rl->addWidget(titleBtn);
         rl->addWidget(epLbl);
@@ -2573,58 +2615,100 @@ void MainWindow::refreshListColors() {
 }
 
 void MainWindow::updateAutoDownloadCountdownLabel() {
-  if (!m_auto_download_timer_) return;
-  const int remaining_ms = m_auto_download_timer_->remainingTime();
+  updateAutoDownloadActionLabel();
+}
 
-  QString toolbarText;
-  if (remaining_ms <= 0) {
-    toolbarText = tr("⬇ running…");
+void MainWindow::updateAutoDownloadActionLabel() {
+  if (!m_autoDownloadAction) return;
+  if (m_delayed_autodl_timer_ && m_delayed_autodl_timer_->isActive()) {
+    const int secs = std::max(0, m_delayed_autodl_timer_->remainingTime() / 1000);
+    const int min = (secs + 59) / 60;
+    const QString text =
+        (min <= 0) ? tr("Auto-download (scheduled…)") : tr("Auto-download (in %1m)").arg(min);
+    m_autoDownloadAction->setText(text);
+    return;
+  }
+  m_autoDownloadAction->setText(tr("Auto-download"));
+}
+
+void MainWindow::scheduleDelayedAutoDownload(const int delay_minutes) {
+  if (!m_delayed_autodl_timer_) return;
+  const int clamped_min = std::max(1, delay_minutes);
+  // If already scheduled, keep the earliest fire time.
+  if (m_delayed_autodl_timer_->isActive()) {
+    const int remaining_ms = m_delayed_autodl_timer_->remainingTime();
+    const int requested_ms = clamped_min * 60 * 1000;
+    if (remaining_ms > 0 && remaining_ms <= requested_ms) {
+      updateAutoDownloadActionLabel();
+      return;
+    }
+    m_delayed_autodl_timer_->stop();
+  }
+  m_delayed_autodl_scheduled_at_secs_ = QDateTime::currentSecsSinceEpoch();
+  m_delayed_autodl_timer_->start(clamped_min * 60 * 1000);
+  updateAutoDownloadActionLabel();
+  statusBar()->showMessage(tr("Auto-download scheduled."), 4000);
+}
+
+void MainWindow::cancelDelayedAutoDownload(const QString& reason) {
+  if (!m_delayed_autodl_timer_) return;
+  if (!m_delayed_autodl_timer_->isActive()) return;
+  m_delayed_autodl_timer_->stop();
+  m_delayed_autodl_scheduled_at_secs_ = 0;
+  updateAutoDownloadActionLabel();
+  if (!reason.isEmpty()) {
+    statusBar()->showMessage(tr("Canceled scheduled auto-download (%1).").arg(reason), 4000);
   } else {
-    const int total_secs = remaining_ms / 1000;
-    const int h = total_secs / 3600;
-    const int m = (total_secs % 3600) / 60;
-    const int s = total_secs % 60;
-    QString when;
-    if (h > 0)
-      when = tr("%1h %2m").arg(h).arg(m);
-    else if (m > 0)
-      when = tr("%1m %2s").arg(m).arg(s);
-    else
-      when = tr("%1s").arg(s);
-    toolbarText = tr("⬇ %1").arg(when);
+    statusBar()->showMessage(tr("Canceled scheduled auto-download."), 4000);
+  }
+}
+
+void MainWindow::beginDelayedAutoDownloadRun() {
+  m_delayed_autodl_scheduled_at_secs_ = 0;
+  updateAutoDownloadActionLabel();
+
+  // Ordering: sync (if configured) → scan → auto-download.
+  const bool can_sync = taiga::settings.listSynchronizationEnabled() &&
+                        sync::currentServiceId() != sync::ServiceId::Unknown &&
+                        sync::remoteListAccessConfigured();
+  if (can_sync) {
+    m_delayed_autodl_after_sync_pending_ = true;
+    statusBar()->showMessage(tr("Auto-download: synchronizing…"), 4000);
+    startListSynchronization(/*queue_if_busy=*/false);
+    return;
+  }
+  m_delayed_autodl_after_scan_pending_ = true;
+  statusBar()->showMessage(tr("Auto-download: scanning library…"), 4000);
+  runLibraryScan(true, LibraryScanReason::DelayedAutoDownload);
+}
+
+void MainWindow::checkWatchingReleaseEvent() {
+  // Watch only: detect if the soonest upcoming episode just crossed "now".
+  // Debounced so it fires at most once per minute.
+  const qint64 now = QDateTime::currentSecsSinceEpoch();
+  if (m_last_release_event_trigger_secs_ == 0) {
+    m_last_release_event_trigger_secs_ = now;
+    return;
+  }
+  if (now - m_last_release_event_trigger_secs_ < 60) return;
+  m_last_release_event_trigger_secs_ = now;
+
+  if (m_delayed_autodl_timer_ && m_delayed_autodl_timer_->isActive()) return;
+  if (m_list_sync_in_progress_ || m_library_scan_in_progress_) return;
+
+  qint64 soonest = 0;
+  for (const auto& entry : anime::db.entries()) {
+    if (entry.status != anime::list::Status::Watching) continue;
+    const Anime* item = anime::db.item(entry.anime_id);
+    if (!item) continue;
+    if (item->next_episode_time <= 0) continue;
+    const qint64 t = static_cast<qint64>(item->next_episode_time);
+    if (soonest == 0 || t < soonest) soonest = t;
   }
 
-  if (m_toolbarCountdownLabel) m_toolbarCountdownLabel->setText(toolbarText);
-
-  // If the soonest upcoming episode for a Watching title has just crossed "now", trigger a silent
-  // resync so `next_episode_time` and related metadata refresh, then run a silent auto-download.
-  // Debounced so it fires at most once per minute.
-  if (taiga::settings.listSynchronizationEnabled() &&
-      sync::currentServiceId() != sync::ServiceId::Unknown && sync::remoteListAccessConfigured() &&
-      !m_upcoming_release_sync_in_progress_) {
-    const qint64 now = QDateTime::currentSecsSinceEpoch();
-    if (m_last_upcoming_release_sync_trigger_secs_ == 0) {
-      m_last_upcoming_release_sync_trigger_secs_ = now;
-    }
-    if (now - m_last_upcoming_release_sync_trigger_secs_ >= 60) {
-      qint64 soonest = 0;
-      for (const auto& entry : anime::db.entries()) {
-        if (entry.status != anime::list::Status::Watching) continue;
-        const Anime* item = anime::db.item(entry.anime_id);
-        if (!item) continue;
-        if (item->next_episode_time <= 0) continue;
-        const qint64 t = static_cast<qint64>(item->next_episode_time);
-        if (soonest == 0 || t < soonest) soonest = t;
-      }
-      // If "soonest" is in the recent past (within 5 minutes), treat as a release event.
-      if (soonest > 0 && now >= soonest && now - soonest <= 5 * 60) {
-        m_last_upcoming_release_sync_trigger_secs_ = now;
-        m_upcoming_release_sync_in_progress_ = true;
-        m_upcoming_release_auto_download_pending_ = true;
-        statusBar()->showMessage(tr("Episode released — synchronizing…"), 4000);
-        startListSynchronization();
-      }
-    }
+  // If "soonest" is in the recent past (within 5 minutes), treat as a release event.
+  if (soonest > 0 && now >= soonest && now - soonest <= 5 * 60) {
+    scheduleDelayedAutoDownload(taiga::settings.torrentAutoDownloadReleaseEventDelayMinutes());
   }
 }
 
@@ -2775,10 +2859,6 @@ void MainWindow::onWatchOrderGuideListCommitted() {
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
-  if (watched == m_toolbarCountdownLabel && event->type() == QEvent::MouseButtonPress) {
-    runAutoDownload(false);
-    return true;
-  }
   return QMainWindow::eventFilter(watched, event);
 }
 
