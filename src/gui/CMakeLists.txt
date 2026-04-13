@@ -67,6 +67,10 @@ target_sources(taiga-gui PRIVATE
 	models/history_model.hpp
 	models/library_model.cpp
 	models/library_model.hpp
+	models/torrent_rss_model.cpp
+	models/torrent_rss_model.hpp
+	models/torrent_rss_proxy_model.cpp
+	models/torrent_rss_proxy_model.hpp
 
 	search/search_widget.cpp
 	search/search_widget.hpp
@@ -87,6 +91,10 @@ target_sources(taiga-gui PRIVATE
 	utils/list_commit.hpp
 	utils/image_provider.cpp
 	utils/image_provider.hpp
+	utils/cell_alignment_proxy_model.cpp
+	utils/cell_alignment_proxy_model.hpp
+	utils/header_alignment_proxy_model.cpp
+	utils/header_alignment_proxy_model.hpp
 	utils/painter_state_saver.hpp
 	utils/painters.cpp
 	utils/painters.hpp
@@ -94,6 +102,8 @@ target_sources(taiga-gui PRIVATE
 	utils/rss_feed_parser.hpp
 	utils/svg_icon_engine.cpp
 	utils/svg_icon_engine.hpp
+	utils/table_view_defaults.cpp
+	utils/table_view_defaults.hpp
 	utils/theme.cpp
 	utils/theme.hpp
 	utils/ui_strings.hpp

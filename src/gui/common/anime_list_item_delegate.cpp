@@ -19,9 +19,11 @@
 #include "anime_list_item_delegate.hpp"
 
 #include <QComboBox>
+#include <QFontMetrics>
 #include <QPainter>
 #include <QStyle>
 #include <QStyleOptionButton>
+#include <QTreeView>
 #include <limits>
 
 #include "gui/models/anime_list_model.hpp"
@@ -131,9 +133,12 @@ QSize ListItemDelegate::sizeHint(const QStyleOptionViewItem& option,
                                  const QModelIndex& index) const {
   if (index.isValid()) {
     if (index.column() == AnimeListModel::COLUMN_WATCH_ORDER_GUIDE) {
-      return QSize(42, 24);
+      // Keep the button size stable regardless of row height.
+      return QSize(42, 22);
     }
-    return QSize(0, 24);
+    // Delegate row sizing to the shared table defaults wrapper so behavior stays uniform
+    // across all tables (and row height can shrink when columns widen).
+    return QStyledItemDelegate::sizeHint(option, index);
   }
 
   return QStyledItemDelegate::sizeHint(option, index);

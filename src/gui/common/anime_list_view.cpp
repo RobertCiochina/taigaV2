@@ -26,6 +26,7 @@
 #include "gui/models/anime_list_model.hpp"
 #include "gui/models/anime_list_proxy_model.hpp"
 #include "gui/utils/painters.hpp"
+#include "gui/utils/table_view_defaults.hpp"
 #include "taiga/settings.hpp"
 
 namespace gui {
@@ -46,8 +47,10 @@ void positionAnimeListGuideColumnAfterTitle(QHeaderView* header) {
 void applyAnimeListHorizontalStretch(QHeaderView* header) {
   if (!header) return;
   header->setStretchLastSection(false);
-  header->setSectionResizeMode(AnimeListModel::COLUMN_TITLE, QHeaderView::Stretch);
-  header->setSectionResizeMode(AnimeListModel::COLUMN_WATCH_ORDER_GUIDE, QHeaderView::Fixed);
+  // Deprecated: Stretch makes manual resizing confusing and can make it appear like columns
+  // resize “backwards” as the stretch section consumes/expands space. Keep everything
+  // Interactive (except hidden columns) so users can resize any visible column.
+  header->setSectionResizeMode(QHeaderView::Interactive);
 }
 
 ListView::ListView(QWidget* parent, AnimeListModel* model, AnimeListProxyModel* proxyModel,
@@ -74,6 +77,8 @@ ListView::ListView(QWidget* parent, AnimeListModel* model, AnimeListProxyModel* 
   setMouseTracking(true);
   viewport()->setAttribute(Qt::WA_Hover, true);
 
+  gui::tables::applyDefaults(this);
+
   header()->setFirstSectionMovable(true);
   header()->setStretchLastSection(false);
   header()->setTextElideMode(Qt::ElideRight);
@@ -83,14 +88,14 @@ ListView::ListView(QWidget* parent, AnimeListModel* model, AnimeListProxyModel* 
   header()->hideSection(AnimeListModel::COLUMN_STARTED);
   header()->hideSection(AnimeListModel::COLUMN_COMPLETED);
   header()->hideSection(AnimeListModel::COLUMN_NOTES);
-  header()->resizeSection(AnimeListModel::COLUMN_TITLE, 295);
   header()->resizeSection(AnimeListModel::COLUMN_PROGRESS, 150);
   header()->resizeSection(AnimeListModel::COLUMN_DURATION, 75);
   header()->resizeSection(AnimeListModel::COLUMN_SCORE, 75);
   header()->resizeSection(AnimeListModel::COLUMN_AVERAGE, 75);
   header()->resizeSection(AnimeListModel::COLUMN_TYPE, 75);
   header()->resizeSection(AnimeListModel::COLUMN_LAST_UPDATED, 110);
-  header()->setSectionResizeMode(AnimeListModel::COLUMN_WATCH_ORDER_GUIDE, QHeaderView::Fixed);
+  header()->setCascadingSectionResizes(false);
+  header()->setSectionResizeMode(QHeaderView::Interactive);
   header()->resizeSection(AnimeListModel::COLUMN_WATCH_ORDER_GUIDE, 42);
   positionAnimeListGuideColumnAfterTitle(header());
   applyAnimeListHorizontalStretch(header());

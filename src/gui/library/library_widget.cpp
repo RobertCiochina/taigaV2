@@ -26,6 +26,7 @@
 #include "gui/library/library_menu.hpp"
 #include "gui/main/main_window.hpp"
 #include "gui/models/library_model.hpp"
+#include "gui/utils/table_view_defaults.hpp"
 #include "gui/utils/theme.hpp"
 #include "gui/utils/ui_strings.hpp"
 #include "taiga/settings.hpp"
@@ -81,13 +82,17 @@ LibraryWidget::LibraryWidget(QWidget* parent)
   m_view->setContextMenuPolicy(Qt::CustomContextMenu);
   m_view->setUniformRowHeights(true);
 
+  gui::tables::applyDefaults(m_view);
+
   m_view->header()->setSectionsMovable(false);
   m_view->header()->setStretchLastSection(false);
   m_view->header()->setTextElideMode(Qt::ElideRight);
   m_view->header()->hideSection(LibraryModel::COLUMN_TYPE);
-  m_view->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
-  m_view->header()->setSectionResizeMode(LibraryModel::COLUMN_NAME, QHeaderView::Stretch);
-  m_view->header()->setSectionResizeMode(LibraryModel::COLUMN_ANIME, QHeaderView::Stretch);
+  // Use Interactive so manual resizing is stable (ResizeToContents fights user widths).
+  m_view->header()->setSectionResizeMode(QHeaderView::Interactive);
+  // Keep all visible columns user-resizable.
+  m_view->header()->setSectionResizeMode(LibraryModel::COLUMN_NAME, QHeaderView::Interactive);
+  m_view->header()->setSectionResizeMode(LibraryModel::COLUMN_ANIME, QHeaderView::Interactive);
   m_view->header()->moveSection(LibraryModel::COLUMN_ANIME, 1);
   m_view->header()->moveSection(LibraryModel::COLUMN_EPISODE, 2);
 

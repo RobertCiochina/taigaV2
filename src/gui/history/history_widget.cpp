@@ -26,6 +26,7 @@
 #include "gui/media/media_dialog.hpp"
 #include "gui/models/history_model.hpp"
 #include "gui/utils/painters.hpp"
+#include "gui/utils/table_view_defaults.hpp"
 #include "gui/utils/ui_strings.hpp"
 #include "gui/utils/ui_title.hpp"
 #include "media/anime_db.hpp"
@@ -133,13 +134,17 @@ HistoryWidget::HistoryWidget(QWidget* parent)
   m_view->setRootIsDecorated(false);
   m_view->setUniformRowHeights(true);
 
+  gui::tables::applyDefaults(m_view);
+
   m_view->header()->setSectionsClickable(false);
   m_view->header()->setSectionsMovable(false);
   m_view->header()->setStretchLastSection(false);
   m_view->header()->setTextElideMode(Qt::ElideRight);
-  m_view->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
-  m_view->header()->setSectionResizeMode(HistoryModel::COLUMN_TITLE, QHeaderView::Stretch);
-  m_view->header()->setSectionResizeMode(HistoryModel::COLUMN_DETAILS, QHeaderView::Stretch);
+  // Use Interactive so manual resizing is stable (ResizeToContents fights user widths).
+  m_view->header()->setSectionResizeMode(QHeaderView::Interactive);
+  // Keep all visible columns user-resizable.
+  m_view->header()->setSectionResizeMode(HistoryModel::COLUMN_TITLE, QHeaderView::Interactive);
+  m_view->header()->setSectionResizeMode(HistoryModel::COLUMN_DETAILS, QHeaderView::Interactive);
 
   m_view->sortByColumn(HistoryModel::COLUMN_MODIFIED, Qt::SortOrder::DescendingOrder);
   m_view->setSortingEnabled(true);

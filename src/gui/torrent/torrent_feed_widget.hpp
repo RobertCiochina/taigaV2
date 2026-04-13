@@ -16,13 +16,19 @@
 #include "base/rss.hpp"
 
 class QLineEdit;
+class QModelIndex;
 class QNetworkReply;
 class QPushButton;
-class QTableWidget;
+class QTabWidget;
+class QTreeView;
 class QListWidget;
 class QListWidgetItem;
+class QTimer;
 
 namespace gui {
+
+class TorrentRssModel;
+class TorrentRssProxyModel;
 
 /// In-app RSS torrent discovery (fetch search/catalog URLs, show items; open links on demand).
 class TorrentFeedWidget final : public QWidget {
@@ -43,7 +49,7 @@ public:
   /// Persist torrent table header layout to `session.json` (call on app close).
   void saveSessionState();
 
-  /// Auto-download: fetch RSS for `search_title`, apply current filters, pick the best-seeded
+  /// Auto-download: fetch RSS for `search_title`, apply current filters, pick the best-downloaded
   /// match and download it using `folder_name` as the subfolder hint.
   /// If the primary search returns no results and `fallback_title` is non-empty, it is tried next.
   /// `on_done(found)` is called when finished (on the GUI thread).
@@ -64,7 +70,7 @@ public:
 
   /// Download ALL missing episodes for an anime.
   /// Tries multiple title variants, parses every RSS item for its episode number,
-  /// then downloads the best-seeded version of each episode not yet on disk.
+  /// then downloads the best-downloaded version of each episode not yet on disk.
   /// For completed anime with a batch torrent available and ≥3 missing episodes, prefers the batch.
   /// `on_done(downloaded_count)` called when all queued; downloaded_count = items sent.
   void downloadAllEpisodesForAnime(int anime_id,
@@ -102,7 +108,10 @@ private:
   void applyCatalogFingerprintState(const rss::Feed& feed, bool notify_if_new);
   void applyRssTableSortFromSettings();
   void applyResultFilter();
-  static QString primaryUrlForRow(int row, const QTableWidget* table);
+  QTreeView* activeView() const;
+  QTreeView* otherView(const QTreeView* view) const;
+  void syncHeaderStateFrom(QTreeView* source);
+  static QString primaryUrlForIndex(const QModelIndex& proxy_index);
   void cancelSaveTorrent();
   void enqueueSaveTorrent(const QUrl& url, const QString& title_hint);
   void startNextQueuedSave();
@@ -129,7 +138,16 @@ private:
   QPushButton* m_btn_download_best_ = nullptr;
   QPushButton* m_btn_cancel_downloads_ = nullptr;
   QPushButton* m_btn_clear_queue_ = nullptr;
-  QTableWidget* m_table_ = nullptr;
+  QTabWidget* m_tabs_ = nullptr;
+  QTreeView* m_view_eps_ = nullptr;
+  QTreeView* m_view_batches_ = nullptr;
+  TorrentRssModel* m_rss_model_ = nullptr;
+  TorrentRssProxyModel* m_proxy_eps_ = nullptr;
+  TorrentRssProxyModel* m_proxy_batches_ = nullptr;
+  bool m_syncing_header_state_ = false;
+  QTimer* m_hdr_sync_timer_ = nullptr;
+  QByteArray m_hdr_sync_state_;
+  QTreeView* m_hdr_sync_source_ = nullptr;
   QListWidget* m_queue_list_ = nullptr;
   QNetworkReply* m_pending_ = nullptr;
   QNetworkReply* m_save_reply_ = nullptr;
