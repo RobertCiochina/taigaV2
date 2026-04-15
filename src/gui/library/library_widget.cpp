@@ -18,10 +18,13 @@
 
 #include "library_widget.hpp"
 
+#include <QAbstractProxyModel>
 #include <QDesktopServices>
 #include <QHeaderView>
 #include <QLayout>
 #include <QUrl>
+#include <QDir>
+#include <algorithm>
 
 #include "gui/library/library_menu.hpp"
 #include "gui/main/main_window.hpp"
@@ -34,16 +37,60 @@
 
 namespace gui {
 
+namespace {
+
+QString chooseInitialRoot(const std::vector<std::string>& folders) {
+  if (folders.empty()) return {};
+  const QString first = QString::fromStdString(folders.front());
+  // Prefer the first configured folder (stable default); if it is empty, fall back to the first
+  // non-empty entry (defensive against bad settings).
+  if (!first.trimmed().isEmpty()) return first;
+  const auto it = std::find_if(folders.begin(), folders.end(),
+                               [](const std::string& s) { return !s.empty(); });
+  return it == folders.end() ? QString{} : QString::fromStdString(*it);
+}
+
+QString normalizeRootPath(QString path) {
+  path = path.trimmed();
+  if (path.isEmpty()) return {};
+  // QFileSystemModel accepts forward slashes on Windows, but normalize anyway so comparisons in the
+  // view/model are stable.
+  path = QDir::fromNativeSeparators(path);
+  path = QDir::cleanPath(path);
+  return path;
+}
+
+QModelIndex mapSourceIndexToViewModel(QAbstractItemModel* view_model, QAbstractItemModel* source_model,
+                                     QModelIndex idx) {
+  if (!idx.isValid()) return {};
+  if (!view_model || !source_model) return {};
+  if (view_model == source_model) return idx;
+
+  QList<QAbstractProxyModel*> proxies;
+  QAbstractItemModel* m = view_model;
+  while (auto* p = qobject_cast<QAbstractProxyModel*>(m)) {
+    proxies.push_back(p);
+    m = p->sourceModel();
+  }
+  if (m != source_model) return {};
+
+  // Map from source outward to the view model.
+  for (auto it = proxies.crbegin(); it != proxies.crend(); ++it) {
+    idx = (*it)->mapFromSource(idx);
+    if (!idx.isValid()) return {};
+  }
+  return idx;
+}
+
+}  // namespace
+
 LibraryWidget::LibraryWidget(QWidget* parent)
     : PageWidget{parent},
       m_model(new LibraryModel(parent)),
       m_comboRoot(new ComboBox(this)),
       m_view(new QTreeView(parent)) {
   const auto libraryFolders = taiga::settings.libraryFolders();
-  const auto rootPath =
-      !libraryFolders.empty() ? QString::fromStdString(libraryFolders.front()) : QString{};
-
-  m_model->setRootPath(rootPath);
+  const QString rootPath = normalizeRootPath(chooseInitialRoot(libraryFolders));
 
   auto filtersLayout = new QHBoxLayout(this);
   filtersLayout->setSpacing(4);
@@ -53,12 +100,24 @@ LibraryWidget::LibraryWidget(QWidget* parent)
   {
     m_comboRoot->setPlaceholderText("Location");
     m_comboRoot->setDisabled(rootPath.isEmpty());
+    // This is a "current location" selector, not a filter: clearing should not be possible via
+    // Esc/RMB/MMB (those are useful for search filters elsewhere).
+    m_comboRoot->setProperty("taiga.clearOnEscape", false);
+    m_comboRoot->setProperty("taiga.clearOnChordClicks", false);
     for (const auto& folder : libraryFolders) {
       m_comboRoot->addItem(QString::fromStdString(folder));
     }
-    m_comboRoot->setCurrentText(rootPath);
+    // Keep selection stable even if settings contain odd/empty values.
+    const int initial_index = std::max(0, m_comboRoot->findText(rootPath));
+    if (m_comboRoot->count() > 0) m_comboRoot->setCurrentIndex(initial_index);
     connect(m_comboRoot, &QComboBox::currentIndexChanged, this,
-            [this](int index) { m_model->setRootPath(m_comboRoot->itemText(index)); });
+            [this](int index) {
+              if (index < 0 || index >= m_comboRoot->count()) return;
+              const QString path = normalizeRootPath(m_comboRoot->itemText(index));
+              const QModelIndex src_idx = m_model->setRootPath(path);
+              const QModelIndex view_idx = mapSourceIndexToViewModel(m_view->model(), m_model, src_idx);
+              if (view_idx.isValid()) m_view->setRootIndex(view_idx);
+            });
     filtersLayout->addWidget(m_comboRoot);
   }
 
@@ -76,13 +135,23 @@ LibraryWidget::LibraryWidget(QWidget* parent)
   m_view->setObjectName("libraryView");
   m_view->setFrameShape(QFrame::Shape::NoFrame);
   m_view->setModel(m_model);
-  m_view->setRootIndex(m_model->index(rootPath));
+  // Root is applied above via setRootPath() return index, to avoid invalid indexes briefly
+  // showing the "drives" view on Windows.
   m_view->setAlternatingRowColors(true);
   m_view->setAllColumnsShowFocus(true);
   m_view->setContextMenuPolicy(Qt::CustomContextMenu);
   m_view->setUniformRowHeights(true);
 
   gui::tables::applyDefaults(m_view);
+
+  // Apply root after applyDefaults(): applyDefaults may wrap the view model in proxies.
+  const auto applyRoot = [this](QString path) {
+    path = normalizeRootPath(path);
+    const QModelIndex src_idx = m_model->setRootPath(path);
+    const QModelIndex view_idx = mapSourceIndexToViewModel(m_view->model(), m_model, src_idx);
+    if (view_idx.isValid()) m_view->setRootIndex(view_idx);
+  };
+  applyRoot(rootPath);
 
   m_view->header()->setSectionsMovable(false);
   m_view->header()->setStretchLastSection(false);
@@ -102,7 +171,12 @@ LibraryWidget::LibraryWidget(QWidget* parent)
   layout()->addWidget(m_view);
 
   connect(m_model, &QFileSystemModel::rootPathChanged, this,
-          [this](const QString& newPath) { m_view->setRootIndex(m_model->index(newPath)); });
+          [this](const QString& newPath) {
+            const QString p = normalizeRootPath(newPath);
+            const QModelIndex src_idx = m_model->index(p);
+            const QModelIndex view_idx = mapSourceIndexToViewModel(m_view->model(), m_model, src_idx);
+            if (view_idx.isValid()) m_view->setRootIndex(view_idx);
+          });
 
   connect(m_view, &QWidget::customContextMenuRequested, this, &LibraryWidget::showContextMenu);
 
@@ -135,9 +209,12 @@ void LibraryWidget::refreshRootsFromSettings() {
     m_model->setRootPath({});
     return;
   }
-  const QString first = QString::fromStdString(folders.front());
-  m_comboRoot->setCurrentText(first);
-  m_model->setRootPath(first);
+  const QString root = normalizeRootPath(chooseInitialRoot(folders));
+  const int idx = std::max(0, m_comboRoot->findText(root));
+  m_comboRoot->setCurrentIndex(idx);
+  const QModelIndex src_idx = m_model->setRootPath(normalizeRootPath(m_comboRoot->itemText(idx)));
+  const QModelIndex view_idx = mapSourceIndexToViewModel(m_view->model(), m_model, src_idx);
+  if (view_idx.isValid()) m_view->setRootIndex(view_idx);
 }
 
 std::optional<int> LibraryWidget::selectedRecognizedAnimeId() const {

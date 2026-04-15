@@ -25,6 +25,9 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSaveFile>
 #include <QSet>
 #include <QStringList>
@@ -57,6 +60,30 @@ QString g_cache_last_info;
 QStringList g_cache_log;
 int g_best_saved_series = -1;
 int g_best_saved_eps = -1;
+
+void loadManualLibraryOverridesOnce() {
+  static bool loaded = false;
+  if (loaded) return;
+  loaded = true;
+
+  const QString json = taiga::settings.libraryManualOverridesJson();
+  if (json.isEmpty()) return;
+
+  const QJsonDocument doc = QJsonDocument::fromJson(json.toUtf8());
+  if (!doc.isArray()) return;
+
+  for (const QJsonValue& val : doc.array()) {
+    if (!val.isObject()) continue;
+    const QJsonObject obj = val.toObject();
+    const int id = obj[QStringLiteral("id")].toInt();
+    const QString episode = obj[QStringLiteral("episode")].toString();
+    if (id <= 0) continue;
+    bool ok = false;
+    int ep_no = episode.toInt(&ok);
+    if (!ok || ep_no < 1) ep_no = 1;
+    g_manual_episodes[id].insert(ep_no);
+  }
+}
 
 void logCacheEvent(const QString& msg) {
   const QString line =
@@ -370,6 +397,7 @@ QString libraryEpisodeIndexCacheDebugLog() {
 
 bool libraryHasLocalEpisode(const int anime_id, const int episode_number) {
   if (episode_number < 1) return false;
+  loadManualLibraryOverridesOnce();
   {
     std::shared_lock lk(g_index_mu);
     const auto it = g_library_episodes.find(anime_id);
@@ -420,6 +448,7 @@ LibraryScanSummary scanLibraryFolders(const std::vector<std::string>& folders,
                                       const int max_entries, const bool allow_regress_apply) {
   LibraryScanSummary s;
   if (max_entries <= 0) return s;
+  loadManualLibraryOverridesOnce();
 
   std::unordered_map<int, std::unordered_set<int>> local;
   std::unordered_map<int, std::unordered_map<int, QString>> local_paths;

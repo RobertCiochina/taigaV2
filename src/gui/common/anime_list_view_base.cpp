@@ -46,6 +46,22 @@
 
 namespace gui {
 
+QModelIndex ListViewBase::mapViewIndexToAnimeProxy(const QModelIndex& viewIndex) const {
+  if (!viewIndex.isValid() || !m_view || !m_proxyModel) return {};
+  if (m_view->model() == m_proxyModel) return viewIndex;
+
+  QModelIndex idx = viewIndex;
+  const QAbstractItemModel* m = m_view->model();
+  while (m && m != m_proxyModel) {
+    const auto* p = qobject_cast<const QAbstractProxyModel*>(m);
+    if (!p) return {};
+    idx = p->mapToSource(idx);
+    if (!idx.isValid()) return {};
+    m = p->sourceModel();
+  }
+  return (m == m_proxyModel) ? idx : QModelIndex{};
+}
+
 ListViewBase::ListViewBase(QWidget* parent, QAbstractItemView* view, AnimeListModel* model,
                            AnimeListProxyModel* proxyModel)
     : QObject(parent), m_view(view), m_model(model), m_proxyModel(proxyModel) {
@@ -77,8 +93,9 @@ bool ListViewBase::eventFilter(QObject* watched, QEvent* event) {
     const auto* me = static_cast<QMouseEvent*>(event);
     if (me->button() == Qt::LeftButton) {
       const QModelIndex proxyIndex = m_view->indexAt(me->pos());
-      if (proxyIndex.isValid() && proxyIndex.column() == AnimeListModel::COLUMN_WATCH_ORDER_GUIDE) {
-        const auto mapped = m_proxyModel->mapToSource(proxyIndex);
+      const QModelIndex proxy = mapViewIndexToAnimeProxy(proxyIndex);
+      if (proxy.isValid() && proxy.column() == AnimeListModel::COLUMN_WATCH_ORDER_GUIDE) {
+        const auto mapped = m_proxyModel->mapToSource(proxy);
         if (const auto* anime = m_model->getAnime(mapped)) {
           if (auto* mw = mainWindow()) {
             mw->openWatchOrderGuideForAnime(anime->id);
@@ -104,7 +121,9 @@ bool ListViewBase::eventFilter(QObject* watched, QEvent* event) {
 }
 
 void ListViewBase::runListRowAction(const taiga::ListRowAction action, const QModelIndex& proxyIndex) {
-  const auto mappedIndex = m_proxyModel->mapToSource(proxyIndex);
+  const QModelIndex proxy = mapViewIndexToAnimeProxy(proxyIndex);
+  if (!proxy.isValid()) return;
+  const auto mappedIndex = m_proxyModel->mapToSource(proxy);
   const auto anime = m_model->getAnime(mappedIndex);
   if (!anime) return;
   const auto entry = m_model->getListEntry(mappedIndex);
@@ -148,14 +167,18 @@ void ListViewBase::filterByText(const QString& text) {
 }
 
 void ListViewBase::playNextEpisode(const QModelIndex& index) {
-  const auto mappedIndex = m_proxyModel->mapToSource(index);
+  const QModelIndex proxy = mapViewIndexToAnimeProxy(index);
+  if (!proxy.isValid()) return;
+  const auto mappedIndex = m_proxyModel->mapToSource(proxy);
   const auto anime = m_model->getAnime(mappedIndex);
   if (!anime) return;
   track::playNextEpisode(anime->id);
 }
 
 void ListViewBase::showMediaDialog(const QModelIndex& index) {
-  const auto mappedIndex = m_proxyModel->mapToSource(index);
+  const QModelIndex proxy = mapViewIndexToAnimeProxy(index);
+  if (!proxy.isValid()) return;
+  const auto mappedIndex = m_proxyModel->mapToSource(proxy);
   const auto anime = m_model->getAnime(mappedIndex);
   if (!anime) return;
   const auto entry = m_model->getListEntry(mappedIndex);
@@ -171,7 +194,9 @@ void ListViewBase::showMediaMenu() {
   QMap<int, ListEntry> entries;
 
   for (auto selectedIndex : indexes) {
-    const auto index = m_proxyModel->mapToSource(selectedIndex);
+    const QModelIndex proxy = mapViewIndexToAnimeProxy(selectedIndex);
+    if (!proxy.isValid()) continue;
+    const auto index = m_proxyModel->mapToSource(proxy);
     if (const auto item = m_model->getAnime(index)) {
       items.push_back(*item);
       if (const auto entry = m_model->getListEntry(index)) {
@@ -201,7 +226,9 @@ void ListViewBase::updateSelectionStatus(const QItemSelection&, const QItemSelec
   double average_score = 0.0;
 
   for (const auto index : selectedIndexes()) {
-    const auto anime = m_model->getAnime(m_proxyModel->mapToSource(index));
+    const QModelIndex proxy = mapViewIndexToAnimeProxy(index);
+    if (!proxy.isValid()) continue;
+    const auto anime = m_model->getAnime(m_proxyModel->mapToSource(proxy));
     if (!anime) continue;
     if (anime->episode_count > 0) n_episodes += anime->episode_count;
     if (anime->score) {

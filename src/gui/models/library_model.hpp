@@ -20,6 +20,7 @@
 
 #include <QFileInfo>
 #include <QFileSystemModel>
+#include <QHash>
 
 namespace gui {
 
@@ -44,6 +45,7 @@ public:
   int columnCount(const QModelIndex& parent = {}) const override;
   QVariant data(const QModelIndex& index, int role = Qt::DisplayRole) const override;
   QVariant headerData(int section, Qt::Orientation orientation, int role) const override;
+  bool hasChildren(const QModelIndex& parent = {}) const override;
 
   QString getTitle(const QString& path) const;
   QString getEpisode(const QString& path) const;
@@ -75,8 +77,12 @@ private:
   /// Load overrides from taiga::settings, populate m_overrides and register manual episodes.
   void loadOverrides();
 
+  bool directoryHasAnyEntries(const QString& dir_path) const;
+  void invalidateDirChildrenCacheFor(const QString& dir_path);
+
   QMap<QString, ParsedData> m_parsed;
   QMap<QString, ParsedData> m_overrides; // manually assigned
+  mutable QHash<QString, bool> m_dir_has_children_cache;
 };
 
 }  // namespace gui

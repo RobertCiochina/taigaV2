@@ -113,11 +113,13 @@ int Application::run() {
   window_->initUi(/*startup_blocking=*/true);
 
   std::unique_ptr<gui::StartupSplash> splash;
+  // Show splash even when starting to tray so startup work is visible.
+  // When starting to tray, do not steal focus from the user's current app.
+  splash = std::make_unique<gui::StartupSplash>();
+  splash->setStepText(QObject::tr("Preparing startup tasks…"));
+  splash->appendLine(QObject::tr("Preparing startup tasks…"));
+  splash->show();
   if (!start_to_tray) {
-    splash = std::make_unique<gui::StartupSplash>();
-    splash->setStepText(QObject::tr("Preparing startup tasks…"));
-    splash->appendLine(QObject::tr("Preparing startup tasks…"));
-    splash->show();
     splash->raise();
     splash->activateWindow();
   }

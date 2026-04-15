@@ -19,6 +19,7 @@
 #pragma once
 
 #include <QAbstractItemView>
+#include <QAbstractProxyModel>
 #include <QEvent>
 #include <QObject>
 #include <QTreeWidget>
@@ -57,6 +58,9 @@ protected:
   bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
+  /// The anime list view model can be wrapped in proxy models by shared table defaults.
+  /// This maps a view index down to the underlying `AnimeListProxyModel` index.
+  QModelIndex mapViewIndexToAnimeProxy(const QModelIndex& viewIndex) const;
   QModelIndexList selectedIndexes();
 
   AnimeListModel* m_model = nullptr;

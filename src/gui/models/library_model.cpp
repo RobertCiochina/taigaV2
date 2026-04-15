@@ -19,6 +19,8 @@
 #include "library_model.hpp"
 
 #include <QApplication>
+#include <QDir>
+#include <QDirIterator>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -54,6 +56,11 @@ LibraryModel::LibraryModel(QObject* parent) : QFileSystemModel(parent) {
   setNameFilterDisables(true);
 
   connect(this, &QFileSystemModel::directoryLoaded, this, &LibraryModel::parseDirectory);
+  connect(this, &QFileSystemModel::directoryLoaded, this, [this](const QString& path) {
+    invalidateDirChildrenCacheFor(path);
+    // Also invalidate parent so its expander state reflects newly-seen children.
+    invalidateDirChildrenCacheFor(QFileInfo(path).absolutePath());
+  });
 
   // Restore manual overrides from the previous session.
   loadOverrides();
@@ -191,6 +198,53 @@ QVariant LibraryModel::headerData(int section, Qt::Orientation orientation, int 
   }
 
   return QFileSystemModel::headerData(section, orientation, role);
+}
+
+bool LibraryModel::directoryHasAnyEntries(const QString& dir_path) const {
+  if (dir_path.isEmpty()) return false;
+  const QDir d(dir_path);
+  if (!d.exists()) return false;
+
+  // Directories should always count as children, even if the current nameFilters are file-based.
+  // Many libraries are laid out as Root/Title/Season/Episode.mkv, so Title folders would look
+  // "empty" if we applied "*.mkv" filters to directories.
+  {
+    QDirIterator it(dir_path, QDir::Dirs | QDir::NoDotAndDotDot, QDirIterator::NoIteratorFlags);
+    if (it.hasNext()) return true;
+  }
+
+  // Files: respect the model's name filters so the expander matches visible files.
+  {
+    QDirIterator it(dir_path, nameFilters(), QDir::Files | QDir::NoDotAndDotDot,
+                    QDirIterator::NoIteratorFlags);
+    if (it.hasNext()) return true;
+  }
+
+  return false;
+}
+
+void LibraryModel::invalidateDirChildrenCacheFor(const QString& dir_path) {
+  if (dir_path.isEmpty()) return;
+  m_dir_has_children_cache.remove(QDir::cleanPath(QDir::fromNativeSeparators(dir_path)));
+}
+
+bool LibraryModel::hasChildren(const QModelIndex& parent) const {
+  if (!parent.isValid()) return QFileSystemModel::hasChildren(parent);
+  const QFileInfo info = fileInfo(parent);
+  if (!info.isDir()) return false;
+
+  // If Qt already loaded the directory, rowCount is authoritative.
+  const int known = rowCount(parent);
+  if (known > 0) return true;
+
+  const QString path = QDir::cleanPath(QDir::fromNativeSeparators(info.absoluteFilePath()));
+  if (auto it = m_dir_has_children_cache.constFind(path); it != m_dir_has_children_cache.constEnd()) {
+    return it.value();
+  }
+
+  const bool any = directoryHasAnyEntries(path);
+  m_dir_has_children_cache.insert(path, any);
+  return any;
 }
 
 bool LibraryModel::isEnabled(const QModelIndex& index) const {

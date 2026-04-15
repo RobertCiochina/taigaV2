@@ -21,6 +21,7 @@
 #include <utf8proc.h>
 
 #include <QList>
+#include <QRegularExpression>
 #include <QString>
 #include <cstdlib>
 #include <ranges>
@@ -50,6 +51,10 @@ std::string normalize(std::string title) {
   replaceWholeWord(str, "special", "sp");
   replaceWholeWord(str, "(tv)", "");
 
+  str = str.simplified();
+  // Torrent filenames often include a release year token; keep matching stable by removing it.
+  // (Only removes 4-digit years; does not affect titles like "86" or "009".)
+  str.replace(QRegularExpression(QStringLiteral(R"(\b(19|20)\d{2}\b)")), QString());
   str = str.simplified();
   erasePunctuation(str);
 
