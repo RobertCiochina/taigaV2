@@ -51,6 +51,12 @@ void NavigationItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem
   // Counter
   if (const int count = index.data(static_cast<int>(NavigationItemDataRole::Counter)).toInt()) {
     paintCounter(painter, option.rect, count);
+    return;
+  }
+
+  // Dot indicator (e.g. "has items")
+  if (index.data(static_cast<int>(NavigationItemDataRole::HasDot)).toBool()) {
+    paintDot(painter, option.rect);
   }
 }
 
@@ -108,6 +114,20 @@ void NavigationItemDelegate::paintCounter(QPainter* painter, QRect rect, const i
 
   painter->setPen(QColor(theme.isDark() ? 0xAAAAAA : 0x666666));
   painter->drawText(rect, Qt::AlignCenter | Qt::TextSingleLine, text);
+}
+
+void NavigationItemDelegate::paintDot(QPainter* painter, QRect rect) const {
+  const PainterStateSaver painterStateSaver(painter);
+
+  rect.setRight(rect.right() - 10);
+  const QPoint c = rect.center();
+  constexpr int r = 4;
+
+  const QColor fill = theme.isDark() ? QColor(255, 255, 255, 110) : QColor(0, 0, 0, 90);
+  painter->setPen(Qt::NoPen);
+  painter->setBrush(fill);
+  painter->setRenderHint(QPainter::Antialiasing, true);
+  painter->drawEllipse(c, r, r);
 }
 
 void NavigationItemDelegate::paintSeparator(QPainter* painter, const QRect& rect) const {

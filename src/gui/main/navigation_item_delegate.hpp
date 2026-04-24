@@ -31,6 +31,7 @@ enum class NavigationItemDataRole {
   IsActionWatchNext,
   ListStatus,
   Counter,
+  HasDot,
 };
 
 class NavigationItemDelegate final : public QStyledItemDelegate {
@@ -46,6 +47,7 @@ public:
 private:
   void paintBranch(QPainter*, QRect, bool) const;
   void paintCounter(QPainter*, QRect, const int) const;
+  void paintDot(QPainter*, QRect) const;
   void paintSeparator(QPainter*, const QRect&) const;
 };
 

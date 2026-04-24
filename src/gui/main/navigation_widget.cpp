@@ -28,6 +28,9 @@
 #include "media/anime.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_list.hpp"
+#include "media/announced_releases.hpp"
+#include "taiga/session.hpp"
+#include "taiga/settings.hpp"
 
 namespace gui {
 
@@ -70,7 +73,14 @@ void NavigationWidget::refresh() {
 
   addItem(tr("Home"), "home", MainWindowPage::Home);
   addItem(tr("Search"), "search", MainWindowPage::Search);
-  addItem(tr("Announced releases"), "add_box", MainWindowPage::AnnouncedReleases);
+  {
+    auto* item =
+        addItem(tr("Announced releases"), "add_box", MainWindowPage::AnnouncedReleases);
+    const int visible = anime::countVisibleAnnouncedReleaseCandidates(
+        taiga::session.announcedReleasesDismissedAnimeIds(),
+        taiga::settings.listShowMatureContent());
+    setItemData(item, NavigationItemDataRole::HasDot, visible > 0);
+  }
   {
     auto item = addItem(tr("What to watch next"), "shuffle", MainWindowPage::List);
     setItemData(item, NavigationItemDataRole::IsActionWatchNext, true);

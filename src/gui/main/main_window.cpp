@@ -2561,6 +2561,7 @@ void MainWindow::refreshAnnouncedReleasesPageAfterServiceChange() {
 void MainWindow::refreshAnnouncedReleasesSurfaces() {
   if (m_announcedReleasesWidget) m_announcedReleasesWidget->refresh();
   updateHomeAnnouncedBanner();
+  refreshNavigationSidebar();
 }
 
 void MainWindow::updateHomeAnnouncedBanner() {
@@ -2571,15 +2572,9 @@ void MainWindow::updateHomeAnnouncedBanner() {
     if (it->widget()) it->widget()->deleteLater();
     delete it;
   }
-  const auto cands = anime::computeAnnouncedReleaseCandidates(
-      taiga::session.announcedReleasesDismissedAnimeIds());
-  int visible_announce = 0;
-  for (const auto& c : cands) {
-    const Anime* a = anime::db.item(c.anime_id);
-    if (!a) continue;
-    if (!taiga::settings.listShowMatureContent() && anime::isNsfw(*a)) continue;
-    ++visible_announce;
-  }
+  const int visible_announce = anime::countVisibleAnnouncedReleaseCandidates(
+      taiga::session.announcedReleasesDismissedAnimeIds(),
+      taiga::settings.listShowMatureContent());
   if (visible_announce == 0) {
     m_homeAnnouncedBannerHost->setVisible(false);
     return;

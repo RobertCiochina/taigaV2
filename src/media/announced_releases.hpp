@@ -21,6 +21,10 @@ struct AnnouncedReleaseCandidate {
 /// Planning / Watching / Completed). Requires local `Anime` rows with relations + status.
 QVector<AnnouncedReleaseCandidate> computeAnnouncedReleaseCandidates(const QSet<int>& dismissed);
 
+/// Count candidates that would be visible to the user after filtering by mature-content settings.
+/// This matches the visibility logic used by the Home banner and navigation indicator.
+int countVisibleAnnouncedReleaseCandidates(const QSet<int>& dismissed, bool show_mature);
+
 /// For each Completed / Planning list row whose cached `Anime.relations` includes a Sequel edge to
 /// an id not yet present in `anime::db`, enqueue `sync::fetchAnime` (AniList only, capped). Restores
 /// Announced releases after a cold start once relations were previously fetched for anchors.

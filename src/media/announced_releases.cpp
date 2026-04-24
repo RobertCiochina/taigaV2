@@ -11,6 +11,7 @@
 #include "media/anime.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_list.hpp"
+#include "media/anime_utils.hpp"
 #include "sync/service.hpp"
 
 namespace anime {
@@ -96,6 +97,18 @@ QVector<AnnouncedReleaseCandidate> computeAnnouncedReleaseCandidates(const QSet<
   });
 
   return out;
+}
+
+int countVisibleAnnouncedReleaseCandidates(const QSet<int>& dismissed, const bool show_mature) {
+  const auto cands = computeAnnouncedReleaseCandidates(dismissed);
+  int visible = 0;
+  for (const auto& c : cands) {
+    const Anime* a = anime::db.item(c.anime_id);
+    if (!a) continue;
+    if (!show_mature && anime::isNsfw(*a)) continue;
+    ++visible;
+  }
+  return visible;
 }
 
 bool hasAnnouncedSequelAnchorsAwaitingMediaFetch() {
