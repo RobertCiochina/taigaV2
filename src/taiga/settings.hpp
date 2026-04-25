@@ -200,6 +200,9 @@ public:
   /// When a release event is detected for Watching titles, wait this many minutes before
   /// running the sync→scan→auto-download pipeline. (Default: 10)
   int torrentAutoDownloadReleaseEventDelayMinutes() const;
+  /// When enabled, Taiga deletes unrecognized video files that appear in the torrent client
+  /// download folder for auto-downloads. Safety: implemented only when create-subfolder is enabled.
+  bool torrentAutoCleanupUnrecognizedDownloads() const;
   /// Legacy: `rss/torrent/options/autosetfolder` — prefer per-title library folder when passing paths to client.
   bool torrentDownloadUseAnimeFolder() const;
   /// Legacy: `rss/torrent/options/autousefolder` — fall back to client download path when no anime folder.
@@ -284,6 +287,7 @@ public:
   void setTorrentFileSavePath(const std::string& path) const;
   void setTorrentAutoDownloadSkipAfterTwoFailuresToday(bool enabled) const;
   void setTorrentAutoDownloadReleaseEventDelayMinutes(int minutes) const;
+  void setTorrentAutoCleanupUnrecognizedDownloads(bool enabled) const;
   void setTorrentDownloadUseAnimeFolder(bool enabled) const;
   void setTorrentDownloadFallbackOnClientPath(bool enabled) const;
   void setTorrentDownloadCreateSubfolder(bool enabled) const;

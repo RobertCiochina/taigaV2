@@ -50,6 +50,7 @@
 #include "taiga/settings.hpp"
 #include "taiga/torrent_discovery.hpp"
 #include "taiga/user_feedback.hpp"
+#include "gui/torrent/torrent_auto_cleanup.hpp"
 
 #include "media/anime_db.hpp"
 #include "track/episode.hpp"

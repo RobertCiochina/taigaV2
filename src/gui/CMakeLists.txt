@@ -79,6 +79,8 @@ target_sources(taiga-gui PRIVATE
 
 	torrent/torrent_feed_widget.cpp
 	torrent/torrent_feed_widget.hpp
+	torrent/torrent_auto_cleanup.cpp
+	torrent/torrent_auto_cleanup.hpp
 
 	settings/anilist_auth_dialog.cpp
 	settings/anilist_auth_dialog.hpp

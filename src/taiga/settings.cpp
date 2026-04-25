@@ -435,6 +435,10 @@ int Settings::torrentAutoDownloadReleaseEventDelayMinutes() const {
   return std::clamp(m, 1, 180);
 }
 
+bool Settings::torrentAutoCleanupUnrecognizedDownloads() const {
+  return value("torrent.autodownload.autoCleanupUnrecognizedDownloads", false).toBool();
+}
+
 bool Settings::torrentDownloadUseAnimeFolder() const {
   return value("torrent.options.useAnimeFolder", true).toBool();
 }
@@ -824,6 +828,10 @@ void Settings::setTorrentAutoDownloadSkipAfterTwoFailuresToday(const bool enable
 
 void Settings::setTorrentAutoDownloadReleaseEventDelayMinutes(const int minutes) const {
   setValue("torrent.autodownload.releaseEventDelayMinutes", std::clamp(minutes, 1, 180));
+}
+
+void Settings::setTorrentAutoCleanupUnrecognizedDownloads(const bool enabled) const {
+  setValue("torrent.autodownload.autoCleanupUnrecognizedDownloads", enabled);
 }
 
 void Settings::setTorrentDownloadUseAnimeFolder(const bool enabled) const {

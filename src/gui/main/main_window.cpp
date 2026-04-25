@@ -74,6 +74,7 @@
 #include "gui/search/search_widget.hpp"
 #include "gui/settings/settings_dialog.hpp"
 #include "gui/torrent/torrent_feed_widget.hpp"
+#include "gui/torrent/torrent_auto_cleanup.hpp"
 #include "gui/utils/table_view_defaults.hpp"
 #include "gui/utils/theme.hpp"
 #include "gui/utils/ui_strings.hpp"
@@ -1665,6 +1666,8 @@ void MainWindow::runLibraryScan(const bool startup_silent, const LibraryScanReas
                     .arg(sum.recognized));
             const bool allowRegress = (reasonLabel != QStringLiteral("startup-pre-sync"));
             track::saveLibraryEpisodeIndexCacheAfterScan(reasonLabel, allowRegress);
+            // Torrent auto-cleanup runs after scans (safe only under torrent download root).
+            gui::torrentAutoCleanup()->runCleanupAfterLibraryScan(reasonLabel);
             if (w->m_startup_auto_download_pending_) {
               w->m_startup_auto_download_pending_ = false;
               QTimer::singleShot(0, w.data(), [w]() {

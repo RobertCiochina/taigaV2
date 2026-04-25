@@ -1249,8 +1249,15 @@ void SettingsDialog::buildDownloadsPage() {
       m_dl_create_subfolder_->setEnabled(m_dl_fallback_client_ &&
                                          m_dl_fallback_client_->isChecked());
     }
+    if (m_dl_autodl_cleanup_unrecognized_) {
+      const bool allow = m_dl_create_subfolder_ && m_dl_create_subfolder_->isChecked();
+      m_dl_autodl_cleanup_unrecognized_->setEnabled(allow);
+      if (!allow) m_dl_autodl_cleanup_unrecognized_->setChecked(false);
+    }
   };
   connect(m_dl_fallback_client_, &QCheckBox::checkStateChanged, page,
+          [updateSubfolderEnabled](Qt::CheckState) { updateSubfolderEnabled(); });
+  connect(m_dl_create_subfolder_, &QCheckBox::checkStateChanged, page,
           [updateSubfolderEnabled](Qt::CheckState) { updateSubfolderEnabled(); });
   updateSubfolderEnabled();
 
@@ -1324,6 +1331,17 @@ void SettingsDialog::buildDownloadsPage() {
          "will be skipped for the rest of that day during auto-download runs. Manual downloads are "
          "not affected."));
   layout->addWidget(m_dl_autodl_skip_failed_twice_today_);
+
+  m_dl_autodl_cleanup_unrecognized_ = new QCheckBox(
+      tr("Delete unrecognized downloads from the torrent client folder (auto-download only)"),
+      page);
+  m_dl_autodl_cleanup_unrecognized_->setChecked(
+      taiga::settings.torrentAutoCleanupUnrecognizedDownloads());
+  m_dl_autodl_cleanup_unrecognized_->setToolTip(
+      tr("When enabled, Taiga may delete files it cannot recognize after they are downloaded. "
+         "This feature only operates under the torrent client download folder, and only when "
+         "\"Create a subfolder by anime title\" is enabled."));
+  layout->addWidget(m_dl_autodl_cleanup_unrecognized_);
 
   {
     auto* row = new QHBoxLayout();
@@ -1423,6 +1441,11 @@ void SettingsDialog::saveDownloadsPage() {
   if (m_dl_autodl_release_delay_mins_) {
     taiga::settings.setTorrentAutoDownloadReleaseEventDelayMinutes(
         m_dl_autodl_release_delay_mins_->value());
+  }
+  if (m_dl_autodl_cleanup_unrecognized_) {
+    taiga::settings.setTorrentAutoCleanupUnrecognizedDownloads(
+        taiga::settings.torrentDownloadCreateSubfolder() &&
+            m_dl_autodl_cleanup_unrecognized_->isChecked());
   }
   taiga::settings.setTorrentDownloadUseAnimeFolder(m_dl_use_anime_folder_->isChecked());
   taiga::settings.setTorrentDownloadFallbackOnClientPath(m_dl_fallback_client_->isChecked());

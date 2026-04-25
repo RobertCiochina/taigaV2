@@ -87,6 +87,7 @@ private:
   QLineEdit* m_dl_app_exe_ = nullptr;
   QCheckBox* m_dl_autodl_skip_failed_twice_today_ = nullptr;
   QSpinBox* m_dl_autodl_release_delay_mins_ = nullptr;
+  QCheckBox* m_dl_autodl_cleanup_unrecognized_ = nullptr;
   // qBittorrent Web API
   QCheckBox* m_dl_qbit_api_enabled_ = nullptr;
   QLineEdit* m_dl_qbit_api_url_ = nullptr;
