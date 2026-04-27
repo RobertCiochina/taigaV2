@@ -42,7 +42,8 @@ QSet<int> missingSequelIdsFromAnnouncedAnchors() {
 
   for (const auto& e : anime::db.entries()) {
     if (e.status != anime::list::Status::Completed &&
-        e.status != anime::list::Status::PlanToWatch) {
+        e.status != anime::list::Status::PlanToWatch &&
+        e.status != anime::list::Status::Watching) {
       continue;
     }
     const Anime* a = anime::db.item(e.anime_id);
@@ -66,7 +67,8 @@ QVector<AnnouncedReleaseCandidate> computeAnnouncedReleaseCandidates(const QSet<
   QSet<int> seen;
   for (const auto& e : anime::db.entries()) {
     if (e.status != anime::list::Status::Completed &&
-        e.status != anime::list::Status::PlanToWatch) {
+        e.status != anime::list::Status::PlanToWatch &&
+        e.status != anime::list::Status::Watching) {
       continue;
     }
     const Anime* a = anime::db.item(e.anime_id);

@@ -78,7 +78,7 @@ AnnouncedReleasesWidget::AnnouncedReleasesWidget(QWidget* parent) : QWidget(pare
           "AnnouncedReleases",
           "Shows anime that are <b>not yet aired</b> or <b>currently airing</b> when they are a "
           "<b>direct sequel</b> (on AniList) to something on your list as <b>Completed</b> or "
-          "<b>Planning</b>. Keep your list synchronized; sequel links cached on those titles are "
+          "<b>Planning</b> or <b>Watching</b>. Keep your list synchronized; sequel links cached on those titles are "
           "read from disk, and missing sequel entries are fetched from AniList when you open this page."),
       this);
   hint->setWordWrap(true);

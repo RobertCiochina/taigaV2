@@ -41,6 +41,28 @@ namespace anime {
 
 Database::Database() : QObject{} {}
 
+namespace {
+
+bool tableHasColumn(QSqlDatabase& db, const QString& table, const QString& column) {
+  if (!db.isOpen() && !db.open()) return false;
+  QSqlQuery q{db};
+  q.prepare(QStringLiteral("PRAGMA table_info(%1)").arg(table));
+  if (!q.exec()) return false;
+  while (q.next()) {
+    if (q.value(QStringLiteral("name")).toString() == column) return true;
+  }
+  return false;
+}
+
+void ensureAnimeTableHasRelationsJson(QSqlDatabase& db) {
+  if (!db.isOpen() && !db.open()) return;
+  if (tableHasColumn(db, QStringLiteral("anime"), QStringLiteral("relations_json"))) return;
+  QSqlQuery q{db};
+  q.exec(QStringLiteral("ALTER TABLE anime ADD COLUMN relations_json TEXT"));
+}
+
+}  // namespace
+
 void Database::init() {
   db_ = QSqlDatabase::addDatabase("QSQLITE");
   db_.setDatabaseName(fileName());
@@ -50,6 +72,13 @@ void Database::init() {
     migrateItemsFromV1();
     migrateListEntriesFromV1();
     return;
+  }
+
+  // Schema upgrades for older existing databases.
+  // (Do this before reading items so in-memory cache matches disk schema.)
+  if (db_.open()) {
+    ensureAnimeTableHasRelationsJson(db_);
+    db_.close();
   }
 
   readItems();
@@ -75,21 +104,31 @@ const QMap<int, ListEntry>& Database::entries() const {
 }
 
 void Database::updateItem(const Anime& item) {
+  // Some API endpoints (e.g. list sync / seasonal browse) do not include relations.
+  // Preserve any already-cached relation edges so features like Announced releases
+  // remain stable across restarts/syncs.
+  Anime merged = item;
+  if (merged.id > 0 && merged.relations.empty()) {
+    if (const auto it = items_.find(merged.id); it != items_.end() && !it->relations.empty()) {
+      merged.relations = it->relations;
+    }
+  }
+
   // In batch mode the DB is already open and a transaction is active.
   const bool opened_here = !m_batch_mode_ && !db_.isOpen() && db_.open();
   if (!db_.isOpen()) return;
 
   QSqlQuery q{db_};
   if (q.prepare(sql("insertAnime"))) {
-    bindItemToQuery(item, q);
+    bindItemToQuery(merged, q);
     q.exec();
   }
 
   if (opened_here) db_.close();
 
-  items_[item.id] = item;
+  items_[merged.id] = merged;
 
-  if (!m_batch_mode_) emit itemUpdated(item.id);
+  if (!m_batch_mode_) emit itemUpdated(merged.id);
 }
 
 void Database::updateEntry(const ListEntry& entry) {

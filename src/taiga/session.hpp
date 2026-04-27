@@ -82,6 +82,10 @@ public:
   QByteArray torrentRssTableHeaderState() const;
   /// Dismissed anime ids for the Announced releases tab (stored as JSON in session.json).
   QSet<int> announcedReleasesDismissedAnimeIds() const;
+  /// Epoch seconds of the last background "related/new seasons" refresh (0 = never).
+  qint64 announcedReleasesRelatedRefreshAtSecs() const;
+  /// Last-known visible Announced releases candidate ids (for "new related anime" detection).
+  QSet<int> announcedReleasesKnownCandidateAnimeIds() const;
 
   void setAnimeListSortColumn(const int column) const;
   void setAnimeListSortOrder(const Qt::SortOrder order) const;
@@ -115,6 +119,8 @@ public:
   void setTorrentRssTableHeaderState(const QByteArray& state) const;
   void setAnnouncedReleasesDismissedAnimeIds(const QSet<int>& ids) const;
   void addAnnouncedReleaseDismissedAnimeId(int anime_id) const;
+  void setAnnouncedReleasesRelatedRefreshAtSecs(qint64 secs) const;
+  void setAnnouncedReleasesKnownCandidateAnimeIds(const QSet<int>& ids) const;
 
 private:
   QString fileName() const override;

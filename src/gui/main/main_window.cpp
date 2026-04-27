@@ -84,6 +84,7 @@
 #include "media/anime_db.hpp"
 #include "media/anime_utils.hpp"
 #include "media/announced_releases.hpp"
+#include "media/announced_related_refresh.hpp"
 #include "media/anime_history.hpp"
 #include "media/anime_list.hpp"
 #include "media/anime_list_export.hpp"
@@ -309,6 +310,11 @@ void MainWindow::initUi(const bool startup_blocking) {
     }
   });
 
+  m_status_message_timer_ = new QTimer(this);
+  m_status_message_timer_->setSingleShot(true);
+  m_status_message_timer_->setTimerType(Qt::CoarseTimer);
+  connect(m_status_message_timer_, &QTimer::timeout, this, &MainWindow::showNextQueuedStatusMessage);
+
   // Load last-known library availability index as early as possible so Home "Up next" can populate
   // immediately when the first page is initialized (before any startup scan runs).
   if (taiga::settings.scanLibraryOnStartup()) {
@@ -318,9 +324,7 @@ void MainWindow::initUi(const bool startup_blocking) {
     const QString note =
         ok ? track::libraryEpisodeIndexCacheLastInfo()
            : tr("Library cache: %1").arg(track::libraryEpisodeIndexCacheLastError());
-    QTimer::singleShot(0, this, [this, note]() {
-      if (statusBar()) statusBar()->showMessage(note, 5000);
-    });
+    QTimer::singleShot(0, this, [this, note]() { enqueueStatusMessage(note, false); });
   }
 
   initActions();
@@ -361,7 +365,7 @@ void MainWindow::initUi(const bool startup_blocking) {
   connect(
       track::libraryFolderWatcher(), &track::LibraryFolderWatcher::debouncedRescanTriggered, this,
       [this]() {
-        statusBar()->showMessage(tr("Library folders changed — rescanning…"), 4000);
+        enqueueStatusMessage(tr("Library folders changed — rescanning…"), false);
         runLibraryScan(true, LibraryScanReason::Watcher);
       },
       Qt::QueuedConnection);
@@ -373,6 +377,8 @@ void MainWindow::initUi(const bool startup_blocking) {
   connect(m_catalog_autocheck_timer_, &QTimer::timeout, this,
           &MainWindow::onTorrentCatalogAutocheckTimer);
   refreshTorrentCatalogAutocheckTimer();
+
+  initAnnouncedRelatedDailyRefresh();
 
   {
     auto* shortcut_find = new QShortcut(QKeySequence::Find, this);
@@ -389,6 +395,96 @@ void MainWindow::initUi(const bool startup_blocking) {
   }
 
   updateTrayTooltip();
+}
+
+void MainWindow::initAnnouncedRelatedDailyRefresh() {
+  // Daily refresh while the app is open (minimal API usage, capped).
+  m_announced_related_timer_ = new QTimer(this);
+  m_announced_related_timer_->setTimerType(Qt::VeryCoarseTimer);
+  // Check hourly; actual work is gated by the persisted "last run" timestamp.
+  m_announced_related_timer_->start(60 * 60 * 1000);
+  connect(m_announced_related_timer_, &QTimer::timeout, this,
+          &MainWindow::maybeRunAnnouncedRelatedDailyRefresh);
+  QTimer::singleShot(30000, this, &MainWindow::maybeRunAnnouncedRelatedDailyRefresh);
+
+  m_announced_related_diff_timer_ = new QTimer(this);
+  m_announced_related_diff_timer_->setSingleShot(true);
+  m_announced_related_diff_timer_->setTimerType(Qt::CoarseTimer);
+  connect(m_announced_related_diff_timer_, &QTimer::timeout, this,
+          &MainWindow::checkAnnouncedRelatedDiffAndNotify);
+
+  if (sync::currentServiceId() == sync::ServiceId::AniList) {
+    auto* svc = sync::anilist::Service::instance();
+    connect(svc, &sync::anilist::Service::mediaFetchFinished, this,
+            [this](int /*id*/, bool /*success*/) {
+              // Any media refresh may reveal new sequels; debounce to avoid spam.
+              if (m_announced_related_diff_timer_) m_announced_related_diff_timer_->start(2500);
+            });
+  }
+}
+
+void MainWindow::maybeRunAnnouncedRelatedDailyRefresh() {
+  if (startupBlockingActive()) return;
+  if (sync::currentServiceId() != sync::ServiceId::AniList) return;
+
+  const qint64 now = QDateTime::currentSecsSinceEpoch();
+  const qint64 last = taiga::session.announcedReleasesRelatedRefreshAtSecs();
+  constexpr qint64 kOneDay = 24 * 60 * 60;
+  if (last > 0 && now - last < kOneDay) return;
+
+  taiga::session.setAnnouncedReleasesRelatedRefreshAtSecs(now);
+
+  // Always prefetch sequel media ids referenced by cached relations.
+  anime::prefetchMissingAnnouncedSequelMediaFromAnchors();
+
+  // Minimal, capped refresh: fill missing/stale relations for anchors and their sequel frontier.
+  constexpr int kMaxFetch = 28;
+  constexpr qint64 kStaleAfter = 14LL * 24 * 60 * 60;  // 14 days
+  const auto ids = anime::computeAnnouncedRelatedRefreshAnimeIds(kMaxFetch, now, kStaleAfter);
+  m_last_announced_related_check_started_secs_ = now;
+  m_last_announced_related_fetch_count_ = ids.size();
+  for (const int id : ids) {
+    sync::fetchAnime(id);
+  }
+
+  if (!ids.isEmpty()) {
+    enqueueStatusMessage(tr("New seasons check: queued %1 refresh(es)…").arg(ids.size()), false);
+  }
+  if (m_announced_related_diff_timer_) m_announced_related_diff_timer_->start(6000);
+}
+
+void MainWindow::checkAnnouncedRelatedDiffAndNotify() {
+  if (sync::currentServiceId() != sync::ServiceId::AniList) return;
+
+  const QSet<int> dismissed = taiga::session.announcedReleasesDismissedAnimeIds();
+  const bool show_mature = taiga::settings.listShowMatureContent();
+  const QSet<int> current =
+      anime::computeVisibleAnnouncedReleaseCandidateIds(dismissed, show_mature);
+  const QSet<int> known = taiga::session.announcedReleasesKnownCandidateAnimeIds();
+
+  QSet<int> added = current;
+  for (const int id : known) added.remove(id);
+
+  taiga::session.setAnnouncedReleasesKnownCandidateAnimeIds(current);
+
+  if (!added.isEmpty()) {
+    const int n = added.size();
+    const QString msg = (n == 1)
+                            ? tr("New related anime found. Check Announced releases.")
+                            : tr("New related anime found (%1). Check Announced releases.").arg(n);
+    taiga::userFeedback(msg, false);
+    enqueueStatusMessage(msg, false);
+    postTrayMessage(tr("Taiga"), msg);
+    refreshAnnouncedReleasesSurfaces();
+  } else {
+    // Only emit a "no new" message when a daily check just ran, to avoid noise from unrelated fetches.
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+    if (m_last_announced_related_fetch_count_ > 0 &&
+        m_last_announced_related_check_started_secs_ > 0 &&
+        now - m_last_announced_related_check_started_secs_ <= 10 * 60) {
+      enqueueStatusMessage(tr("New seasons check: no new related anime found."), false);
+    }
+  }
 }
 
 void MainWindow::initActions() {
@@ -1296,7 +1392,7 @@ void MainWindow::exportAnimeListMarkdown() {
                                                     tr("Markdown (*.md);;All files (*)"));
   if (path.isEmpty()) return;
   if (anime::list::exportAsMarkdown(path.toStdString())) {
-    statusBar()->showMessage(listExportSucceededMessage(path), 6000);
+    enqueueStatusMessage(listExportSucceededMessage(path), false);
   } else {
     QMessageBox::warning(this, tr("Taiga"), listExportWriteFailedMessage());
   }
@@ -1309,7 +1405,7 @@ void MainWindow::exportAnimeListXml() {
       this, tr("Export anime list as MyAnimeList XML"), def, tr("XML (*.xml);;All files (*)"));
   if (path.isEmpty()) return;
   if (anime::list::exportAsXml(path.toStdString())) {
-    statusBar()->showMessage(listExportSucceededMessage(path), 6000);
+    enqueueStatusMessage(listExportSucceededMessage(path), false);
   } else {
     QMessageBox::warning(this, tr("Taiga"), listExportWriteFailedMessage());
   }
@@ -1322,7 +1418,7 @@ void MainWindow::exportAnimeListCsv() {
                                                     tr("CSV (*.csv);;All files (*)"));
   if (path.isEmpty()) return;
   if (anime::list::exportAsCsv(path.toStdString())) {
-    statusBar()->showMessage(listExportSucceededMessage(path), 6000);
+    enqueueStatusMessage(listExportSucceededMessage(path), false);
   } else {
     QMessageBox::warning(this, tr("Taiga"), listExportWriteFailedMessage());
   }
@@ -1354,13 +1450,13 @@ void MainWindow::importAnimeListMalXml() {
   if (sync::currentServiceId() != sync::ServiceId::MyAnimeList && r.skipped_unknown_anime > 0) {
     msg += u" "_s + tr("(AniList/Kitsu use different media IDs than MAL exports.)");
   }
-  statusBar()->showMessage(msg, 12000);
+  enqueueStatusMessage(msg, false);
 }
 
 void MainWindow::playNextEpisodeFromMenu() {
   if (const auto id = animeIdForPlaybackContext()) {
     if (track::playNextEpisode(*id)) {
-      statusBar()->showMessage(playingNextEpisodeStatusMessage(), 4000);
+      enqueueStatusMessage(playingNextEpisodeStatusMessage(), false);
       return;
     }
     QMessageBox::information(this, tr("Taiga"), playNextEpisodeNotFoundMessage());
@@ -1374,7 +1470,7 @@ void MainWindow::playNextEpisodeFromMenu() {
 
 void MainWindow::playRandomAnimeFromMenu() {
   if (track::playRandomFromListing()) {
-    statusBar()->showMessage(tr("Playing a random title from your list…"), 4000);
+    enqueueStatusMessage(tr("Playing a random title from your list…"), false);
     return;
   }
   QMessageBox::information(
@@ -1428,7 +1524,7 @@ void MainWindow::startListSynchronization(const bool queue_if_busy) {
     return;
   }
   if (!taiga::settings.listSynchronizationEnabled()) {
-    statusBar()->showMessage(synchronizationDisabledStatusHint(), 5000);
+    enqueueStatusMessage(synchronizationDisabledStatusHint(), false);
     return;
   }
   if (m_list_sync_in_progress_) {
@@ -1439,8 +1535,8 @@ void MainWindow::startListSynchronization(const bool queue_if_busy) {
   refreshSyncActionState();
 
   QPointer<MainWindow> guard(this);
-  statusBar()->showMessage(
-      synchronizingWithServiceStatus(sync::serviceName(sync::currentServiceId())));
+  enqueueStatusMessage(
+      synchronizingWithServiceStatus(sync::serviceName(sync::currentServiceId())), false);
 
   sync::fetchListEntries([guard](const bool ok, const QString& message) {
     if (!guard) return;
@@ -1467,7 +1563,7 @@ void MainWindow::handleListSyncFinished(bool ok, QString message) {
     if (m_searchWidget) m_searchWidget->reloadAnimeList();
     refreshHomeDashboard();
     if (m_announcedReleasesWidget) m_announcedReleasesWidget->refresh();
-    statusBar()->showMessage(message.isEmpty() ? synchronizedDoneStatus() : message, 5000);
+    enqueueStatusMessage(message.isEmpty() ? synchronizedDoneStatus() : message, false);
 
     // On the very first sync after startup, trigger a silent auto-download
     // so new episodes are picked up right away.
@@ -1504,7 +1600,7 @@ void MainWindow::handleListSyncFinished(bool ok, QString message) {
       runLibraryScan(true, LibraryScanReason::DelayedAutoDownload);
     }
   } else {
-    statusBar()->showMessage(synchronizationFailedStatus(message), 8000);
+    enqueueStatusMessage(synchronizationFailedStatus(message), true);
     if (m_delayed_autodl_after_sync_pending_) {
       m_delayed_autodl_after_sync_pending_ = false;
       // If sync fails, still try scan→auto-download to keep behavior resilient.
@@ -1527,8 +1623,24 @@ void MainWindow::finalizeListSyncSession() {
 }
 
 void MainWindow::showUserFeedback(QString message, bool error) {
-  statusBar()->showMessage(message, error ? 12000 : 6000);
+  enqueueStatusMessage(message, error);
   if (error && !startupBlockingActive()) QMessageBox::warning(this, tr("Taiga"), message);
+}
+
+void MainWindow::enqueueStatusMessage(QString message, const bool error) {
+  if (message.trimmed().isEmpty()) return;
+  m_status_message_queue_.enqueue(StatusMessage{.text = std::move(message), .error = error});
+  if (m_status_message_timer_ && !m_status_message_timer_->isActive()) {
+    showNextQueuedStatusMessage();
+  }
+}
+
+void MainWindow::showNextQueuedStatusMessage() {
+  if (!statusBar()) return;
+  if (m_status_message_queue_.isEmpty()) return;
+  const StatusMessage m = m_status_message_queue_.dequeue();
+  statusBar()->showMessage(m.text, 4000);
+  if (m_status_message_timer_) m_status_message_timer_->start(4000);
 }
 
 void MainWindow::updateToolbarSearchPlaceholder() {
@@ -1617,7 +1729,7 @@ void MainWindow::runLibraryScan(const bool startup_silent, const LibraryScanReas
   track::appendLibraryEpisodeIndexCacheDebugLine(
       QStringLiteral("scan: begin (%1, silent=%2)").arg(reasonLabel).arg(startup_silent ? 1 : 0));
 
-  statusBar()->showMessage(tr("Scanning library folders…"));
+  enqueueStatusMessage(tr("Scanning library folders…"), false);
 
   // Library scans can take seconds+; always run them off the UI thread.
   m_library_scan_in_progress_ = true;
@@ -1649,7 +1761,7 @@ void MainWindow::runLibraryScan(const bool startup_silent, const LibraryScanReas
             if (sum.entries_visited >= kMaxEntriesLocal) {
               msg += QObject::tr(" Scan stopped at safety limit.");
             }
-            w->statusBar()->showMessage(msg, 12000);
+            w->enqueueStatusMessage(msg, false);
             emit w->libraryScanFinished(reasonLabel, msg);
 
             w->refreshAnimeListProgressDecorations();
@@ -2044,7 +2156,7 @@ void MainWindow::runAutoDownload(const bool silent) {
     if (state->queue.isEmpty()) {
       const QString summary =
           tr("Auto-download: %1 torrent(s) sent for %2 anime.").arg(state->found).arg(state->total);
-      statusBar()->showMessage(summary, 10000);
+      enqueueStatusMessage(summary, false);
       // Tray notification so both manual and timer-triggered runs are visible.
       if (state->found > 0) postTrayMessage(tr("Auto-download"), summary);
       emit autoDownloadFinished(state->found, state->total);
@@ -2052,10 +2164,10 @@ void MainWindow::runAutoDownload(const bool silent) {
     }
     const auto c = state->queue.takeFirst();
     const QString label = c.english_title.isEmpty() ? c.romaji_title : c.english_title;
-    statusBar()->showMessage(tr("Auto-download: fetching RSS for %1 (%2 remaining)…")
-                                 .arg(label)
-                                 .arg(state->queue.size() + 1),
-                             0);
+    enqueueStatusMessage(tr("Auto-download: fetching RSS for %1 (%2 remaining)…")
+                             .arg(label)
+                             .arg(state->queue.size() + 1),
+                         false);
     initPage(MainWindowPage::Torrents);  // ensure widget is initialized
     // Download ALL missing episodes for this anime (not just the newest).
     m_torrentFeedWidget->downloadAllEpisodesForAnime(
@@ -2077,7 +2189,7 @@ void MainWindow::runAutoDownload(const bool silent) {
           }
           if (count > 0) {
             // Per-anime status feedback.
-            statusBar()->showMessage(tr("Sent %1 episode(s) for %2.").arg(count).arg(label), 3000);
+            enqueueStatusMessage(tr("Sent %1 episode(s) for %2.").arg(count).arg(label), false);
           }
           // Small delay to avoid hammering the RSS server.
           QTimer::singleShot(2000, this, [step_fn]() { (*step_fn)(); });
@@ -2256,7 +2368,7 @@ void MainWindow::refreshHomeDashboard() {
         const int aid = ue.anime_id;
         connect(playBtn, &QPushButton::clicked, this, [this, aid]() {
           if (!track::playNextEpisode(aid)) {
-            statusBar()->showMessage(playNextEpisodeNotFoundMessage(), 5000);
+            enqueueStatusMessage(playNextEpisodeNotFoundMessage(), false);
           }
         });
 
@@ -2645,7 +2757,7 @@ void MainWindow::scheduleDelayedAutoDownload(const int delay_minutes) {
   m_delayed_autodl_scheduled_at_secs_ = QDateTime::currentSecsSinceEpoch();
   m_delayed_autodl_timer_->start(clamped_min * 60 * 1000);
   updateAutoDownloadActionLabel();
-  statusBar()->showMessage(tr("Auto-download scheduled."), 4000);
+  enqueueStatusMessage(tr("Auto-download scheduled."), false);
 }
 
 void MainWindow::cancelDelayedAutoDownload(const QString& reason) {
@@ -2655,9 +2767,9 @@ void MainWindow::cancelDelayedAutoDownload(const QString& reason) {
   m_delayed_autodl_scheduled_at_secs_ = 0;
   updateAutoDownloadActionLabel();
   if (!reason.isEmpty()) {
-    statusBar()->showMessage(tr("Canceled scheduled auto-download (%1).").arg(reason), 4000);
+    enqueueStatusMessage(tr("Canceled scheduled auto-download (%1).").arg(reason), false);
   } else {
-    statusBar()->showMessage(tr("Canceled scheduled auto-download."), 4000);
+    enqueueStatusMessage(tr("Canceled scheduled auto-download."), false);
   }
 }
 
@@ -2671,12 +2783,12 @@ void MainWindow::beginDelayedAutoDownloadRun() {
                         sync::remoteListAccessConfigured();
   if (can_sync) {
     m_delayed_autodl_after_sync_pending_ = true;
-    statusBar()->showMessage(tr("Auto-download: synchronizing…"), 4000);
+    enqueueStatusMessage(tr("Auto-download: synchronizing…"), false);
     startListSynchronization(/*queue_if_busy=*/false);
     return;
   }
   m_delayed_autodl_after_scan_pending_ = true;
-  statusBar()->showMessage(tr("Auto-download: scanning library…"), 4000);
+  enqueueStatusMessage(tr("Auto-download: scanning library…"), false);
   runLibraryScan(true, LibraryScanReason::DelayedAutoDownload);
 }
 
@@ -2772,7 +2884,7 @@ void MainWindow::openDataFolder() {
     QMessageBox::warning(this, tr("Taiga"), openPrimaryFolderLaunchFailedMessage());
     return;
   }
-  statusBar()->showMessage(openPrimaryFolderOpenedStatus(path), 4000);
+  enqueueStatusMessage(openPrimaryFolderOpenedStatus(path), false);
 }
 
 void MainWindow::showLibraryFoldersDialog() {
@@ -2822,7 +2934,7 @@ void MainWindow::showLibraryFoldersDialog() {
   }
   taiga::settings.setLibraryFolders(std::move(folders));
   refreshLibraryRootsFromSettings();
-  statusBar()->showMessage(tr("Library folders updated."), 4000);
+  enqueueStatusMessage(tr("Library folders updated."), false);
 }
 
 void MainWindow::applyWatchNextListSideEffects() {

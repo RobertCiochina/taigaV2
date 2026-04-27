@@ -119,11 +119,15 @@ void NavigationItemDelegate::paintCounter(QPainter* painter, QRect rect, const i
 void NavigationItemDelegate::paintDot(QPainter* painter, QRect rect) const {
   const PainterStateSaver painterStateSaver(painter);
 
-  rect.setRight(rect.right() - 10);
-  const QPoint c = rect.center();
   constexpr int r = 4;
 
-  const QColor fill = theme.isDark() ? QColor(255, 255, 255, 110) : QColor(0, 0, 0, 90);
+  // Anchor to the right edge (not rect center), with consistent padding.
+  const int rightPadding = 10;
+  const QPoint c{rect.right() - rightPadding - r, rect.center().y()};
+
+  const QColor fill =
+      theme.isDark() ? QColor(255, 255, 255, 220)  // more pronounced on dark backgrounds
+                     : QColor(0, 0, 0, 130);
   painter->setPen(Qt::NoPen);
   painter->setBrush(fill);
   painter->setRenderHint(QPainter::Antialiasing, true);

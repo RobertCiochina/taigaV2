@@ -22,6 +22,7 @@
 #include <QHash>
 #include <QMainWindow>
 #include <QPointer>
+#include <QQueue>
 #include <optional>
 #include <vector>
 
@@ -169,6 +170,11 @@ protected:
   void showEvent(QShowEvent* event) override;
 
 private:
+  struct StatusMessage {
+    QString text;
+    bool error = false;
+  };
+
   void initActions();
   void initIcons();
   void initNavigation();
@@ -177,6 +183,8 @@ private:
   void initStatusbar();
   void initToolbar();
   void initTrayIcon();
+  void enqueueStatusMessage(QString message, bool error = false);
+  void showNextQueuedStatusMessage();
   void maybeShowWelcomeSetup();
   void trySyncAfterFocusReturn();
   void updateToolbarSearchPlaceholder();
@@ -216,6 +224,9 @@ private:
   void scheduleUpdateCheckStartup();
   void scheduleLibraryScanStartup();
   void scheduleListSyncStartup();
+  void initAnnouncedRelatedDailyRefresh();
+  void maybeRunAnnouncedRelatedDailyRefresh();
+  void checkAnnouncedRelatedDiffAndNotify();
 
   Ui::MainWindow* ui_ = nullptr;
 
@@ -235,6 +246,9 @@ private:
   QTimer* m_release_event_timer_ = nullptr;   // lightweight release-event detection
   QTimer* m_delayed_autodl_timer_ = nullptr;  // single-shot delayed auto-download
   QTimer* m_home_qbit_poll_timer_ = nullptr;
+  QTimer* m_announced_related_timer_ = nullptr;       // daily related/new-seasons refresh
+  QTimer* m_announced_related_diff_timer_ = nullptr;  // debounce candidate diff + notify
+  QTimer* m_status_message_timer_ = nullptr;
   QAction* m_autoDownloadAction = nullptr;    // permanent toolbar action (all pages)
   QLabel* m_homeBodyLabel = nullptr;
   QWidget* m_homeUpNextContainer = nullptr;
@@ -264,6 +278,10 @@ private:
   bool m_delayed_autodl_after_scan_pending_ = false;
   qint64 m_delayed_autodl_scheduled_at_secs_ = 0;
   qint64 m_last_release_event_trigger_secs_ = 0;
+  qint64 m_last_announced_related_check_started_secs_ = 0;
+  int m_last_announced_related_fetch_count_ = 0;
+
+  QQueue<StatusMessage> m_status_message_queue_;
 
   QDate m_auto_download_fail_day_;
   QHash<int, int> m_auto_download_fail_streak_today_;

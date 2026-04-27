@@ -366,6 +366,23 @@ QSet<int> Session::announcedReleasesDismissedAnimeIds() const {
   return s;
 }
 
+qint64 Session::announcedReleasesRelatedRefreshAtSecs() const {
+  return value("announcedReleases.relatedRefreshAtSecs", 0).toLongLong();
+}
+
+QSet<int> Session::announcedReleasesKnownCandidateAnimeIds() const {
+  QSet<int> s;
+  const QString j =
+      value("announcedReleases.knownCandidateIdsJson", QStringLiteral("[]")).toString();
+  const QJsonDocument doc = QJsonDocument::fromJson(j.toUtf8());
+  if (!doc.isArray()) return s;
+  for (const QJsonValue& v : doc.array()) {
+    const int id = v.toInt();
+    if (id > 0) s.insert(id);
+  }
+  return s;
+}
+
 void Session::setAnnouncedReleasesDismissedAnimeIds(const QSet<int>& ids) const {
   QList<int> sorted = ids.values();
   std::sort(sorted.begin(), sorted.end());
@@ -380,6 +397,19 @@ void Session::addAnnouncedReleaseDismissedAnimeId(const int anime_id) const {
   QSet<int> s = announcedReleasesDismissedAnimeIds();
   s.insert(anime_id);
   setAnnouncedReleasesDismissedAnimeIds(s);
+}
+
+void Session::setAnnouncedReleasesRelatedRefreshAtSecs(const qint64 secs) const {
+  setValue("announcedReleases.relatedRefreshAtSecs", secs);
+}
+
+void Session::setAnnouncedReleasesKnownCandidateAnimeIds(const QSet<int>& ids) const {
+  QList<int> sorted = ids.values();
+  std::sort(sorted.begin(), sorted.end());
+  QJsonArray arr;
+  for (const int id : sorted) arr.append(id);
+  setValue("announcedReleases.knownCandidateIdsJson",
+           QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact)));
 }
 
 }  // namespace taiga
