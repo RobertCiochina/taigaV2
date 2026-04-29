@@ -60,6 +60,7 @@
 #include <ranges>
 
 #include "base/string.hpp"
+#include "base/log.hpp"
 #include "gui/history/history_widget.hpp"
 #include "gui/library/library_widget.hpp"
 #include "gui/list/list_widget.hpp"
@@ -432,6 +433,14 @@ void MainWindow::maybeRunAnnouncedRelatedDailyRefresh() {
   constexpr qint64 kOneDay = 24 * 60 * 60;
   if (last > 0 && now - last < kOneDay) return;
 
+  LOGW("announced_related: start now={} last={} delta={}", static_cast<long long>(now),
+       static_cast<long long>(last), static_cast<long long>(now - last));
+  track::appendLibraryEpisodeIndexCacheDebugLine(
+      QStringLiteral("announced_related: start now=%1 last=%2 delta=%3")
+          .arg(now)
+          .arg(last)
+          .arg(now - last));
+
   taiga::session.setAnnouncedReleasesRelatedRefreshAtSecs(now);
 
   // Always prefetch sequel media ids referenced by cached relations.
@@ -443,6 +452,12 @@ void MainWindow::maybeRunAnnouncedRelatedDailyRefresh() {
   const auto ids = anime::computeAnnouncedRelatedRefreshAnimeIds(kMaxFetch, now, kStaleAfter);
   m_last_announced_related_check_started_secs_ = now;
   m_last_announced_related_fetch_count_ = ids.size();
+  LOGW("announced_related: queued_refresh_ids={} stale_after_secs={}",
+       static_cast<int>(ids.size()), static_cast<long long>(kStaleAfter));
+  track::appendLibraryEpisodeIndexCacheDebugLine(
+      QStringLiteral("announced_related: queued_refresh_ids=%1 stale_after_secs=%2")
+          .arg(ids.size())
+          .arg(kStaleAfter));
   for (const int id : ids) {
     sync::fetchAnime(id);
   }
@@ -472,6 +487,12 @@ void MainWindow::checkAnnouncedRelatedDiffAndNotify() {
     const QString msg = (n == 1)
                             ? tr("New related anime found. Check Announced releases.")
                             : tr("New related anime found (%1). Check Announced releases.").arg(n);
+    LOGW("announced_related: diff added={} current={} known={}", n, current.size(), known.size());
+    track::appendLibraryEpisodeIndexCacheDebugLine(
+        QStringLiteral("announced_related: diff added=%1 current=%2 known=%3")
+            .arg(n)
+            .arg(current.size())
+            .arg(known.size()));
     taiga::userFeedback(msg, false);
     enqueueStatusMessage(msg, false);
     postTrayMessage(tr("Taiga"), msg);
@@ -482,6 +503,11 @@ void MainWindow::checkAnnouncedRelatedDiffAndNotify() {
     if (m_last_announced_related_fetch_count_ > 0 &&
         m_last_announced_related_check_started_secs_ > 0 &&
         now - m_last_announced_related_check_started_secs_ <= 10 * 60) {
+      LOGW("announced_related: diff none current={} known={}", current.size(), known.size());
+      track::appendLibraryEpisodeIndexCacheDebugLine(
+          QStringLiteral("announced_related: diff none current=%1 known=%2")
+              .arg(current.size())
+              .arg(known.size()));
       enqueueStatusMessage(tr("New seasons check: no new related anime found."), false);
     }
   }

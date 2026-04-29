@@ -34,6 +34,7 @@
 #include "sync/anilist_utils.hpp"
 #include "taiga/accounts.hpp"
 #include "taiga/user_feedback.hpp"
+#include "track/scanner.hpp"
 
 // AniList API documentation:
 // https://docs.anilist.co/
@@ -191,6 +192,10 @@ void Service::startNextFetchAnime() {
     if (isError(reply)) {
       handleError(reply);
       if (reply.httpStatus() == 429) {
+        LOGW("anilist: fetchAnime id={} rate-limited (HTTP 429) -> retry in 2500ms", id);
+        track::appendLibraryEpisodeIndexCacheDebugLine(
+            QStringLiteral("anilist: fetchAnime id=%1 rate-limited (HTTP 429) -> retry in 2500ms")
+                .arg(id));
         finish(/*retry_after_delay=*/true, /*emit_fin=*/false, false);
       } else {
         finish(false, true, false);
