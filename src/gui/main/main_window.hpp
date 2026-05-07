@@ -162,6 +162,7 @@ private slots:
   void statistics();
   void onTorrentCatalogAutocheckTimer();
   void onWatchOrderGuideListCommitted();
+  void writeLocalListBackup();
 
 protected:
   bool eventFilter(QObject* watched, QEvent* event) override;
@@ -249,6 +250,7 @@ private:
   QTimer* m_announced_related_timer_ = nullptr;       // daily related/new-seasons refresh
   QTimer* m_announced_related_diff_timer_ = nullptr;  // debounce candidate diff + notify
   QTimer* m_status_message_timer_ = nullptr;
+  QTimer* m_local_backup_timer_ = nullptr;  // debounced auto-write of local MAL XML backup
   QAction* m_autoDownloadAction = nullptr;    // permanent toolbar action (all pages)
   QLabel* m_homeBodyLabel = nullptr;
   QWidget* m_homeUpNextContainer = nullptr;

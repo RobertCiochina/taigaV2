@@ -727,8 +727,16 @@ void cleanupEmptyLibraryDirectoriesFromPath(const QString& dir_or_file_path) {
   for (const QString& root : roots) {
     if (isUnderRootPath(start_clean, root)) {
       removeEmptyDirsUpToRoot(start_clean, root);
-      break;
+      return;
     }
+  }
+
+  // Fallback for paths not under any configured library root (e.g. a torrent download folder).
+  // Attempt to remove just the immediate parent directory if it is empty/junk-only.
+  // Using the parent as the root causes removeEmptyDirsUpToRoot to stop after one level.
+  const QString parent_clean = QDir::cleanPath(QFileInfo(start_clean).absoluteDir().absolutePath());
+  if (!parent_clean.isEmpty() && parent_clean != start_clean) {
+    removeEmptyDirsUpToRoot(start_clean, parent_clean);
   }
 }
 

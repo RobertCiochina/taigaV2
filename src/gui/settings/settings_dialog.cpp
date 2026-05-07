@@ -41,6 +41,7 @@
 #include "gui/utils/theme.hpp"
 #include "gui/utils/ui_strings.hpp"
 #include "media/anime.hpp"
+#include "media/anime_list_export.hpp"
 #include "sync/anilist_utils.hpp"
 #include "sync/service.hpp"
 #include "taiga/accounts.hpp"
@@ -874,6 +875,26 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   ui_->checkListHighlightNextOnDisk->setChecked(taiga::settings.listHighlightNextEpisodeOnDisk());
   ui_->checkListHighlightOnTop->setChecked(taiga::settings.listHighlightAvailableOnTop());
   ui_->checkListShowMatureContent->setChecked(taiga::settings.listShowMatureContent());
+
+  ui_->checkLocalBackupEnabled->setChecked(taiga::settings.localListBackupEnabled());
+  ui_->lineLocalBackupPath->setText(taiga::settings.localListBackupPath());
+  ui_->lineLocalBackupPath->setEnabled(taiga::settings.localListBackupEnabled());
+  ui_->btnLocalBackupBrowse->setEnabled(taiga::settings.localListBackupEnabled());
+  connect(ui_->checkLocalBackupEnabled, &QCheckBox::toggled, this, [this](const bool on) {
+    ui_->lineLocalBackupPath->setEnabled(on);
+    ui_->btnLocalBackupBrowse->setEnabled(on);
+  });
+  connect(ui_->btnLocalBackupBrowse, &QPushButton::clicked, this, [this]() {
+    const QString current = ui_->lineLocalBackupPath->text();
+    const QString def = current.isEmpty()
+                            ? QDir::home().filePath(u"animelist_backup.xml"_s)
+                            : current;
+    const QString path =
+        QFileDialog::getSaveFileName(this, tr("Choose backup file location"), def,
+                                     tr("MAL XML (*.xml);;All files (*)"));
+    if (!path.isEmpty()) ui_->lineLocalBackupPath->setText(path);
+  });
+
   ui_->checkListHighlightNextOnDisk->setToolTip(
       tr("Uses the same library scan index as “episodes on disk” on the progress bar — no disk I/O "
          "while scrolling."));
@@ -886,6 +907,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
 
 void SettingsDialog::accept() {
   // Snapshot settings that affect Home / Announced so we only refresh those surfaces when needed.
+  const bool prev_local_backup_enabled = taiga::settings.localListBackupEnabled();
+  const QString prev_local_backup_path = taiga::settings.localListBackupPath();
   const std::string prev_service = taiga::settings.service();
   const std::vector<std::string> prev_library_folders = taiga::settings.libraryFolders();
   const bool prev_scan_library_on_startup = taiga::settings.scanLibraryOnStartup();
@@ -1000,6 +1023,19 @@ void SettingsDialog::accept() {
   taiga::settings.setListHighlightNextEpisodeOnDisk(ui_->checkListHighlightNextOnDisk->isChecked());
   taiga::settings.setListHighlightAvailableOnTop(ui_->checkListHighlightOnTop->isChecked());
   taiga::settings.setListShowMatureContent(ui_->checkListShowMatureContent->isChecked());
+
+  const bool new_backup_enabled = ui_->checkLocalBackupEnabled->isChecked();
+  const QString new_backup_path = ui_->lineLocalBackupPath->text().trimmed();
+  taiga::settings.setLocalListBackupEnabled(new_backup_enabled);
+  taiga::settings.setLocalListBackupPath(new_backup_path);
+
+  // Write the backup immediately when first enabled or when the path is changed while enabled.
+  const bool backup_just_activated =
+      new_backup_enabled && !new_backup_path.isEmpty() &&
+      (!prev_local_backup_enabled || new_backup_path != prev_local_backup_path);
+  if (backup_just_activated) {
+    anime::list::exportAsXml(new_backup_path.toStdString());
+  }
 
   QDialog::accept();
 

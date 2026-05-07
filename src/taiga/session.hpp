@@ -53,6 +53,7 @@ public:
   QString takePendingV1ListColumnLayout() const;
   QByteArray mainWindowGeometry() const;
   QByteArray mainWindowSplitterState() const;
+  bool mainWindowToolbarVisible() const;
   bool mainWindowStatusBarVisible() const;
   bool mainWindowNowPlayingBarEnabled() const;
   QByteArray mediaDialogGeometry() const;
@@ -99,6 +100,7 @@ public:
   void setWatchNextLayoutVariant(int variant) const;
   void setMainWindowGeometry(const QByteArray& geometry) const;
   void setMainWindowSplitterState(const QByteArray& state) const;
+  void setMainWindowToolbarVisible(bool visible) const;
   void setMainWindowStatusBarVisible(bool visible) const;
   void setMainWindowNowPlayingBarEnabled(bool enabled) const;
   void setMediaDialogGeometry(const QByteArray& geometry) const;

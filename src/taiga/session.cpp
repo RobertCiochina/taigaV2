@@ -102,6 +102,10 @@ QByteArray Session::mainWindowSplitterState() const {
   return QByteArray::fromBase64(value("mainWindow.splitterState", QByteArray{}).toByteArray());
 }
 
+bool Session::mainWindowToolbarVisible() const {
+  return value("mainWindow.toolbarVisible", true).toBool();
+}
+
 bool Session::mainWindowStatusBarVisible() const {
   return value("mainWindow.statusBarVisible", true).toBool();
 }
@@ -261,6 +265,10 @@ void Session::setMainWindowGeometry(const QByteArray& geometry) const {
 
 void Session::setMainWindowSplitterState(const QByteArray& state) const {
   setValue("mainWindow.splitterState", state.toBase64().toStdString());
+}
+
+void Session::setMainWindowToolbarVisible(const bool visible) const {
+  setValue("mainWindow.toolbarVisible", visible);
 }
 
 void Session::setMainWindowStatusBarVisible(const bool visible) const {

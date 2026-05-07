@@ -1587,6 +1587,46 @@
             </widget>
            </item>
            <item>
+            <widget class="QGroupBox" name="groupLocalBackup">
+             <property name="title">
+              <string>Local backup</string>
+             </property>
+             <layout class="QVBoxLayout" name="verticalLayout_localBackup">
+              <item>
+               <widget class="QCheckBox" name="checkLocalBackupEnabled">
+                <property name="text">
+                 <string>Keep an up-to-date local backup (MAL XML format)</string>
+                </property>
+                <property name="checked">
+                 <bool>false</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="horizontalLayout_localBackup">
+                <item>
+                 <widget class="QLineEdit" name="lineLocalBackupPath">
+                  <property name="readOnly">
+                   <bool>true</bool>
+                  </property>
+                  <property name="placeholderText">
+                   <string>No file selected — click Browse…</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="btnLocalBackupBrowse">
+                  <property name="text">
+                   <string>Browse…</string>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           <item>
             <spacer name="verticalSpacer_animeList">
              <property name="orientation">
               <enum>Qt::Vertical</enum>

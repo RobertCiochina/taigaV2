@@ -21,6 +21,7 @@
 #include <QBoxLayout>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QLabel>
 #include <QMessageBox>
 #include <optional>
@@ -114,6 +115,22 @@ void NowPlayingWidget::reset() {
         qDebug() << "Auto-delete: removed watched file:" << path;
       } else {
         qDebug() << "Auto-delete: watched file already gone:" << path;
+      }
+    }
+
+    // Delete companion files (subtitles, metadata, etc.) with the same filename stem.
+    // e.g. "EP12.mkv" gone → also delete "EP12.srt", "EP12.en.ass", "EP12.nfo", etc.
+    {
+      const QFileInfo fileInfo(path);
+      const QString stem = fileInfo.completeBaseName();
+      const QDir dir = fileInfo.absoluteDir();
+      if (!stem.isEmpty() && dir.exists()) {
+        const QString prefix = stem + u'.';
+        for (const QFileInfo& fi : dir.entryInfoList(QDir::Files)) {
+          if (fi.absoluteFilePath() != path && fi.fileName().startsWith(prefix)) {
+            QFile::remove(fi.absoluteFilePath());
+          }
+        }
       }
     }
 

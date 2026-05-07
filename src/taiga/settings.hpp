@@ -150,6 +150,12 @@ public:
   /// When false (default), titles tagged as mature/NSFW are hidden from list, search, history, Home, and Announced releases.
   bool listShowMatureContent() const;
 
+  /// When true, an up-to-date MAL XML export is automatically written to localListBackupPath() after
+  /// each list entry change (debounced ~2 s to avoid burst-writes during sync).
+  bool localListBackupEnabled() const;
+  /// Absolute file path for the auto-maintained MAL XML backup. Empty string = not configured.
+  QString localListBackupPath() const;
+
   /// Legacy: `rss/torrent/search/address` — URL with `%title%` replaced by the URL-encoded query (HTTP GET).
   std::string torrentDiscoverySearchUrl() const;
   /// Legacy: `rss/torrent/source/address` — catalog RSS (fetched in-app on Torrents page).
@@ -265,6 +271,8 @@ public:
   void setListHighlightNextEpisodeOnDisk(bool enabled) const;
   void setListHighlightAvailableOnTop(bool enabled) const;
   void setListShowMatureContent(bool enabled) const;
+  void setLocalListBackupEnabled(bool enabled) const;
+  void setLocalListBackupPath(const QString& path) const;
   void setTorrentDiscoverySearchUrl(const std::string& url) const;
   void setTorrentDiscoveryFeedSourceUrl(const std::string& url) const;
   void setTorrentDiscoveryAutoCheckEnabled(bool enabled) const;

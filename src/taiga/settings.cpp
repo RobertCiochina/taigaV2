@@ -322,6 +322,14 @@ bool Settings::listShowMatureContent() const {
   return value("list.showMatureContent", false).toBool();
 }
 
+bool Settings::localListBackupEnabled() const {
+  return value("app.localListBackup.enabled", false).toBool();
+}
+
+QString Settings::localListBackupPath() const {
+  return value("app.localListBackup.path", QString{}).toString();
+}
+
 std::string Settings::torrentDiscoverySearchUrl() const {
   return value("torrent.discovery.searchUrl").toString().toStdString();
 }
@@ -715,6 +723,14 @@ void Settings::setListHighlightAvailableOnTop(const bool enabled) const {
 
 void Settings::setListShowMatureContent(const bool enabled) const {
   setValue("list.showMatureContent", enabled);
+}
+
+void Settings::setLocalListBackupEnabled(const bool enabled) const {
+  setValue("app.localListBackup.enabled", enabled);
+}
+
+void Settings::setLocalListBackupPath(const QString& path) const {
+  setValue("app.localListBackup.path", path);
 }
 
 void Settings::setTorrentDiscoverySearchUrl(const std::string& url) const {

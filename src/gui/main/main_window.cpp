@@ -27,9 +27,8 @@
 #include <QEvent>
 #include <QFileDialog>
 #include <QFont>
-#include <QGuiApplication>
-#include <QScreen>
 #include <QFrame>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -42,6 +41,7 @@
 #include <QPointer>
 #include <QPushButton>
 #include <QRunnable>
+#include <QScreen>
 #include <QShortcut>
 #include <QShowEvent>
 #include <QSignalBlocker>
@@ -59,14 +59,14 @@
 #include <optional>
 #include <ranges>
 
-#include "base/string.hpp"
 #include "base/log.hpp"
+#include "base/string.hpp"
 #include "gui/history/history_widget.hpp"
 #include "gui/library/library_widget.hpp"
 #include "gui/list/list_widget.hpp"
 #include "gui/list/watch_next_dialog.hpp"
-#include "gui/main/announced_releases_widget.hpp"
 #include "gui/main/about_dialog.hpp"
+#include "gui/main/announced_releases_widget.hpp"
 #include "gui/main/navigation_sidebar_refresh.hpp"
 #include "gui/main/navigation_widget.hpp"
 #include "gui/main/now_playing_widget.hpp"
@@ -74,22 +74,22 @@
 #include "gui/media/media_dialog.hpp"
 #include "gui/search/search_widget.hpp"
 #include "gui/settings/settings_dialog.hpp"
-#include "gui/torrent/torrent_feed_widget.hpp"
 #include "gui/torrent/torrent_auto_cleanup.hpp"
+#include "gui/torrent/torrent_feed_widget.hpp"
 #include "gui/utils/table_view_defaults.hpp"
 #include "gui/utils/theme.hpp"
-#include "gui/utils/ui_strings.hpp"
 #include "gui/utils/tray_icon.hpp"
+#include "gui/utils/ui_strings.hpp"
 #include "gui/utils/widgets.hpp"
 #include "media/anime.hpp"
 #include "media/anime_db.hpp"
-#include "media/anime_utils.hpp"
-#include "media/announced_releases.hpp"
-#include "media/announced_related_refresh.hpp"
 #include "media/anime_history.hpp"
 #include "media/anime_list.hpp"
 #include "media/anime_list_export.hpp"
 #include "media/anime_list_import.hpp"
+#include "media/anime_utils.hpp"
+#include "media/announced_related_refresh.hpp"
+#include "media/announced_releases.hpp"
 #include "sync/anilist.hpp"
 #include "sync/service.hpp"
 #include "taiga/accounts.hpp"
@@ -263,8 +263,8 @@ void MainWindow::runStartupPreSyncScan() {
       QStringLiteral("startup: prefetch missing media ids (%1) before pre-sync scan")
           .arg(ids.size()));
   for (int id : ids) {
-    track::appendLibraryEpisodeIndexCacheDebugLine(QStringLiteral("startup: prefetch media id=%1")
-                                                       .arg(id));
+    track::appendLibraryEpisodeIndexCacheDebugLine(
+        QStringLiteral("startup: prefetch media id=%1").arg(id));
   }
 
   auto* svc = sync::anilist::Service::instance();
@@ -314,7 +314,8 @@ void MainWindow::initUi(const bool startup_blocking) {
   m_status_message_timer_ = new QTimer(this);
   m_status_message_timer_->setSingleShot(true);
   m_status_message_timer_->setTimerType(Qt::CoarseTimer);
-  connect(m_status_message_timer_, &QTimer::timeout, this, &MainWindow::showNextQueuedStatusMessage);
+  connect(m_status_message_timer_, &QTimer::timeout, this,
+          &MainWindow::showNextQueuedStatusMessage);
 
   // Load last-known library availability index as early as possible so Home "Up next" can populate
   // immediately when the first page is initialized (before any startup scan runs).
@@ -339,7 +340,16 @@ void MainWindow::initUi(const bool startup_blocking) {
     if (m_watch_next_modal_open_) return;
     refreshNavigationSidebar();
     refreshHomeDashboard();
+    if (taiga::settings.localListBackupEnabled() &&
+        !taiga::settings.localListBackupPath().isEmpty()) {
+      m_local_backup_timer_->start();
+    }
   });
+
+  m_local_backup_timer_ = new QTimer(this);
+  m_local_backup_timer_->setSingleShot(true);
+  m_local_backup_timer_->setInterval(2000);
+  connect(m_local_backup_timer_, &QTimer::timeout, this, &MainWindow::writeLocalListBackup);
   connect(&anime::db, &anime::Database::itemUpdated, this, [this](int) {
     if (m_watch_next_modal_open_) return;
     refreshNavigationSidebar();
@@ -447,13 +457,13 @@ void MainWindow::maybeRunAnnouncedRelatedDailyRefresh() {
   anime::prefetchMissingAnnouncedSequelMediaFromAnchors();
 
   // Minimal, capped refresh: fill missing/stale relations for anchors and their sequel frontier.
-  constexpr int kMaxFetch = 28;
+  constexpr int kMaxFetch = 75;
   constexpr qint64 kStaleAfter = 14LL * 24 * 60 * 60;  // 14 days
   const auto ids = anime::computeAnnouncedRelatedRefreshAnimeIds(kMaxFetch, now, kStaleAfter);
   m_last_announced_related_check_started_secs_ = now;
   m_last_announced_related_fetch_count_ = ids.size();
-  LOGW("announced_related: queued_refresh_ids={} stale_after_secs={}",
-       static_cast<int>(ids.size()), static_cast<long long>(kStaleAfter));
+  LOGW("announced_related: queued_refresh_ids={} stale_after_secs={}", static_cast<int>(ids.size()),
+       static_cast<long long>(kStaleAfter));
   track::appendLibraryEpisodeIndexCacheDebugLine(
       QStringLiteral("announced_related: queued_refresh_ids=%1 stale_after_secs=%2")
           .arg(ids.size())
@@ -498,7 +508,8 @@ void MainWindow::checkAnnouncedRelatedDiffAndNotify() {
     postTrayMessage(tr("Taiga"), msg);
     refreshAnnouncedReleasesSurfaces();
   } else {
-    // Only emit a "no new" message when a daily check just ran, to avoid noise from unrelated fetches.
+    // Only emit a "no new" message when a daily check just ran, to avoid noise from unrelated
+    // fetches.
     const qint64 now = QDateTime::currentSecsSinceEpoch();
     if (m_last_announced_related_fetch_count_ > 0 &&
         m_last_announced_related_check_started_secs_ > 0 &&
@@ -532,11 +543,10 @@ void MainWindow::initActions() {
   connect(ui_->actionStatistics, &QAction::triggered, this, &MainWindow::statistics);
   connect(ui_->actionDisplayWindow, &QAction::triggered, this, &MainWindow::displayWindow);
 
-  connect(ui_->actionSynchronize, &QAction::triggered, this,
-          [this]() {
-            cancelDelayedAutoDownload(tr("Manual sync"));
-            startListSynchronization(true);
-          });
+  connect(ui_->actionSynchronize, &QAction::triggered, this, [this]() {
+    cancelDelayedAutoDownload(tr("Manual sync"));
+    startListSynchronization(true);
+  });
   ui_->actionSynchronize->setShortcuts(
       {QKeySequence{QKeySequence::Refresh}, QKeySequence{Qt::CTRL | Qt::Key_S}});
   ui_->actionSynchronize->setShortcutContext(Qt::ApplicationShortcut);
@@ -563,6 +573,16 @@ void MainWindow::initActions() {
   connect(ui_->actionBack, &QAction::triggered, this, &MainWindow::goBackNavigation);
   connect(ui_->actionForward, &QAction::triggered, this, &MainWindow::goForwardNavigation);
 
+  connect(ui_->toolbar, &QToolBar::visibilityChanged, this, [this](const bool visible) {
+    const QSignalBlocker b(ui_->actionToggleToolbar);
+    ui_->actionToggleToolbar->setChecked(visible);
+    taiga::session.setMainWindowToolbarVisible(visible);
+    ui_->menubar->setVisible(!visible);
+  });
+  connect(ui_->actionToggleToolbar, &QAction::toggled, this, [this](const bool on) {
+    ui_->toolbar->setVisible(on);
+    // visibilityChanged handles persistence and menu bar sync
+  });
   connect(ui_->actionToggleStatusbar, &QAction::toggled, this, [this](const bool on) {
     ui_->statusbar->setVisible(on);
     taiga::session.setMainWindowStatusBarVisible(on);
@@ -930,6 +950,7 @@ void MainWindow::initToolbar() {
     button->setMenu([this]() {
       auto menu = new QMenu(this);
       auto* view_menu = menu->addMenu(tr("View"));
+      view_menu->addAction(ui_->actionToggleToolbar);
       view_menu->addAction(ui_->actionToggleStatusbar);
       view_menu->addAction(ui_->actionToggleNowPlaying);
       menu->addSeparator();
@@ -987,7 +1008,8 @@ void MainWindow::initToolbar() {
     } else {
       ui_->toolbar->addAction(m_autoDownloadAction);
     }
-    if (auto* btn = qobject_cast<QToolButton*>(ui_->toolbar->widgetForAction(m_autoDownloadAction))) {
+    if (auto* btn =
+            qobject_cast<QToolButton*>(ui_->toolbar->widgetForAction(m_autoDownloadAction))) {
       btn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     }
 
@@ -1561,8 +1583,8 @@ void MainWindow::startListSynchronization(const bool queue_if_busy) {
   refreshSyncActionState();
 
   QPointer<MainWindow> guard(this);
-  enqueueStatusMessage(
-      synchronizingWithServiceStatus(sync::serviceName(sync::currentServiceId())), false);
+  enqueueStatusMessage(synchronizingWithServiceStatus(sync::serviceName(sync::currentServiceId())),
+                       false);
 
   sync::fetchListEntries([guard](const bool ok, const QString& message) {
     if (!guard) return;
@@ -2046,10 +2068,9 @@ void MainWindow::runAutoDownload(const bool silent) {
           QStringLiteral("autodl: skipped (library scan/index not ready yet)"));
     }
     if (!silent) {
-      QMessageBox::information(
-          this, tr("Auto-download"),
-          tr("The library episode index is not ready yet.\n\n"
-             "Run a library scan (or enable scan-on-startup) and try again."));
+      QMessageBox::information(this, tr("Auto-download"),
+                               tr("The library episode index is not ready yet.\n\n"
+                                  "Run a library scan (or enable scan-on-startup) and try again."));
     }
     emit autoDownloadFinished(0, 0);
     return;
@@ -2066,8 +2087,7 @@ void MainWindow::runAutoDownload(const bool silent) {
   QStringList skipped_twice_today_labels;
   // The "skip after two failures today" throttle is only meant to reduce background noise.
   // Manual auto-download should always attempt every candidate.
-  const bool skip_failed =
-      silent && taiga::settings.torrentAutoDownloadSkipAfterTwoFailuresToday();
+  const bool skip_failed = silent && taiga::settings.torrentAutoDownloadSkipAfterTwoFailuresToday();
   const QDate today = QDate::currentDate();
   if (skip_failed) {
     if (!m_auto_download_fail_day_.isValid() || m_auto_download_fail_day_ != today) {
@@ -2080,8 +2100,8 @@ void MainWindow::runAutoDownload(const bool silent) {
     const auto* item = anime::db.item(anime_id);
     if (!item) continue;
     const qint64 now_secs = QDateTime::currentSecsSinceEpoch();
-    const int watched = std::max(entry.watched_episodes,
-                                 anime::history().maxRecordedEpisodeForAnime(anime_id));
+    const int watched =
+        std::max(entry.watched_episodes, anime::history().maxRecordedEpisodeForAnime(anime_id));
     const int last_aired = taiga::computeLastAiredEpisodeForAutoDownload(*item, watched, now_secs);
     if (last_aired <= watched) continue;
     // Skip only if every episode in [watched+1 .. last_aired] is already on disk.
@@ -2101,15 +2121,16 @@ void MainWindow::runAutoDownload(const bool silent) {
     const QString folder = en.isEmpty() ? romaji : en;
     if (!en.isEmpty() || !romaji.isEmpty()) {
       if (taiga::settings.cacheDiagnosticsEnabled()) {
-        track::appendLibraryEpisodeIndexCacheDebugLine(QStringLiteral(
-            "autodl: queued aid=%1 watched=%2 lastAired=%3 nextTime=%4 epCount=%5 status=%6 title='%7'")
-                                                           .arg(anime_id)
-                                                           .arg(watched)
-                                                           .arg(last_aired)
-                                                           .arg(static_cast<qint64>(item->next_episode_time))
-                                                           .arg(item->episode_count)
-                                                           .arg(static_cast<int>(item->status))
-                                                           .arg(folder.left(120)));
+        track::appendLibraryEpisodeIndexCacheDebugLine(
+            QStringLiteral("autodl: queued aid=%1 watched=%2 lastAired=%3 nextTime=%4 epCount=%5 "
+                           "status=%6 title='%7'")
+                .arg(anime_id)
+                .arg(watched)
+                .arg(last_aired)
+                .arg(static_cast<qint64>(item->next_episode_time))
+                .arg(item->episode_count)
+                .arg(static_cast<int>(item->status))
+                .arg(folder.left(120)));
       }
       if (skip_failed) {
         const int streak = m_auto_download_fail_streak_today_.value(anime_id, 0);
@@ -2328,8 +2349,8 @@ void MainWindow::refreshHomeDashboard() {
       const auto* item = anime::db.item(entry.anime_id);
       if (!item) continue;
       if (hideMatureCatalogRow(item)) continue;
-      upNext.push_back({QString::fromStdString(anime::preferredListTitleString(
-                            *item, anime::TitleLanguage::English)),
+      upNext.push_back({QString::fromStdString(
+                            anime::preferredListTitleString(*item, anime::TitleLanguage::English)),
                         entry.anime_id, next_ep});
     }
     std::sort(upNext.begin(), upNext.end(), [](const UpNextEntry& a, const UpNextEntry& b) {
@@ -2508,8 +2529,7 @@ void MainWindow::refreshHomeDashboard() {
           } else {
             when = tr("in %1 h").arg(hours);
           }
-        }
-        else if (days == 1)
+        } else if (days == 1)
           when = tr("tomorrow");
         else
           when = tr("in %1 d").arg(days);
@@ -2714,8 +2734,7 @@ void MainWindow::updateHomeAnnouncedBanner() {
     delete it;
   }
   const int visible_announce = anime::countVisibleAnnouncedReleaseCandidates(
-      taiga::session.announcedReleasesDismissedAnimeIds(),
-      taiga::settings.listShowMatureContent());
+      taiga::session.announcedReleasesDismissedAnimeIds(), taiga::settings.listShowMatureContent());
   if (visible_announce == 0) {
     m_homeAnnouncedBannerHost->setVisible(false);
     return;
@@ -2738,7 +2757,8 @@ void MainWindow::updateHomeAnnouncedBanner() {
   msg->setTextFormat(Qt::RichText);
   hl->addWidget(msg, 1);
   auto* btn = new QPushButton(tr("Announced releases"), frame);
-  connect(btn, &QPushButton::clicked, this, [this]() { setPage(MainWindowPage::AnnouncedReleases); });
+  connect(btn, &QPushButton::clicked, this,
+          [this]() { setPage(MainWindowPage::AnnouncedReleases); });
   hl->addWidget(btn, 0, Qt::AlignVCenter);
   outerLay->addWidget(frame);
 }
@@ -2854,6 +2874,14 @@ void MainWindow::restoreViewChromeFromSession() {
   {
     const QSignalBlocker b(ui_->actionToggleNavigationSidebar);
     ui_->actionToggleNavigationSidebar->setChecked(true);
+  }
+
+  {
+    const bool toolbarVisible = taiga::session.mainWindowToolbarVisible();
+    const QSignalBlocker b(ui_->actionToggleToolbar);
+    ui_->toolbar->setVisible(toolbarVisible);
+    ui_->actionToggleToolbar->setChecked(toolbarVisible);
+    ui_->menubar->setVisible(!toolbarVisible);
   }
 
   ui_->statusbar->setVisible(taiga::session.mainWindowStatusBarVisible());
@@ -2992,6 +3020,13 @@ void MainWindow::openWatchOrderGuideForAnime(const int anime_id) {
 
 void MainWindow::onWatchOrderGuideListCommitted() {
   applyWatchNextListSideEffects();
+}
+
+void MainWindow::writeLocalListBackup() {
+  if (!taiga::settings.localListBackupEnabled()) return;
+  const QString path = taiga::settings.localListBackupPath();
+  if (path.isEmpty()) return;
+  anime::list::exportAsXml(path.toStdString());
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
