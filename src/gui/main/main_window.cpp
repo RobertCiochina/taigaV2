@@ -409,7 +409,7 @@ void MainWindow::initUi(const bool startup_blocking) {
 }
 
 void MainWindow::initAnnouncedRelatedDailyRefresh() {
-  // Daily refresh while the app is open (minimal API usage, capped).
+  // Periodic refresh while the app is open (small batches every few hours, minimal API usage).
   m_announced_related_timer_ = new QTimer(this);
   m_announced_related_timer_->setTimerType(Qt::VeryCoarseTimer);
   // Check hourly; actual work is gated by the persisted "last run" timestamp.
@@ -440,8 +440,8 @@ void MainWindow::maybeRunAnnouncedRelatedDailyRefresh() {
 
   const qint64 now = QDateTime::currentSecsSinceEpoch();
   const qint64 last = taiga::session.announcedReleasesRelatedRefreshAtSecs();
-  constexpr qint64 kOneDay = 24 * 60 * 60;
-  if (last > 0 && now - last < kOneDay) return;
+  constexpr qint64 kBatchInterval = 3 * 60 * 60;  // spread fetches: small batch every 3h
+  if (last > 0 && now - last < kBatchInterval) return;
 
   LOGW("announced_related: start now={} last={} delta={}", static_cast<long long>(now),
        static_cast<long long>(last), static_cast<long long>(now - last));
@@ -456,8 +456,8 @@ void MainWindow::maybeRunAnnouncedRelatedDailyRefresh() {
   // Always prefetch sequel media ids referenced by cached relations.
   anime::prefetchMissingAnnouncedSequelMediaFromAnchors();
 
-  // Minimal, capped refresh: fill missing/stale relations for anchors and their sequel frontier.
-  constexpr int kMaxFetch = 75;
+  // Small batch per run; stale ids accumulate across runs for full coverage over time.
+  constexpr int kMaxFetch = 20;
   constexpr qint64 kStaleAfter = 14LL * 24 * 60 * 60;  // 14 days
   const auto ids = anime::computeAnnouncedRelatedRefreshAnimeIds(kMaxFetch, now, kStaleAfter);
   m_last_announced_related_check_started_secs_ = now;

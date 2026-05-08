@@ -18,6 +18,7 @@
 
 #include "anilist.hpp"
 
+#include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -112,7 +113,8 @@ void Service::authenticateUser(ListFetchComplete on_complete) {
   const auto callback = [this, finish](QRestReply& reply) {
     if (isError(reply)) {
       handleError(reply);
-      finish(false, reply.errorString().isEmpty() ? QStringLiteral("Network error") : reply.errorString());
+      finish(false,
+             reply.errorString().isEmpty() ? QStringLiteral("Network error") : reply.errorString());
       return;
     }
 
@@ -168,6 +170,16 @@ void Service::startNextFetchAnime() {
   if (fetch_anime_busy_) return;
   if (fetch_anime_queue_.isEmpty()) return;
 
+  // AniList rate limit is 90 req/min; pace Media requests to stay safely under it.
+  constexpr qint64 kMinIntervalMs = 750;
+  const qint64 now_ms = QDateTime::currentMSecsSinceEpoch();
+  const qint64 wait_ms = kMinIntervalMs - (now_ms - m_last_fetch_started_ms_);
+  if (wait_ms > 0) {
+    QTimer::singleShot(static_cast<int>(wait_ms), this, &Service::startNextFetchAnime);
+    return;
+  }
+
+  m_last_fetch_started_ms_ = now_ms;
   const int id = fetch_anime_queue_.dequeue();
   fetch_anime_busy_ = true;
 
@@ -179,7 +191,8 @@ void Service::startNextFetchAnime() {
   }};
 
   const auto callback = [this, id](QRestReply& reply) {
-    const auto finish = [this, id](const bool retry_after_delay, const bool emit_fin, const bool success) {
+    const auto finish = [this, id](const bool retry_after_delay, const bool emit_fin,
+                                   const bool success) {
       fetch_anime_busy_ = false;
       fetch_anime_pending_.remove(id);
       if (emit_fin) emit mediaFetchFinished(id, success);
@@ -245,7 +258,8 @@ void Service::startNextFetchAnime() {
       if (const auto rel_item = parseMedia(edge["node"]); rel_item) {
         Anime merged = *rel_item;
         if (merged.relations.empty()) {
-          if (const Anime* existing = anime::db.item(merged.id); existing && !existing->relations.empty()) {
+          if (const Anime* existing = anime::db.item(merged.id);
+              existing && !existing->relations.empty()) {
             merged.relations = existing->relations;
           }
         }
@@ -307,8 +321,9 @@ void Service::fetchSeasonBrowse(const anime::SeasonName seasonName, const int ye
   fetchSeasonMediaSearchPage(seasonName, year, 1, 0, std::move(finish));
 }
 
-void Service::fetchSeasonMediaSearchPage(const anime::SeasonName seasonName, const int year, const int page,
-                                         const int items_so_far, ListFetchComplete on_complete) {
+void Service::fetchSeasonMediaSearchPage(const anime::SeasonName seasonName, const int year,
+                                         const int page, const int items_so_far,
+                                         ListFetchComplete on_complete) {
   const QJsonDocument data{QJsonObject{
       {"query", gql(QStringLiteral("MediaSearch"))},
       {"variables", QJsonObject{{QStringLiteral("season"), fromSeasonName(seasonName)},
@@ -382,7 +397,8 @@ void Service::fetchListEntries(ListFetchComplete on_complete) {
   const auto callback = [this, finish](QRestReply& reply) {
     if (isError(reply)) {
       handleError(reply);
-      finish(false, reply.errorString().isEmpty() ? QStringLiteral("Network error") : reply.errorString());
+      finish(false,
+             reply.errorString().isEmpty() ? QStringLiteral("Network error") : reply.errorString());
       return;
     }
 
@@ -451,7 +467,8 @@ void Service::saveListEntry(const ListEntry& entry) {
   variables["private"] = entry.is_private;
   variables["notes"] = QString::fromStdString(entry.notes);
 
-  // Omit unset dates instead of null — explicit null FuzzyDateInput has triggered AniList 500s; matches v1.
+  // Omit unset dates instead of null — explicit null FuzzyDateInput has triggered AniList 500s;
+  // matches v1.
   if (static_cast<bool>(entry.date_started)) {
     variables["startedAt"] = fromFuzzyDate(entry.date_started);
   }
@@ -540,7 +557,8 @@ void Service::deleteListEntry(const int anime_id) {
     if (isError(reply)) {
       handleError(reply);
       taiga::userFeedback(
-          QStringLiteral("Could not remove from AniList: %1").arg(restReplyFailureDetail(reply)), true);
+          QStringLiteral("Could not remove from AniList: %1").arg(restReplyFailureDetail(reply)),
+          true);
       return;
     }
 

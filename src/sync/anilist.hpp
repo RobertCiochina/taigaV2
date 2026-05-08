@@ -18,11 +18,10 @@
 
 #pragma once
 
-#include <functional>
-
 #include <QQueue>
 #include <QSet>
 #include <QString>
+#include <functional>
 
 #include "media/anime_list.hpp"
 #include "media/anime_season.hpp"
@@ -46,7 +45,8 @@ public:
   void search(const QString& query);
   void fetchSeasonBrowse(anime::SeasonName season, int year, ListFetchComplete on_complete = {});
   void fetchListEntries(ListFetchComplete on_complete = {});
-  /// Saves list entry to AniList; updates local DB from the response (resolves temporary negative ids).
+  /// Saves list entry to AniList; updates local DB from the response (resolves temporary negative
+  /// ids).
   void saveListEntry(const ListEntry& entry);
   /// Removes by anime id; deletes locally when offline, local-only entry, or non-AniList service.
   void deleteListEntry(int anime_id);
@@ -64,7 +64,8 @@ private:
   void fetchSeasonMediaSearchPage(anime::SeasonName season, int year, int page, int items_so_far,
                                   ListFetchComplete on_complete);
 
-  /// One in-flight `Media` query at a time — avoids AniList rate limits when many related ids load at once.
+  /// One in-flight `Media` query at a time — avoids AniList rate limits when many related ids load
+  /// at once.
   void startNextFetchAnime();
 
   QString gql(const QString& name) const;
@@ -75,6 +76,7 @@ private:
   QQueue<int> fetch_anime_queue_;
   QSet<int> fetch_anime_pending_;
   bool fetch_anime_busy_ = false;
+  qint64 m_last_fetch_started_ms_ = 0;
 };
 
 }  // namespace sync::anilist
