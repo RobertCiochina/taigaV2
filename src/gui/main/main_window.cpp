@@ -55,6 +55,7 @@
 #include <algorithm>
 #include <anitomy.hpp>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <ranges>
@@ -440,7 +441,8 @@ void MainWindow::maybeRunAnnouncedRelatedDailyRefresh() {
 
   const qint64 now = QDateTime::currentSecsSinceEpoch();
   const qint64 last = taiga::session.announcedReleasesRelatedRefreshAtSecs();
-  constexpr qint64 kBatchInterval = 3 * 60 * 60;  // spread fetches: small batch every 3h
+  constexpr qint64 kBatchInterval =
+      3 * 60 * 60;  // check every 3h; full sweep fires when data is stale (>14 days)
   if (last > 0 && now - last < kBatchInterval) return;
 
   LOGW("announced_related: start now={} last={} delta={}", static_cast<long long>(now),
@@ -456,10 +458,10 @@ void MainWindow::maybeRunAnnouncedRelatedDailyRefresh() {
   // Always prefetch sequel media ids referenced by cached relations.
   anime::prefetchMissingAnnouncedSequelMediaFromAnchors();
 
-  // Small batch per run; stale ids accumulate across runs for full coverage over time.
-  constexpr int kMaxFetch = 20;
-  constexpr qint64 kStaleAfter = 14LL * 24 * 60 * 60;  // 14 days
-  const auto ids = anime::computeAnnouncedRelatedRefreshAnimeIds(kMaxFetch, now, kStaleAfter);
+  // Full sweep of all stale ids (>30 days). Paced at 3s/req so rate-limit risk is minimal.
+  constexpr qint64 kStaleAfter = 30LL * 24 * 60 * 60;  // 14 days
+  const auto ids = anime::computeAnnouncedRelatedRefreshAnimeIds(std::numeric_limits<int>::max(),
+                                                                 now, kStaleAfter);
   m_last_announced_related_check_started_secs_ = now;
   m_last_announced_related_fetch_count_ = ids.size();
   LOGW("announced_related: queued_refresh_ids={} stale_after_secs={}", static_cast<int>(ids.size()),

@@ -170,9 +170,18 @@ void Service::startNextFetchAnime() {
   if (fetch_anime_busy_) return;
   if (fetch_anime_queue_.isEmpty()) return;
 
-  // AniList rate limit is 90 req/min; pace Media requests to stay safely under it.
-  constexpr qint64 kMinIntervalMs = 750;
+  // AniList rate limit is 90 req/min. Pace at one request per 3s (20 req/min) to stay well
+  // under the limit even when background sweeps and concurrent API calls overlap.
+  constexpr qint64 kMinIntervalMs = 3000;
   const qint64 now_ms = QDateTime::currentMSecsSinceEpoch();
+
+  // Global backoff: if a 429 was received, pause the entire queue until the window clears.
+  if (now_ms < m_fetch_queue_backoff_until_ms_) {
+    QTimer::singleShot(static_cast<int>(m_fetch_queue_backoff_until_ms_ - now_ms), this,
+                       &Service::startNextFetchAnime);
+    return;
+  }
+
   const qint64 wait_ms = kMinIntervalMs - (now_ms - m_last_fetch_started_ms_);
   if (wait_ms > 0) {
     QTimer::singleShot(static_cast<int>(wait_ms), this, &Service::startNextFetchAnime);
@@ -205,9 +214,14 @@ void Service::startNextFetchAnime() {
     if (isError(reply)) {
       handleError(reply);
       if (reply.httpStatus() == 429) {
-        LOGW("anilist: fetchAnime id={} rate-limited (HTTP 429) -> retry in 2500ms", id);
+        constexpr qint64 kRateLimitBackoffMs = 60'000;
+        m_fetch_queue_backoff_until_ms_ = QDateTime::currentMSecsSinceEpoch() + kRateLimitBackoffMs;
+        LOGW(
+            "anilist: fetchAnime id={} rate-limited (HTTP 429) -> queue paused 60s, retry in "
+            "2500ms",
+            id);
         track::appendLibraryEpisodeIndexCacheDebugLine(
-            QStringLiteral("anilist: fetchAnime id=%1 rate-limited (HTTP 429) -> retry in 2500ms")
+            QStringLiteral("anilist: fetchAnime id=%1 rate-limited (HTTP 429) -> queue paused 60s")
                 .arg(id));
         finish(/*retry_after_delay=*/true, /*emit_fin=*/false, false);
       } else {
@@ -230,6 +244,11 @@ void Service::startNextFetchAnime() {
                         gql_msg.contains(QStringLiteral("rate"), Qt::CaseInsensitive) ||
                         gql_msg.contains(QStringLiteral("limit"), Qt::CaseInsensitive);
       if (rate) {
+        constexpr qint64 kRateLimitBackoffMs = 60'000;
+        m_fetch_queue_backoff_until_ms_ = QDateTime::currentMSecsSinceEpoch() + kRateLimitBackoffMs;
+        LOGW(
+            "anilist: fetchAnime id={} rate-limited (GraphQL) -> queue paused 60s, retry in 2500ms",
+            id);
         finish(true, false, false);
       } else {
         finish(false, true, false);
@@ -267,6 +286,14 @@ void Service::startNextFetchAnime() {
       }
     }
 
+    const auto title = !item->titles.english.empty() ? item->titles.english : item->titles.romaji;
+    LOGW("anilist: fetchAnime id={} ok title='{}' relations={}", id, title,
+         static_cast<int>(item->relations.size()));
+    track::appendLibraryEpisodeIndexCacheDebugLine(
+        QStringLiteral("anilist: fetchAnime id=%1 ok title='%2' relations=%3")
+            .arg(id)
+            .arg(QString::fromStdString(title))
+            .arg(static_cast<int>(item->relations.size())));
     finish(false, true, true);
   };
 

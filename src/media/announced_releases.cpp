@@ -4,9 +4,8 @@
 
 #include "media/announced_releases.hpp"
 
-#include <algorithm>
-
 #include <QSet>
+#include <algorithm>
 
 #include "media/anime.hpp"
 #include "media/anime_db.hpp"
@@ -42,8 +41,7 @@ QSet<int> missingSequelIdsFromAnnouncedAnchors() {
 
   for (const auto& e : anime::db.entries()) {
     if (e.status != anime::list::Status::Completed &&
-        e.status != anime::list::Status::PlanToWatch &&
-        e.status != anime::list::Status::Watching) {
+        e.status != anime::list::Status::PlanToWatch && e.status != anime::list::Status::Watching) {
       continue;
     }
     const Anime* a = anime::db.item(e.anime_id);
@@ -67,8 +65,7 @@ QVector<AnnouncedReleaseCandidate> computeAnnouncedReleaseCandidates(const QSet<
   QSet<int> seen;
   for (const auto& e : anime::db.entries()) {
     if (e.status != anime::list::Status::Completed &&
-        e.status != anime::list::Status::PlanToWatch &&
-        e.status != anime::list::Status::Watching) {
+        e.status != anime::list::Status::PlanToWatch && e.status != anime::list::Status::Watching) {
       continue;
     }
     const Anime* a = anime::db.item(e.anime_id);
@@ -88,15 +85,15 @@ QVector<AnnouncedReleaseCandidate> computeAnnouncedReleaseCandidates(const QSet<
     }
   }
 
-  std::sort(out.begin(), out.end(), [](const AnnouncedReleaseCandidate& x,
-                                        const AnnouncedReleaseCandidate& y) {
-    const Anime* ax = anime::db.item(x.anime_id);
-    const Anime* ay = anime::db.item(y.anime_id);
-    const qint64 kx = startDateKey(ax);
-    const qint64 ky = startDateKey(ay);
-    if (kx != ky) return kx < ky;
-    return x.anime_id < y.anime_id;
-  });
+  std::sort(out.begin(), out.end(),
+            [](const AnnouncedReleaseCandidate& x, const AnnouncedReleaseCandidate& y) {
+              const Anime* ax = anime::db.item(x.anime_id);
+              const Anime* ay = anime::db.item(y.anime_id);
+              const qint64 kx = startDateKey(ax);
+              const qint64 ky = startDateKey(ay);
+              if (kx != ky) return kx < ky;
+              return x.anime_id < y.anime_id;
+            });
 
   return out;
 }
@@ -118,11 +115,7 @@ bool hasAnnouncedSequelAnchorsAwaitingMediaFetch() {
 }
 
 void prefetchMissingAnnouncedSequelMediaFromAnchors() {
-  const QSet<int> missing = missingSequelIdsFromAnnouncedAnchors();
-  constexpr int kMaxPrefetch = 48;
-  int n = 0;
-  for (const int sid : missing) {
-    if (++n > kMaxPrefetch) break;
+  for (const int sid : missingSequelIdsFromAnnouncedAnchors()) {
     sync::fetchAnime(sid);
   }
 }

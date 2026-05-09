@@ -77,6 +77,7 @@ private:
   QSet<int> fetch_anime_pending_;
   bool fetch_anime_busy_ = false;
   qint64 m_last_fetch_started_ms_ = 0;
+  qint64 m_fetch_queue_backoff_until_ms_ = 0;
 };
 
 }  // namespace sync::anilist
