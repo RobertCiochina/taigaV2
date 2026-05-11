@@ -12,6 +12,8 @@
 #include <QDesktopServices>
 #include <QDir>
 #include <QDialog>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -1259,7 +1261,21 @@ void TorrentFeedWidget::addTorrentViaQBitApi(const QString& torrent_url, const Q
         }
 
         const QString resp = QString::fromUtf8(reply->readAll()).trimmed();
-        const bool ok = resp.compare(QStringLiteral("Ok."), Qt::CaseInsensitive) == 0 ||
+        // Old qBittorrent API returns plain "Ok." / "Ok"; newer versions return a JSON object.
+        // Accept the JSON form as success when failure_count == 0 and at least one torrent was
+        // queued (success_count or pending_count > 0), which is what a fresh add looks like.
+        const bool json_ok = [&]() -> bool {
+          if (!resp.startsWith(QLatin1Char('{'))) return false;
+          const QJsonDocument doc = QJsonDocument::fromJson(resp.toUtf8());
+          if (!doc.isObject()) return false;
+          const QJsonObject obj = doc.object();
+          const int failure = obj.value(QStringLiteral("failure_count")).toInt(-1);
+          const int success = obj.value(QStringLiteral("success_count")).toInt(0);
+          const int pending = obj.value(QStringLiteral("pending_count")).toInt(0);
+          return failure == 0 && (success > 0 || pending > 0);
+        }();
+        const bool ok = json_ok ||
+                        resp.compare(QStringLiteral("Ok."), Qt::CaseInsensitive) == 0 ||
                         resp.startsWith(QStringLiteral("Ok"), Qt::CaseInsensitive);
         if (!ok) {
           const QString err = resp.isEmpty() ? tr("Unexpected response from qBittorrent.") : resp;

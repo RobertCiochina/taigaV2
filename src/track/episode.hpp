@@ -36,6 +36,7 @@ public:
   
   bool contains(const anitomy::ElementKind kind) const;
   std::string element(const anitomy::ElementKind kind, const std::string placeholder = {}) const;
+  std::vector<std::string> allElements(anitomy::ElementKind kind) const;
   void addElement(const anitomy::ElementKind kind, const std::string& value);
   void setElement(const anitomy::ElementKind kind, const std::string& value);
 

@@ -57,6 +57,14 @@ std::string Episode::element(const anitomy::ElementKind kind, const std::string 
   return placeholder;
 };
 
+std::vector<std::string> Episode::allElements(const anitomy::ElementKind kind) const {
+  std::vector<std::string> result;
+  for (const auto& e : elements_) {
+    if (e.kind == kind) result.push_back(e.value);
+  }
+  return result;
+}
+
 void Episode::addElement(const anitomy::ElementKind kind, const std::string& value) {
   elements_.emplace_back(anitomy::Element{.kind = kind, .value = value});
 }

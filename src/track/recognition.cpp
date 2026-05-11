@@ -144,6 +144,18 @@ Episode parseFileInfo(const QFileInfo& info, const anitomy::Options options,
           episode.addElement(anitomy::ElementKind::Title, dirName);
         }
       }
+    } else if (!season_str.empty()) {
+      // The filename already has a title and a season number (e.g. S04E05).
+      // Fansub releases often use the base series title ("Honzuki no Gekokujou")
+      // even for later seasons, which makes the base season the strongest cache hit.
+      // Adding the parent folder name as a secondary Title element lets identify()
+      // disambiguate via the folder — e.g. "Ascendance of a Bookworm_ Adopted
+      // Daughter of an Archduke" uniquely identifies the S4 entry.
+      std::string dirName = info.dir().dirName().toStdString();
+      stripIgnoredSubstrings(dirName);
+      if (!dirName.empty()) {
+        episode.addElement(anitomy::ElementKind::Title, dirName);
+      }
     }
   }
 
@@ -193,6 +205,48 @@ int identify(Episode& episode) {
           matches.push_back({.id = id, .weight = boosted});
         } else if (it->weight < boosted) {
           it->weight = boosted;
+        }
+      }
+    }
+  }
+
+  // Secondary Title elements (e.g. parent folder name added by parseFileInfo when the filename
+  // carries a season number).  Fansub filenames often reuse the base-series title for later seasons
+  // (e.g. "Honzuki no Gekokujou - S04E05"), so the primary lookup hits S1; the folder name
+  // ("Ascendance of a Bookworm_ Adopted Daughter of an Archduke") uniquely identifies S4.
+  // Use a slightly reduced base weight so a clear primary match still wins over a folder hint,
+  // but the season boost lifts the correct season-specific entry above the base series.
+  {
+    constexpr float kFolderTitleBaseWeight = 0.9f;
+    const auto mergeMatch = [&](int id, float weight) {
+      const auto it =
+          std::ranges::find_if(matches, [id](const Cache::Data::Match& m) { return m.id == id; });
+      if (it == matches.end()) {
+        matches.push_back({.id = id, .weight = weight});
+      } else if (it->weight < weight) {
+        it->weight = weight;
+      }
+    };
+
+    for (const auto& secondary : episode.allElements(anitomy::ElementKind::Title) |
+                                     std::views::drop(1)) {
+      const auto normSecondary = normalize(secondary);
+      if (normSecondary.empty() || normSecondary == normalizedTitle) continue;
+
+      if (const auto data = cache()->find(normSecondary)) {
+        for (const auto& [id, match] : data->matches) {
+          mergeMatch(id, match.weight * kFolderTitleBaseWeight);
+        }
+      }
+
+      if (season_num > 1) {
+        const auto secondaryWithSeason =
+            normalize(std::format("{} season {}", secondary, season_num));
+        if (const auto data = cache()->find(secondaryWithSeason)) {
+          constexpr float kSeasonBoost = 0.6f;
+          for (const auto& [id, match] : data->matches) {
+            mergeMatch(id, match.weight * kFolderTitleBaseWeight + kSeasonBoost);
+          }
         }
       }
     }
