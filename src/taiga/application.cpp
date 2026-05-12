@@ -18,16 +18,16 @@
 
 #include "application.hpp"
 
+#include <QAbstractItemView>
 #include <QDir>
+#include <QElapsedTimer>
+#include <QEventLoop>
 #include <QFileInfo>
 #include <QLocalSocket>
 #include <QSystemTrayIcon>
-#include <QTranslator>
-#include <QEventLoop>
-#include <QAbstractItemView>
-#include <QTimer>
 #include <QThread>
-#include <QElapsedTimer>
+#include <QTimer>
+#include <QTranslator>
 #include <format>
 #include <memory>
 #include <optional>
@@ -48,7 +48,7 @@
 #include "taiga/version.hpp"
 #include "track/library_watcher.hpp"
 #include "track/media.hpp"
-#include "track/scanner.hpp"
+
 
 namespace taiga {
 
@@ -106,8 +106,7 @@ int Application::run() {
   // If we map the window and then hide() to the tray, Windows briefly paints a normal
   // frame first. Match legacy behavior: keep the main window unmapped until the user
   // opens it from the tray (see MainWindow::displayWindow).
-  const bool start_to_tray = taiga::settings.startMinimized() &&
-                             taiga::settings.minimizeToTray() &&
+  const bool start_to_tray = taiga::settings.startMinimized() && taiga::settings.minimizeToTray() &&
                              QSystemTrayIcon::isSystemTrayAvailable();
   window_ = new gui::MainWindow();
   window_->initUi(/*startup_blocking=*/true);
@@ -140,11 +139,14 @@ int Application::run() {
     setStep(QObject::tr("Synchronizing list…"));
     startup_sync_ran = true;
     QEventLoop loop;
+    // QueuedConnection: if the signal is emitted synchronously before exec(), DirectConnection
+    // would call quit() too early and the nested loop can stay running forever.
     QObject::connect(window_.get(), &gui::MainWindow::listSyncFinished, &loop,
                      [&loop, &startup_sync_ok](const bool ok, const QString&) {
                        startup_sync_ok = ok;
                        loop.quit();
-                     });
+                     },
+                     Qt::QueuedConnection);
     window_->startListSynchronization(false);
     loop.exec();
   }
@@ -160,7 +162,8 @@ int Application::run() {
     QObject::connect(window_.get(), &gui::MainWindow::libraryScanFinished, &loop,
                      [&loop](const QString& reason, const QString&) {
                        if (reason == QStringLiteral("startup-post-sync")) loop.quit();
-                     });
+                     },
+                     Qt::QueuedConnection);
     window_->runStartupPostSyncScan();
     loop.exec();
   }
@@ -170,7 +173,7 @@ int Application::run() {
     setStep(QObject::tr("Auto-downloading new episodes…"));
     QEventLoop dlLoop;
     QObject::connect(window_.get(), &gui::MainWindow::autoDownloadFinished, &dlLoop,
-                     [&dlLoop](int, int) { dlLoop.quit(); });
+                     [&dlLoop](int, int) { dlLoop.quit(); }, Qt::QueuedConnection);
     window_->runAutoDownload(/*silent=*/true);
     dlLoop.exec();
   }

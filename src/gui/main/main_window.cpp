@@ -2101,6 +2101,8 @@ void MainWindow::runAutoDownload(const bool silent) {
     if (entry.status != anime::list::Status::Watching) continue;
     const auto* item = anime::db.item(anime_id);
     if (!item) continue;
+    // Movies are excluded from auto-download RSS (manual torrent search only).
+    if (item->type == anime::Type::Movie) continue;
     const qint64 now_secs = QDateTime::currentSecsSinceEpoch();
     const int watched =
         std::max(entry.watched_episodes, anime::history().maxRecordedEpisodeForAnime(anime_id));
