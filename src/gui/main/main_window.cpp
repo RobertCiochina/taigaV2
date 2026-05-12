@@ -1145,7 +1145,8 @@ void MainWindow::navigateTo(MainWindowPage page) {
   }
 }
 
-void MainWindow::openTorrentSearchInApp(const QString& title, const QString& fallback) {
+void MainWindow::openTorrentSearchInApp(const QString& title, const QString& fallback,
+                                        const int anime_id) {
   navigateTo(MainWindowPage::Torrents);
   auto stripSubtitle = [](QString q) -> QString {
     // Strip episode-title suffix separated by " - " (e.g. "Anime (Special) - Arc Title").
@@ -1158,6 +1159,7 @@ void MainWindow::openTorrentSearchInApp(const QString& title, const QString& fal
     m_searchBox->setText(stripSubtitle(title.trimmed()));
   }
   if (m_torrentFeedWidget) {
+    m_torrentFeedWidget->setManualSearchAnimeContext(anime_id);
     // Register fallback before search so onFetchFinished can auto-retry.
     const QString fb = fallback.trimmed();
     m_torrentFeedWidget->setSearchFallback(fb.isEmpty() ? QString{} : stripSubtitle(fb));

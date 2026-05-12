@@ -149,11 +149,20 @@ TorrentFiltersDialog::TorrentFiltersDialog(QWidget* parent) : QDialog(parent) {
     hideOlderVersions->setToolTip(
         tr("When both v1 and v2+ releases exist for the same episode, hide the older one."));
 
+    auto* hideBeforeStart =
+        new QCheckBox(tr("Hide releases published before the anime start date"), grp);
+    hideBeforeStart->setObjectName(u"chkHideBeforeStart"_s);
+    hideBeforeStart->setChecked(taiga::settings.torrentFeedHideBeforeAnimeStartDate());
+    hideBeforeStart->setToolTip(
+        tr("Applies only when the torrent search is launched from an anime (list/media context). "
+           "Keeps older re-releases and packs out of the initial results."));
+
     gl->addWidget(hideDropped);
     gl->addWidget(hideNotInList);
     gl->addWidget(hideWatched);
     gl->addWidget(hideAvailable);
     gl->addWidget(hideOlderVersions);
+    gl->addWidget(hideBeforeStart);
     layout->addWidget(grp);
   }
 
@@ -167,7 +176,8 @@ TorrentFiltersDialog::TorrentFiltersDialog(QWidget* parent) : QDialog(parent) {
   auto* includeGroupLayout = new QVBoxLayout(includeGrp);
   auto* includeList = new QListWidget(includeGrp);
   includeList->setSelectionMode(QAbstractItemView::ExtendedSelection);
-  includeList->setToolTip(tr("Select a rule and press Delete or use the button below to remove it."));
+  includeList->setToolTip(
+      tr("Select a rule and press Delete or use the button below to remove it."));
   auto* includeRemove = new QPushButton(tr("Remove selected"), includeGrp);
   includeGroupLayout->addWidget(includeList);
   includeGroupLayout->addWidget(includeRemove);
@@ -178,7 +188,8 @@ TorrentFiltersDialog::TorrentFiltersDialog(QWidget* parent) : QDialog(parent) {
   auto* excludeGroupLayout = new QVBoxLayout(excludeGrp);
   auto* excludeList = new QListWidget(excludeGrp);
   excludeList->setSelectionMode(QAbstractItemView::ExtendedSelection);
-  excludeList->setToolTip(tr("Select a rule and press Delete or use the button below to remove it."));
+  excludeList->setToolTip(
+      tr("Select a rule and press Delete or use the button below to remove it."));
   auto* excludeRemove = new QPushButton(tr("Remove selected"), excludeGrp);
   excludeGroupLayout->addWidget(excludeList);
   excludeGroupLayout->addWidget(excludeRemove);
@@ -188,10 +199,8 @@ TorrentFiltersDialog::TorrentFiltersDialog(QWidget* parent) : QDialog(parent) {
   layout->addLayout(rulesRow, 1);
 
   // Load existing rules from settings.
-  loadIntoList(includeList,
-               QString::fromStdString(taiga::settings.torrentFeedIncludeRegexList()));
-  loadIntoList(excludeList,
-               QString::fromStdString(taiga::settings.torrentFeedExcludeRegexList()));
+  loadIntoList(includeList, QString::fromStdString(taiga::settings.torrentFeedIncludeRegexList()));
+  loadIntoList(excludeList, QString::fromStdString(taiga::settings.torrentFeedExcludeRegexList()));
 
   // Remove buttons
   connect(includeRemove, &QPushButton::clicked, this, [includeList]() {
@@ -214,8 +223,9 @@ TorrentFiltersDialog::TorrentFiltersDialog(QWidget* parent) : QDialog(parent) {
 
   // ── Archive ────────────────────────────────────────────────────────────────
   auto* archiveGrp = new QGroupBox(tr("Discarded titles (archive)"), this);
-  archiveGrp->setToolTip(tr(
-      "Titles you discarded from the Torrents page. These are permanently hidden from RSS results."));
+  archiveGrp->setToolTip(
+      tr("Titles you discarded from the Torrents page. These are permanently hidden from RSS "
+         "results."));
   auto* archiveLayout = new QVBoxLayout(archiveGrp);
   auto* archiveList = new QListWidget(archiveGrp);
   archiveList->setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -274,8 +284,7 @@ TorrentFiltersDialog::TorrentFiltersDialog(QWidget* parent) : QDialog(parent) {
   auto* b_mkv = new QPushButton(tr("Prefer MKV"), this);
   auto* b_aac = new QPushButton(tr("Prefer AAC/FLAC"), this);
   auto* b_add = new QPushButton(tr("Add rule…"), this);
-  b_add->setToolTip(
-      tr("Open a dialog to add a 'Contains', 'Whole word', or custom 'Regex' rule."));
+  b_add->setToolTip(tr("Open a dialog to add a 'Contains', 'Whole word', or custom 'Regex' rule."));
 
   for (auto* w : {b_bad, b_1080, b_v2, b_cam, b_x265, b_mkv, b_aac, b_add}) {
     presetsLayout->addWidget(w);
@@ -286,25 +295,20 @@ TorrentFiltersDialog::TorrentFiltersDialog(QWidget* parent) : QDialog(parent) {
   connect(b_bad, &QPushButton::clicked, this, [excludeList]() {
     addToList(excludeList, QStringLiteral("\\b(AVI|DIVX|LQ|RMVB|SD|WMV|XVID)\\b"));
   });
-  connect(b_1080, &QPushButton::clicked, this, [includeList]() {
-    addToList(includeList, QStringLiteral("\\b1080p\\b"));
-  });
+  connect(b_1080, &QPushButton::clicked, this,
+          [includeList]() { addToList(includeList, QStringLiteral("\\b1080p\\b")); });
   connect(b_v2, &QPushButton::clicked, this, [includeList]() {
     addToList(includeList, QStringLiteral("\\bv[2-9]\\b"));
     addToList(includeList, QStringLiteral("\\bv\\d{2,}\\b"));
   });
-  connect(b_cam, &QPushButton::clicked, this, [excludeList]() {
-    addToList(excludeList, QStringLiteral("\\b(CAM|TS|TC)\\b"));
-  });
-  connect(b_x265, &QPushButton::clicked, this, [includeList]() {
-    addToList(includeList, QStringLiteral("\\b(x265|hevc)\\b"));
-  });
-  connect(b_mkv, &QPushButton::clicked, this, [includeList]() {
-    addToList(includeList, QStringLiteral("\\bMKV\\b"));
-  });
-  connect(b_aac, &QPushButton::clicked, this, [includeList]() {
-    addToList(includeList, QStringLiteral("\\b(AAC|FLAC)\\b"));
-  });
+  connect(b_cam, &QPushButton::clicked, this,
+          [excludeList]() { addToList(excludeList, QStringLiteral("\\b(CAM|TS|TC)\\b")); });
+  connect(b_x265, &QPushButton::clicked, this,
+          [includeList]() { addToList(includeList, QStringLiteral("\\b(x265|hevc)\\b")); });
+  connect(b_mkv, &QPushButton::clicked, this,
+          [includeList]() { addToList(includeList, QStringLiteral("\\bMKV\\b")); });
+  connect(b_aac, &QPushButton::clicked, this,
+          [includeList]() { addToList(includeList, QStringLiteral("\\b(AAC|FLAC)\\b")); });
 
   // ── Add rule dialog ───────────────────────────────────────────────────────
   connect(b_add, &QPushButton::clicked, this, [=]() {
@@ -335,8 +339,7 @@ TorrentFiltersDialog::TorrentFiltersDialog(QWidget* parent) : QDialog(parent) {
     form->addRow(tr("Preview:"), previewLabel);
     lay->addLayout(form);
 
-    auto* box2 =
-        new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    auto* box2 = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
     QPushButton* ok2 = box2->button(QDialogButtonBox::Ok);
     ok2->setEnabled(false);
     lay->addWidget(box2);
@@ -369,9 +372,8 @@ TorrentFiltersDialog::TorrentFiltersDialog(QWidget* parent) : QDialog(parent) {
       previewLabel->setText(tr("Will store as: %1").arg(regex));
     };
     connect(textEdit, &QLineEdit::textChanged, &dlg, [updatePreview]() { updatePreview(); });
-    connect(modeCombo, &QComboBox::currentIndexChanged, &dlg, [updatePreview](int) {
-      updatePreview();
-    });
+    connect(modeCombo, &QComboBox::currentIndexChanged, &dlg,
+            [updatePreview](int) { updatePreview(); });
     updatePreview();
 
     if (dlg.exec() != QDialog::Accepted) return;
@@ -404,7 +406,9 @@ TorrentFiltersDialog::TorrentFiltersDialog(QWidget* parent) : QDialog(parent) {
     bool valid = true;
 
     if (!inc.isEmpty() && exc_set.contains(QStringLiteral(".*"))) {
-      warning = tr("Your \"Hide\" list contains <code>.*</code>, which hides everything — no results can appear.");
+      warning =
+          tr("Your \"Hide\" list contains <code>.*</code>, which hides everything — no results can "
+             "appear.");
       valid = false;
     } else if (!inc.isEmpty()) {
       int covered = 0;
@@ -412,7 +416,8 @@ TorrentFiltersDialog::TorrentFiltersDialog(QWidget* parent) : QDialog(parent) {
         if (exc_set.contains(s)) ++covered;
       }
       if (covered == inc.size()) {
-        warning = tr("Every \"Show only\" rule is also in the \"Hide\" list — no results can appear.");
+        warning =
+            tr("Every \"Show only\" rule is also in the \"Hide\" list — no results can appear.");
         valid = false;
       }
     }
@@ -452,6 +457,8 @@ TorrentFiltersDialog::TorrentFiltersDialog(QWidget* parent) : QDialog(parent) {
       taiga::settings.setTorrentFeedHideAvailableEpisodes(w->isChecked());
     if (auto* w = findChild<QCheckBox*>(u"chkHideOlderVersions"_s))
       taiga::settings.setTorrentFeedHideOlderVersionsWhenNewerExists(w->isChecked());
+    if (auto* w = findChild<QCheckBox*>(u"chkHideBeforeStart"_s))
+      taiga::settings.setTorrentFeedHideBeforeAnimeStartDate(w->isChecked());
 
     accept();
   });

@@ -18,15 +18,15 @@
 
 #include "media_menu.hpp"
 
+#include <QClipboard>
 #include <QDate>
 #include <QDateTime>
 #include <QDesktopServices>
-#include <QClipboard>
 #include <QGuiApplication>
-#include <QStatusBar>
 #include <QInputDialog>
 #include <QItemSelectionModel>
 #include <QMessageBox>
+#include <QStatusBar>
 #include <QUrl>
 #include <QUrlQuery>
 #include <chrono>
@@ -185,9 +185,8 @@ void MediaMenu::editNotes() const {
   }
 
   bool ok = false;
-  const auto notes =
-      QInputDialog::getMultiLineText(parentWidget(), tr("Edit Notes"), tr("Enter notes:"), initial,
-                                     &ok);
+  const auto notes = QInputDialog::getMultiLineText(parentWidget(), tr("Edit Notes"),
+                                                    tr("Enter notes:"), initial, &ok);
   if (!ok) return;
 
   const auto now = static_cast<std::time_t>(QDateTime::currentSecsSinceEpoch());
@@ -228,9 +227,9 @@ void MediaMenu::openFolder() const {
     }
   }
 
-  QMessageBox::information(nullptr, libraryOpenFolderMessageTitle(),
-                           libraryNoFolderForNamedTitleMessage(
-                               QString::fromStdString(item.titles.romaji)));
+  QMessageBox::information(
+      nullptr, libraryOpenFolderMessageTitle(),
+      libraryNoFolderForNamedTitleMessage(QString::fromStdString(item.titles.romaji)));
 }
 
 void MediaMenu::removeFromList() const {
@@ -352,10 +351,9 @@ void MediaMenu::torrents() const {
   // Primary: romaji — Nyaa/torrent sites index by Japanese/romaji title.
   // Fallback: English title, tried automatically if primary returns 0 results.
   const bool has_romaji = !item.titles.romaji.empty();
-  const QString primary = has_romaji
-      ? QString::fromStdString(item.titles.romaji)
-      : QString::fromStdString(
-            anime::preferredListTitleString(item, anime::TitleLanguage::English));
+  const QString primary = has_romaji ? QString::fromStdString(item.titles.romaji)
+                                     : QString::fromStdString(anime::preferredListTitleString(
+                                           item, anime::TitleLanguage::English));
   // Build a fallback: use English title if available and different from primary.
   QString fallback;
   if (has_romaji && !item.titles.english.empty()) {
@@ -365,7 +363,7 @@ void MediaMenu::torrents() const {
     }
   }
   if (auto* mw = mainWindow()) {
-    mw->openTorrentSearchInApp(primary, fallback);
+    mw->openTorrentSearchInApp(primary, fallback, item.id);
   }
 }
 
@@ -437,7 +435,8 @@ void MediaMenu::setDateCompletedToLastUpdated() const {
     ListEntry e = *it;
     if (e.last_updated <= 0) continue;
     const QDate d = QDateTime::fromSecsSinceEpoch(static_cast<qint64>(e.last_updated)).date();
-    const Date ymd{std::chrono::year{d.year()}, std::chrono::month{static_cast<unsigned>(d.month())},
+    const Date ymd{std::chrono::year{d.year()},
+                   std::chrono::month{static_cast<unsigned>(d.month())},
                    std::chrono::day{static_cast<unsigned>(d.day())}};
     e.date_completed = FuzzyDate{ymd};
     e.last_updated = now;
@@ -528,15 +527,15 @@ void MediaMenu::addListItems() {
         if (entry->watched_episodes < max) {
           const int next = entry->watched_episodes + 1;
           const QString label = item.episode_count > 0
-              ? tr("+1 episode (→ %1/%2)").arg(next).arg(item.episode_count)
-              : tr("+1 episode (→ %1)").arg(next);
+                                    ? tr("+1 episode (→ %1/%2)").arg(next).arg(item.episode_count)
+                                    : tr("+1 episode (→ %1)").arg(next);
           addAction(theme.getIcon("add_box"), label, this, &MediaMenu::incrementEpisode);
         }
         if (entry->watched_episodes > 0) {
           const int prev = entry->watched_episodes - 1;
           const QString label = item.episode_count > 0
-              ? tr("-1 episode (→ %1/%2)").arg(prev).arg(item.episode_count)
-              : tr("-1 episode (→ %1)").arg(prev);
+                                    ? tr("-1 episode (→ %1/%2)").arg(prev).arg(item.episode_count)
+                                    : tr("-1 episode (→ %1)").arg(prev);
           addAction(label, this, &MediaMenu::decrementEpisode);
         }
       }

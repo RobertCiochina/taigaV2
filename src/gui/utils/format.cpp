@@ -21,6 +21,7 @@
 #include <QCoreApplication>
 #include <QDate>
 #include <QDateTime>
+#include <QLocale>
 #include <cmath>
 #include <format>
 
@@ -53,19 +54,46 @@ QString formatDate(const base::Date& date, QString placeholder) {
 }
 
 QString formatDate(const QDate date, QString placeholder) {
-  return date.isValid() ? QDate(date).toString(Qt::RFC2822Date) : placeholder;
+  return date.isValid() ? QDate(date).toString(Qt::ISODate) : placeholder;
 }
 
 QString formatFuzzyDate(const base::FuzzyDate& fuzzyDate, QString placeholder) {
-  const QDate date(fuzzyDate.year(), fuzzyDate.month(), fuzzyDate.day());
-  return fuzzyDate ? date.toString(Qt::RFC2822Date) : placeholder;
+  if (!fuzzyDate) return placeholder;
+  const int y = static_cast<int>(fuzzyDate.year());
+  const int m = static_cast<int>(fuzzyDate.month());
+  const int d = static_cast<int>(fuzzyDate.day());
+  if (y <= 0) return placeholder;
+  if (m <= 0) return QString::number(y);
+  if (d <= 0) return u"%1-%2"_s.arg(y, 4, 10, QLatin1Char('0')).arg(m, 2, 10, QLatin1Char('0'));
+  const QDate date(y, m, d);
+  return date.isValid() ? date.toString(Qt::ISODate) : placeholder;
 }
 
 QString formatFuzzyDateRange(const base::FuzzyDate& from, const base::FuzzyDate& to,
                              QString placeholder) {
   if (from == to) return formatFuzzyDate(from, placeholder);
-  return u"%1 to %2"_s.arg(formatFuzzyDate(from, placeholder))
-      .arg(formatFuzzyDate(to, placeholder));
+  return u"%1 - %2"_s.arg(formatFuzzyDate(from, placeholder)).arg(formatFuzzyDate(to, placeholder));
+}
+
+QString formatSeasonDate(const base::FuzzyDate& fuzzyDate, QString placeholder) {
+  if (!fuzzyDate) return placeholder;
+  const int y = static_cast<int>(fuzzyDate.year());
+  const int m = static_cast<int>(fuzzyDate.month());
+  const int d = static_cast<int>(fuzzyDate.day());
+  if (y <= 0) return placeholder;
+  if (m <= 0) return QString::number(y);
+  if (d <= 0) {
+    return QLocale().toString(QDate(y, m, 1), u"MMM yyyy"_s);
+  }
+  const QDate date(y, m, d);
+  return date.isValid() ? QLocale().toString(date, u"d MMM yyyy"_s) : placeholder;
+}
+
+QString formatSeasonDateRange(const base::FuzzyDate& from, const base::FuzzyDate& to,
+                              QString placeholder) {
+  if (from == to) return formatSeasonDate(from, placeholder);
+  return u"%1 - %2"_s.arg(formatSeasonDate(from, placeholder))
+      .arg(formatSeasonDate(to, placeholder));
 }
 
 QString formatAsRelativeTime(const qint64 time, QString placeholder) {

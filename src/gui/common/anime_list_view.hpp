@@ -28,7 +28,7 @@ class AnimeListModel;
 class AnimeListProxyModel;
 class ListViewBase;
 
-/// Places the **Guide** column immediately after **Title** (default enum order puts it last).
+/// Places the **Guide** column immediately after **Title** and keeps adjacent fixed-width buttons.
 void positionAnimeListGuideColumnAfterTitle(QHeaderView* header);
 
 /// **Title** stretches to use extra width; **Guide** stays fixed. Call after `restoreState`.

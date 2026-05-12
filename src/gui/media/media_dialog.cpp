@@ -245,9 +245,10 @@ void MediaDialog::initDetails() {
     return label;
   };
 
-  auto seasonLabel = new QLabel(formatSeason(anime::Season(m_anime.date_started)), this);
+  auto seasonLabel =
+      new QLabel(formatSeasonDateRange(m_anime.date_started, m_anime.date_finished), this);
   seasonLabel->setCursor(QCursor(Qt::CursorShape::WhatsThisCursor));
-  seasonLabel->setToolTip(formatFuzzyDateRange(m_anime.date_started, m_anime.date_finished));
+  seasonLabel->setToolTip(seasonLabel->text());
 
   if (!m_anime.titles.synonyms.empty()) {
     ui_->infoLayout->addRow(get_row_title(tr("Titles:")),

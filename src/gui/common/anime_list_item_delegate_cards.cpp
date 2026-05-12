@@ -18,12 +18,11 @@
 
 #include "anime_list_item_delegate_cards.hpp"
 
-#include <cmath>
-
 #include <QListView>
 #include <QPainter>
 #include <QPainterPath>
 #include <QScrollBar>
+#include <cmath>
 
 #include "base/string.hpp"
 #include "gui/models/anime_list_model.hpp"
@@ -32,6 +31,7 @@
 #include "gui/utils/painters.hpp"
 #include "gui/utils/theme.hpp"
 #include "media/anime_season.hpp"
+
 
 namespace gui {
 
@@ -88,15 +88,16 @@ void ListItemDelegateCards::paint(QPainter* painter, const QStyleOptionViewItem&
         index.data(static_cast<int>(AnimeListItemDataRole::Poster)).value<QPixmap>();
 
     if (!pixmap.isNull() && posterRect.width() > 0 && posterRect.height() > 0) {
-      const QSize scaled = pixmap.size().scaled(
-          posterRect.size(), Qt::AspectRatioMode::KeepAspectRatioByExpanding);
+      const QSize scaled =
+          pixmap.size().scaled(posterRect.size(), Qt::AspectRatioMode::KeepAspectRatioByExpanding);
       if (scaled.width() < 1 || scaled.height() < 1) {
         // Degenerate layout / pixmap — avoid division by zero in crop math.
       } else {
         QRect sourceRect{pixmap.rect()};
         if (scaled.width() > posterRect.width()) {
           const auto half = (scaled.width() - posterRect.width()) / 2.0f;
-          const auto scale = static_cast<float>(pixmap.width()) / static_cast<float>(scaled.width());
+          const auto scale =
+              static_cast<float>(pixmap.width()) / static_cast<float>(scaled.width());
           sourceRect.adjust(static_cast<int>(half * scale), 0, static_cast<int>(-half * scale), 0);
         } else {
           const auto half = (scaled.height() - posterRect.height()) / 2.0f;
@@ -157,7 +158,7 @@ void ListItemDelegateCards::paint(QPainter* painter, const QStyleOptionViewItem&
   {
     QStringList parts{
         formatType(item->type),
-        formatSeason(anime::Season{item->date_started}),
+        formatSeasonDate(item->date_started),
         formatScore(item->score),
     };
     if (item->episode_count != 1) {
@@ -275,9 +276,8 @@ QSize ListItemDelegateCards::itemSize() const {
   }();
 
   const int columnsWidth = availableWidth - (columns * spacing);
-  const float itemWidth =
-      qMax(static_cast<float>(minItemWidth),
-           static_cast<float>(columnsWidth) / static_cast<float>(columns));
+  const float itemWidth = qMax(static_cast<float>(minItemWidth),
+                               static_cast<float>(columnsWidth) / static_cast<float>(columns));
 
   return QSize(static_cast<int>(std::floor(itemWidth)), itemHeight);
 }

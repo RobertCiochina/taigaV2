@@ -405,6 +405,10 @@ bool Settings::torrentFeedHideOlderVersionsWhenNewerExists() const {
   return value("torrent.feed.hideOlderVersionsWhenNewerExists", false).toBool();
 }
 
+bool Settings::torrentFeedHideBeforeAnimeStartDate() const {
+  return value("torrent.feed.hideBeforeAnimeStartDate", false).toBool();
+}
+
 QStringList Settings::torrentFeedDiscardedTitleArchive() const {
   const QString raw = value("torrent.feed.discardedTitleArchive", QString{}).toString();
   if (raw.isEmpty()) return {};
@@ -809,6 +813,10 @@ void Settings::setTorrentFeedHideAvailableEpisodes(const bool enabled) const {
 
 void Settings::setTorrentFeedHideOlderVersionsWhenNewerExists(const bool enabled) const {
   setValue("torrent.feed.hideOlderVersionsWhenNewerExists", enabled);
+}
+
+void Settings::setTorrentFeedHideBeforeAnimeStartDate(const bool enabled) const {
+  setValue("torrent.feed.hideBeforeAnimeStartDate", enabled);
 }
 
 void Settings::setTorrentFeedDiscardedTitleArchive(const QStringList& titles) const {

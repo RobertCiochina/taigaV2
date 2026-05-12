@@ -60,6 +60,9 @@ QString formatDate(const QDate date, QString placeholder = "?");
 QString formatFuzzyDate(const base::FuzzyDate& date, QString placeholder = "?");
 QString formatFuzzyDateRange(const base::FuzzyDate& from, const base::FuzzyDate& to,
                              QString placeholder = "?");
+QString formatSeasonDate(const base::FuzzyDate& date, QString placeholder = "?");
+QString formatSeasonDateRange(const base::FuzzyDate& from, const base::FuzzyDate& to,
+                              QString placeholder = "?");
 QString formatAsRelativeTime(const qint64 time, QString placeholder = "Unknown");
 QString formatDuration(base::Duration duration);
 QString formatTimestamp(const qint64 time);

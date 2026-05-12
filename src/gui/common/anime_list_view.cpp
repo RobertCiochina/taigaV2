@@ -34,6 +34,7 @@ namespace gui {
 void positionAnimeListGuideColumnAfterTitle(QHeaderView* header) {
   if (!header) return;
   const int guide = AnimeListModel::COLUMN_WATCH_ORDER_GUIDE;
+  const int torrents = AnimeListModel::COLUMN_MOVIE_TORRENTS;
   const int title = AnimeListModel::COLUMN_TITLE;
   const int from = header->visualIndex(guide);
   const int titleVis = header->visualIndex(title);
@@ -41,6 +42,14 @@ void positionAnimeListGuideColumnAfterTitle(QHeaderView* header) {
   const int target = titleVis + 1;
   if (from != target) {
     header->moveSection(from, target);
+  }
+
+  // Keep the movie torrent button right after Guide.
+  const int torFrom = header->visualIndex(torrents);
+  const int guideVis = header->visualIndex(guide);
+  if (torFrom >= 0 && guideVis >= 0) {
+    const int torTarget = guideVis + 1;
+    if (torFrom != torTarget) header->moveSection(torFrom, torTarget);
   }
 }
 
@@ -84,19 +93,20 @@ ListView::ListView(QWidget* parent, AnimeListModel* model, AnimeListProxyModel* 
   header()->setTextElideMode(Qt::ElideRight);
   header()->hideSection(AnimeListModel::COLUMN_DURATION);
   header()->hideSection(AnimeListModel::COLUMN_REWATCHES);
+  header()->hideSection(AnimeListModel::COLUMN_SCORE);
   header()->hideSection(AnimeListModel::COLUMN_AVERAGE);
   header()->hideSection(AnimeListModel::COLUMN_STARTED);
   header()->hideSection(AnimeListModel::COLUMN_COMPLETED);
   header()->hideSection(AnimeListModel::COLUMN_NOTES);
   header()->resizeSection(AnimeListModel::COLUMN_PROGRESS, 150);
   header()->resizeSection(AnimeListModel::COLUMN_DURATION, 75);
-  header()->resizeSection(AnimeListModel::COLUMN_SCORE, 75);
   header()->resizeSection(AnimeListModel::COLUMN_AVERAGE, 75);
   header()->resizeSection(AnimeListModel::COLUMN_TYPE, 75);
   header()->resizeSection(AnimeListModel::COLUMN_LAST_UPDATED, 110);
   header()->setCascadingSectionResizes(false);
   header()->setSectionResizeMode(QHeaderView::Interactive);
   header()->resizeSection(AnimeListModel::COLUMN_WATCH_ORDER_GUIDE, 42);
+  header()->resizeSection(AnimeListModel::COLUMN_MOVIE_TORRENTS, 42);
   positionAnimeListGuideColumnAfterTitle(header());
   applyAnimeListHorizontalStretch(header());
 

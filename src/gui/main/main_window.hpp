@@ -112,9 +112,11 @@ public slots:
   void refreshNavigationSidebar();
   void refreshAnimeListProgressDecorations();
   void refreshAnimeListNewEpisodeHighlight();
-  /// Re-applies the “show mature titles” setting across list/search proxies, history, Home, and Announced releases.
+  /// Re-applies the “show mature titles” setting across list/search proxies, history, Home, and
+  /// Announced releases.
   void refreshMatureContentSurfaces();
-  /// Shows or hides the “sync at startup is off” notice until the first successful list sync this session.
+  /// Shows or hides the “sync at startup is off” notice until the first successful list sync this
+  /// session.
   void updateNoStartupSyncBanner();
   /// Keeps the Enable synchronization toggle in sync with `taiga::settings` without emitting
   /// toggled.
@@ -126,7 +128,8 @@ public slots:
   void importAnimeListMalXml();
   /// Switches to Torrents, sets the toolbar query when non-empty, and runs an in-app RSS fetch.
   /// \p fallback is tried automatically if the primary search returns no results.
-  void openTorrentSearchInApp(const QString& title, const QString& fallback = {});
+  /// \p anime_id provides an optional context for manual torrent search enhancements.
+  void openTorrentSearchInApp(const QString& title, const QString& fallback = {}, int anime_id = 0);
   void postTrayMessage(const QString& title, const QString& message);
   void refreshTorrentCatalogAutocheckTimer();
   void resortTorrentRssTableFromSettings();
@@ -190,7 +193,13 @@ private:
   void trySyncAfterFocusReturn();
   void updateToolbarSearchPlaceholder();
   void checkForUpdatesManually();
-  enum class LibraryScanReason { StartupPreSync, StartupPostSync, DelayedAutoDownload, Watcher, Manual };
+  enum class LibraryScanReason {
+    StartupPreSync,
+    StartupPostSync,
+    DelayedAutoDownload,
+    Watcher,
+    Manual
+  };
   void runLibraryScan(bool startup_silent, LibraryScanReason reason);
   void scheduleDelayedAutoDownload(int delay_minutes);
   void cancelDelayedAutoDownload(const QString& reason);
@@ -251,7 +260,7 @@ private:
   QTimer* m_announced_related_diff_timer_ = nullptr;  // debounce candidate diff + notify
   QTimer* m_status_message_timer_ = nullptr;
   QTimer* m_local_backup_timer_ = nullptr;  // debounced auto-write of local MAL XML backup
-  QAction* m_autoDownloadAction = nullptr;    // permanent toolbar action (all pages)
+  QAction* m_autoDownloadAction = nullptr;  // permanent toolbar action (all pages)
   QLabel* m_homeBodyLabel = nullptr;
   QWidget* m_homeUpNextContainer = nullptr;
   QLabel* m_homeUpNextHeader = nullptr;

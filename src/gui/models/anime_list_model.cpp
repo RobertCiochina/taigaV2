@@ -18,10 +18,6 @@
 
 #include "anime_list_model.hpp"
 
-#include <algorithm>
-#include <cstdint>
-#include <vector>
-
 #include <QApplication>
 #include <QColor>
 #include <QCoreApplication>
@@ -30,9 +26,13 @@
 #include <QList>
 #include <QPalette>
 #include <QSize>
+#include <algorithm>
+#include <cstdint>
 #include <ctime>
+#include <vector>
 
 #include "gui/main/main_window.hpp"
+#include "gui/models/list_title_color.hpp"
 #include "gui/utils/format.hpp"
 #include "gui/utils/image_provider.hpp"
 #include "gui/utils/list_commit.hpp"
@@ -41,7 +41,7 @@
 #include "media/anime_season.hpp"
 #include "taiga/settings.hpp"
 #include "track/scanner.hpp"
-#include "gui/models/list_title_color.hpp"
+
 
 namespace gui {
 
@@ -113,14 +113,13 @@ AnimeListModel::AnimeListModel(QObject* parent, const AnimeListModelSource sourc
     emit dataChanged(topLeft, bottomRight, QList<int>{});
   };
 
-  connect(&anime::db, &anime::Database::entryUpdated, this,
-          [this, emitRowOrReloadCatalog](int id) {
-            if (m_source == AnimeListModelSource::ListEntriesByLastUpdated) {
-              reloadFromDatabase();
-              return;
-            }
-            emitRowOrReloadCatalog(id);
-          });
+  connect(&anime::db, &anime::Database::entryUpdated, this, [this, emitRowOrReloadCatalog](int id) {
+    if (m_source == AnimeListModelSource::ListEntriesByLastUpdated) {
+      reloadFromDatabase();
+      return;
+    }
+    emitRowOrReloadCatalog(id);
+  });
   connect(&anime::db, &anime::Database::itemUpdated, this, [this, emitRowOrReloadCatalog](int id) {
     if (m_source == AnimeListModelSource::ListEntriesByLastUpdated) {
       if (m_ids.indexOf(id) < 0) {
@@ -168,7 +167,7 @@ QVariant AnimeListModel::data(const QModelIndex& index, int role) const {
         case COLUMN_TYPE:
           return formatType(anime->type);
         case COLUMN_SEASON:
-          return formatSeason(anime::Season(anime->date_started));
+          return formatSeasonDate(anime->date_started, "-");
         case COLUMN_STARTED:
           if (entry) return formatFuzzyDate(entry->date_started);
           break;
@@ -205,7 +204,7 @@ QVariant AnimeListModel::data(const QModelIndex& index, int role) const {
           return lines.join(QLatin1Char('\n'));
         }
         case COLUMN_SEASON:
-          return formatFuzzyDate(anime->date_started);
+          return formatSeasonDate(anime->date_started, "-");
         case COLUMN_LAST_UPDATED:
           if (entry) return formatTimestamp(entry->last_updated);
           break;
@@ -257,9 +256,10 @@ QVariant AnimeListModel::data(const QModelIndex& index, int role) const {
                                     track::nextEpisodeIsOnDisk(anime->id, anime, entry);
           const bool aired_not_downloaded = last_aired > watched;
 
-          if (const auto c = decideListTitleColor(/*caught_up_or_done=*/(caught_up || fully_done),
-                                                  /*next_unwatched_episode_on_disk=*/next_on_disk,
-                                                  /*aired_but_not_downloaded=*/aired_not_downloaded)) {
+          if (const auto c =
+                  decideListTitleColor(/*caught_up_or_done=*/(caught_up || fully_done),
+                                       /*next_unwatched_episode_on_disk=*/next_on_disk,
+                                       /*aired_but_not_downloaded=*/aired_not_downloaded)) {
             return *c;
           }
           break;
@@ -379,6 +379,7 @@ QVariant AnimeListModel::headerData(int section, Qt::Orientation orientation, in
         case COLUMN_LAST_UPDATED: return tr("Last updated");
         case COLUMN_NOTES: return tr("Notes");
         case COLUMN_WATCH_ORDER_GUIDE: return tr("Guide");
+        case COLUMN_MOVIE_TORRENTS: return tr("RSS");
       }
       // clang-format on
       break;
@@ -387,6 +388,9 @@ QVariant AnimeListModel::headerData(int section, Qt::Orientation orientation, in
     case Qt::ToolTipRole: {
       if (orientation == Qt::Horizontal && section == COLUMN_WATCH_ORDER_GUIDE) {
         return tr("Open the watch order guide for this title");
+      }
+      if (orientation == Qt::Horizontal && section == COLUMN_MOVIE_TORRENTS) {
+        return tr("Search torrents in-app (movies only; Watching)");
       }
       break;
     }
@@ -407,6 +411,8 @@ QVariant AnimeListModel::headerData(int section, Qt::Orientation orientation, in
           return QVariant(Qt::AlignRight | Qt::AlignVCenter);
         case COLUMN_WATCH_ORDER_GUIDE:
           return QVariant(Qt::AlignHCenter | Qt::AlignVCenter);
+        case COLUMN_MOVIE_TORRENTS:
+          return QVariant(Qt::AlignHCenter | Qt::AlignVCenter);
       }
       break;
     }
@@ -424,6 +430,7 @@ QVariant AnimeListModel::headerData(int section, Qt::Orientation orientation, in
         case COLUMN_LAST_UPDATED:
           return Qt::DescendingOrder;
         case COLUMN_WATCH_ORDER_GUIDE:
+        case COLUMN_MOVIE_TORRENTS:
           return Qt::AscendingOrder;
         default:
           return Qt::AscendingOrder;
@@ -440,6 +447,7 @@ Qt::ItemFlags AnimeListModel::flags(const QModelIndex& index) const {
 
   const auto base = QAbstractListModel::flags(index);
   if (index.column() == COLUMN_WATCH_ORDER_GUIDE) return base;
+  if (index.column() == COLUMN_MOVIE_TORRENTS) return base;
   return base | Qt::ItemIsEditable;
 }
 

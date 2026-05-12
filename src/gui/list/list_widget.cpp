@@ -155,6 +155,8 @@ void ListWidget::setViewMode(ListViewMode mode) {
       } else {
         applyPendingV1ListColumnLayout(v);
       }
+      // Always hide the Score column in the anime list.
+      v->header()->hideSection(AnimeListModel::COLUMN_SCORE);
       // Saved header state can restore sort arrows / clickable sections; list order is fixed.
       v->setSortingEnabled(false);
       v->header()->setSortIndicatorShown(false);

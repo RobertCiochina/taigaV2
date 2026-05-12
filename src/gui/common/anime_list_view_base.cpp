@@ -103,6 +103,28 @@ bool ListViewBase::eventFilter(QObject* watched, QEvent* event) {
           return true;
         }
       }
+      if (proxy.isValid() && proxy.column() == AnimeListModel::COLUMN_MOVIE_TORRENTS) {
+        const auto mapped = m_proxyModel->mapToSource(proxy);
+        const auto* anime = m_model->getAnime(mapped);
+        const auto* entry = m_model->getListEntry(mapped);
+        if (!anime || !entry) return true;
+        const bool show = anime->type == anime::Type::Movie &&
+                          entry->status == anime::list::Status::Watching;
+        if (!show) return true;
+        if (auto* mw = mainWindow()) {
+          const QString primary = QString::fromStdString(anime->titles.romaji).trimmed().isEmpty()
+                                      ? QString::fromStdString(anime->titles.english)
+                                      : QString::fromStdString(anime->titles.romaji);
+          QString fallback;
+          if (!anime->titles.english.empty() &&
+              QString::fromStdString(anime->titles.english).compare(primary, Qt::CaseInsensitive) !=
+                  0) {
+            fallback = QString::fromStdString(anime->titles.english);
+          }
+          mw->openTorrentSearchInApp(primary, fallback, anime->id);
+        }
+        return true;
+      }
     }
   }
 

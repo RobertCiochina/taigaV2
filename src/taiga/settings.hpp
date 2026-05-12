@@ -19,7 +19,6 @@
 #pragma once
 
 #include <QtGlobal>
-
 #include <chrono>
 #include <string>
 #include <vector>
@@ -27,6 +26,7 @@
 #include "base/settings.hpp"
 #include "media/anime.hpp"
 #include "taiga/list_row_action.hpp"
+
 
 namespace taiga {
 
@@ -47,19 +47,22 @@ public:
   std::vector<std::string> libraryFolders() const;
   /// Legacy: `anime/folders/watch/enabled` — watch library roots and trigger a debounced rescan.
   bool libraryWatchFoldersEnabled() const;
-  /// Legacy: anime/folders/scan @minfilesize (bytes). If positive, library scan skips smaller videos.
+  /// Legacy: anime/folders/scan @minfilesize (bytes). If positive, library scan skips smaller
+  /// videos.
   qint64 libraryScanMinFileSizeBytes() const;
-  /// Legacy: `recognition/general/lookup_parent_directories` — use parent folder name as title hint when
-  /// the filename alone has no parseable title.
+  /// Legacy: `recognition/general/lookup_parent_directories` — use parent folder name as title hint
+  /// when the filename alone has no parseable title.
   bool libraryScanLookupParentDirectories() const;
-  /// Legacy: `recognition/mediaplayers/launchpath` — optional player executable for **Play** / open file.
+  /// Legacy: `recognition/mediaplayers/launchpath` — optional player executable for **Play** / open
+  /// file.
   std::string mediaPlayerExecutablePath() const;
   std::chrono::milliseconds mediaDetectionInterval() const;
 
   std::string proxyHost() const;
   std::string proxyUsername() const;
   std::string proxyPassword() const;
-  /// Legacy: `program/general/sslnorevoke` — relax TLS peer verification (implementation uses VerifyNone).
+  /// Legacy: `program/general/sslnorevoke` — relax TLS peer verification (implementation uses
+  /// VerifyNone).
   bool networkRelaxedTls() const;
 
   /// When true, fetches the remote anime list once after the main window is shown.
@@ -87,33 +90,38 @@ public:
 
   /// Legacy: program/general/enablerecognition
   bool mediaDetectionEnabled() const;
-  /// Legacy: `account/update/auto` — when true, automatically update watched episode count on recognition.
+  /// Legacy: `account/update/auto` — when true, automatically update watched episode count on
+  /// recognition.
   bool recognitionAutoUpdateList() const;
   /// Qt port: after list update is committed and the media player closes, delete the local file.
   bool recognitionDeleteAfterWatched() const;
   void setRecognitionDeleteAfterWatched(bool enabled) const;
-  /// Legacy: `account/update/delay` — seconds to wait after recognition before committing the list update.
+  /// Legacy: `account/update/delay` — seconds to wait after recognition before committing the list
+  /// update.
   int recognitionUpdateDelaySeconds() const;
-  /// Legacy: `account/update/outofrange` — skip auto-update if the detected episode exceeds the anime's
-  /// total episode count.
+  /// Legacy: `account/update/outofrange` — skip auto-update if the detected episode exceeds the
+  /// anime's total episode count.
   bool recognitionUpdateOutOfRange() const;
   /// Legacy: `recognition/mediaplayers/enabled` — when false, desktop player polling is off.
   bool mediaDetectionPlayersEnabled() const;
   /// Legacy: `recognition/streaming/enabled` — include web browsers in media detection (Windows).
   bool mediaDetectionStreamingEnabled() const;
-  /// True when master recognition is on and at least one of desktop players or streaming detection is on.
+  /// True when master recognition is on and at least one of desktop players or streaming detection
+  /// is on.
   bool mediaDetectionPollingActive() const;
-  /// Legacy `recognition/anitomy/ignored_strings` (removed from modern Anitomy): substrings stripped from
-  /// filenames/titles before parsing (newline, comma, or semicolon separated).
+  /// Legacy `recognition/anitomy/ignored_strings` (removed from modern Anitomy): substrings
+  /// stripped from filenames/titles before parsing (newline, comma, or semicolon separated).
   std::string recognitionIgnoredSubstrings() const;
   /// Legacy: `recognition/streaming/providers/<slug>` — when the URL matches a known provider, that
   /// provider must be enabled or the detection pass is skipped (default: all **on**).
   bool streamProviderEnabled(const std::string& slug) const;
-  /// Legacy: `program/notifications/balloon/recognized` — tray message when a playing title is matched.
+  /// Legacy: `program/notifications/balloon/recognized` — tray message when a playing title is
+  /// matched.
   bool mediaNotifyRecognizedBalloon() const;
   /// Legacy: `program/notifications/balloon/notrecognized` — tray message for unmatched media.
   bool mediaNotifyUnrecognizedBalloon() const;
-  /// Legacy: `program/notifications/balloon/format` — body text for recognized tray messages (`%title%`, `%episode%`, …).
+  /// Legacy: `program/notifications/balloon/format` — body text for recognized tray messages
+  /// (`%title%`, `%episode%`, …).
   std::string mediaNotifyBalloonFormatRecognized() const;
   /// Body template when the parser could not match a list entry (typically `%name%`).
   std::string mediaNotifyBalloonFormatUnrecognized() const;
@@ -124,7 +132,8 @@ public:
   /// Legacy: `account/update/delay` — seconds before pushing the same title after a local change
   /// (debounced `sync::saveListEntry`). **0** = immediate.
   int syncListUpdateDelaySeconds() const;
-  /// Legacy: `account/update/asktoconfirm` — confirm before each upload from the list editor / dialogs.
+  /// Legacy: `account/update/asktoconfirm` — confirm before each upload from the list editor /
+  /// dialogs.
   bool syncListPushAskConfirm() const;
 
   /// Legacy: program/general/close — window close keeps the app running in the tray.
@@ -145,18 +154,21 @@ public:
   bool listProgressShowAvailable() const;
   /// Legacy: program/list/filter/episodes/highlight — accent title when next episode is on disk.
   bool listHighlightNextEpisodeOnDisk() const;
-  /// Legacy: program/list/filter/episodes/highlightedontop — sort those rows first (with active sort as tiebreaker).
+  /// Legacy: program/list/filter/episodes/highlightedontop — sort those rows first (with active
+  /// sort as tiebreaker).
   bool listHighlightAvailableOnTop() const;
-  /// When false (default), titles tagged as mature/NSFW are hidden from list, search, history, Home, and Announced releases.
+  /// When false (default), titles tagged as mature/NSFW are hidden from list, search, history,
+  /// Home, and Announced releases.
   bool listShowMatureContent() const;
 
-  /// When true, an up-to-date MAL XML export is automatically written to localListBackupPath() after
-  /// each list entry change (debounced ~2 s to avoid burst-writes during sync).
+  /// When true, an up-to-date MAL XML export is automatically written to localListBackupPath()
+  /// after each list entry change (debounced ~2 s to avoid burst-writes during sync).
   bool localListBackupEnabled() const;
   /// Absolute file path for the auto-maintained MAL XML backup. Empty string = not configured.
   QString localListBackupPath() const;
 
-  /// Legacy: `rss/torrent/search/address` — URL with `%title%` replaced by the URL-encoded query (HTTP GET).
+  /// Legacy: `rss/torrent/search/address` — URL with `%title%` replaced by the URL-encoded query
+  /// (HTTP GET).
   std::string torrentDiscoverySearchUrl() const;
   /// Legacy: `rss/torrent/source/address` — catalog RSS (fetched in-app on Torrents page).
   std::string torrentDiscoveryFeedSourceUrl() const;
@@ -164,15 +176,19 @@ public:
   bool torrentDiscoveryAutoCheckEnabled() const;
   /// Legacy: `rss/torrent/options/checkinterval` — minutes between automatic catalog checks.
   int torrentDiscoveryAutoCheckIntervalMinutes() const;
-  /// Legacy: `rss/torrent/options/newaction` — notify (1) vs intended auto-download (2); download queue not ported yet.
+  /// Legacy: `rss/torrent/options/newaction` — notify (1) vs intended auto-download (2); download
+  /// queue not ported yet.
   TorrentDiscoveryNewCatalogAction torrentDiscoveryNewCatalogAction() const;
-  /// Legacy: `rss/torrent/options/downloadsortby` — episode_number | release_date (RSS table: title | date column).
+  /// Legacy: `rss/torrent/options/downloadsortby` — episode_number | release_date (RSS table: title
+  /// | date column).
   std::string torrentRssSortBy() const;
   /// Legacy: `rss/torrent/options/downloadsortorder` — ascending | descending.
   std::string torrentRssSortOrder() const;
-  /// Legacy: `rss/torrent/filter/enabled` — when true, cap how many RSS items are shown (archive limit).
+  /// Legacy: `rss/torrent/filter/enabled` — when true, cap how many RSS items are shown (archive
+  /// limit).
   bool torrentFeedFilterEnabled() const;
-  /// Legacy: `rss/torrent/filter/archive_maxcount` — max feed items in the Torrents table when filter is on.
+  /// Legacy: `rss/torrent/filter/archive_maxcount` — max feed items in the Torrents table when
+  /// filter is on.
   int torrentFeedArchiveMaxItems() const;
   /// Qt port: simple in-app RSS filtering (regex, one per line).
   /// If non-empty, at least one include regex must match the row text for it to appear.
@@ -188,17 +204,23 @@ public:
   bool torrentFeedHideWatchedEpisodes() const;
   /// Legacy default filter: discard items already available locally.
   bool torrentFeedHideAvailableEpisodes() const;
-  /// Legacy preset: prefer new versions (v2+). When enabled, older versions of the same episode are hidden
-  /// if a newer version exists in the current RSS view.
+  /// Legacy preset: prefer new versions (v2+). When enabled, older versions of the same episode are
+  /// hidden if a newer version exists in the current RSS view.
   bool torrentFeedHideOlderVersionsWhenNewerExists() const;
+  /// Manual RSS enhancement: when enabled (and when an anime context is known), hide RSS items
+  /// whose published date is older than the anime's start date. Disabled by default.
+  bool torrentFeedHideBeforeAnimeStartDate() const;
   /// Legacy: torrent archive (discarded items). Exact-match title list applied on RSS fill.
   /// Stored in settings for persistence across runs.
   QStringList torrentFeedDiscardedTitleArchive() const;
-  /// Legacy: `rss/torrent/options/downloadusemagnet` — when true, prefer magnet over HTTP .torrent when both exist.
+  /// Legacy: `rss/torrent/options/downloadusemagnet` — when true, prefer magnet over HTTP .torrent
+  /// when both exist.
   bool torrentDownloadUseMagnet() const;
-  /// Legacy: `rss/torrent/options/downloadpath` — default directory passed to the torrent client (when supported).
+  /// Legacy: `rss/torrent/options/downloadpath` — default directory passed to the torrent client
+  /// (when supported).
   std::string torrentClientDownloadPath() const;
-  /// Legacy: `rss/torrent/options/filedownloadpath` — where Taiga saves `.torrent` files (when implemented).
+  /// Legacy: `rss/torrent/options/filedownloadpath` — where Taiga saves `.torrent` files (when
+  /// implemented).
   std::string torrentFileSavePath() const;
   /// Auto-download only: when enabled, a title that fails to find torrents twice in the same day is
   /// skipped for the rest of that day (manual downloads are unaffected).
@@ -209,11 +231,14 @@ public:
   /// When enabled, Taiga deletes unrecognized video files that appear in the torrent client
   /// download folder for auto-downloads. Safety: implemented only when create-subfolder is enabled.
   bool torrentAutoCleanupUnrecognizedDownloads() const;
-  /// Legacy: `rss/torrent/options/autosetfolder` — prefer per-title library folder when passing paths to client.
+  /// Legacy: `rss/torrent/options/autosetfolder` — prefer per-title library folder when passing
+  /// paths to client.
   bool torrentDownloadUseAnimeFolder() const;
-  /// Legacy: `rss/torrent/options/autousefolder` — fall back to client download path when no anime folder.
+  /// Legacy: `rss/torrent/options/autousefolder` — fall back to client download path when no anime
+  /// folder.
   bool torrentDownloadFallbackOnClientPath() const;
-  /// Legacy: `rss/torrent/options/autocreatefolder` — create subfolder by title under client download path.
+  /// Legacy: `rss/torrent/options/autocreatefolder` — create subfolder by title under client
+  /// download path.
   bool torrentDownloadCreateSubfolder() const;
   /// Legacy: `rss/torrent/application/open` — launch torrent client after handling a torrent.
   bool torrentAppOpen() const;
@@ -289,6 +314,7 @@ public:
   void setTorrentFeedHideWatchedEpisodes(bool enabled) const;
   void setTorrentFeedHideAvailableEpisodes(bool enabled) const;
   void setTorrentFeedHideOlderVersionsWhenNewerExists(bool enabled) const;
+  void setTorrentFeedHideBeforeAnimeStartDate(bool enabled) const;
   void setTorrentFeedDiscardedTitleArchive(const QStringList& titles) const;
   void setTorrentDownloadUseMagnet(bool enabled) const;
   void setTorrentClientDownloadPath(const std::string& path) const;

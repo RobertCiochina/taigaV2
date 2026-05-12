@@ -104,6 +104,45 @@ void ListItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     return;
   }
 
+  if (index.column() == AnimeListModel::COLUMN_MOVIE_TORRENTS) {
+    const auto anime =
+        index.data(static_cast<int>(AnimeListItemDataRole::Anime)).value<const Anime*>();
+    const auto entry =
+        index.data(static_cast<int>(AnimeListItemDataRole::ListEntry)).value<const ListEntry*>();
+    const bool show = anime && entry && anime->type == anime::Type::Movie &&
+                      entry->status == anime::list::Status::Watching;
+    if (!show) return;
+
+    const PainterStateSaver painterStateSaver(painter);
+    if (index.column() > 0) {
+      painter->setPen(theme.isDark() ? QColor{255, 255, 255, 8} : QColor{0, 0, 0, 8});
+      painter->drawLine(option.rect.topLeft(), option.rect.bottomLeft());
+    }
+    QStyleOptionViewItem opt = option;
+    initStyleOption(&opt, index);
+    opt.text.clear();
+    QWidget* w = const_cast<QWidget*>(opt.widget);
+    QStyle* st = w ? w->style() : nullptr;
+    if (!st) {
+      QStyledItemDelegate::paint(painter, option, index);
+      return;
+    }
+    const QRect inner = option.rect.adjusted(3, 2, -3, -2);
+    QStyleOptionButton btn;
+    btn.initFrom(w);
+    btn.rect = inner;
+    btn.state = QStyle::State_Enabled | QStyle::State_Raised;
+    if (opt.state & QStyle::State_MouseOver) btn.state |= QStyle::State_MouseOver;
+    if (opt.state & QStyle::State_Sunken) btn.state |= QStyle::State_Sunken;
+    st->drawPrimitive(QStyle::PE_PanelButtonCommand, &btn, painter, w);
+    const QIcon icon = theme.getIcon("cloud_download");
+    const QSize iconSize(18, 18);
+    const QRect iconRect(
+        QPoint(inner.center() - QPoint(iconSize.width() / 2, iconSize.height() / 2)), iconSize);
+    icon.paint(painter, iconRect, Qt::AlignCenter);
+    return;
+  }
+
   // Grid lines
   if (index.column() > 0) {
     const PainterStateSaver painterStateSaver(painter);
@@ -134,6 +173,9 @@ QSize ListItemDelegate::sizeHint(const QStyleOptionViewItem& option,
   if (index.isValid()) {
     if (index.column() == AnimeListModel::COLUMN_WATCH_ORDER_GUIDE) {
       // Keep the button size stable regardless of row height.
+      return QSize(42, 22);
+    }
+    if (index.column() == AnimeListModel::COLUMN_MOVIE_TORRENTS) {
       return QSize(42, 22);
     }
     // Delegate row sizing to the shared table defaults wrapper so behavior stays uniform

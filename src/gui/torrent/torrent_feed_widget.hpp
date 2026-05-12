@@ -39,8 +39,13 @@ public:
   explicit TorrentFeedWidget(QLineEdit* toolbar_query_edit, QWidget* parent = nullptr);
 
   void runSearch();
-  /// Set an alternative search title to retry automatically if the primary search returns 0 results.
+  /// Set an alternative search title to retry automatically if the primary search returns 0
+  /// results.
   void setSearchFallback(const QString& fallback);
+  /// Set (or clear with 0) the anime context for the next manual search.
+  /// When set, manual search may expand to multiple title variants and apply optional
+  /// anime-aware filters (e.g. published date vs anime start date).
+  void setManualSearchAnimeContext(int anime_id);
   void refreshCatalogFeed();
   /// Background catalog RSS fetch; silent unless new items vs last session snapshot.
   void runCatalogAutocheckFetch();
@@ -53,8 +58,7 @@ public:
   /// match and download it using `folder_name` as the subfolder hint.
   /// If the primary search returns no results and `fallback_title` is non-empty, it is tried next.
   /// `on_done(found)` is called when finished (on the GUI thread).
-  void downloadBestMatchForTitle(const QString& search_title,
-                                 const QString& folder_name,
+  void downloadBestMatchForTitle(const QString& search_title, const QString& folder_name,
                                  std::function<void(bool found)> on_done,
                                  const QString& fallback_title = {});
 
@@ -62,8 +66,7 @@ public:
   /// abbreviations), tries them sequentially until RSS results are found, and saves the winning
   /// title to settings so future calls for the same anime use it directly.
   /// `anime_id_cache` is the anime DB id used for caching (0 = skip cache).
-  void downloadBestMatchWithFallbacks(const QString& english_title,
-                                      const QString& romaji_title,
+  void downloadBestMatchWithFallbacks(const QString& english_title, const QString& romaji_title,
                                       const QString& folder_name,
                                       std::function<void(bool found)> on_done,
                                       int anime_id_cache = 0);
@@ -73,10 +76,8 @@ public:
   /// then downloads the best-downloaded version of each episode not yet on disk.
   /// For completed anime with a batch torrent available and ≥3 missing episodes, prefers the batch.
   /// `on_done(downloaded_count)` called when all queued; downloaded_count = items sent.
-  void downloadAllEpisodesForAnime(int anime_id,
-                                   const QString& english_title,
-                                   const QString& romaji_title,
-                                   const QString& folder_name,
+  void downloadAllEpisodesForAnime(int anime_id, const QString& english_title,
+                                   const QString& romaji_title, const QString& folder_name,
                                    std::function<void(int downloaded)> on_done);
 
 private:
@@ -127,7 +128,7 @@ private:
   /// qBittorrent Web API: send a magnet/torrent URL with a target save path.
   /// Authenticates first if username/password are set, then POSTs to /api/v2/torrents/add.
   void addTorrentViaQBitApi(const QString& torrent_url, const QString& save_path,
-                             std::function<void(bool ok, QString error)> on_done);
+                            std::function<void(bool ok, QString error)> on_done);
 
   QLineEdit* m_query_edit_ = nullptr;
   QLineEdit* m_filter_edit_ = nullptr;
@@ -157,6 +158,8 @@ private:
   FetchKind m_active_fetch_ = FetchKind::None;
   // When the primary search returns 0 results, the fallback title is tried once.
   QString m_search_fallback_title_;
+  int m_manual_search_anime_id_ = 0;
+  quint64 m_manual_search_seq_ = 0;
   QString m_catalog_autocheck_last_ok_url_;
   qint64 m_catalog_autocheck_last_ok_ms_ = 0;
 };
