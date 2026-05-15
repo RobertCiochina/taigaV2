@@ -36,6 +36,7 @@
 #include "base/string.hpp"
 #include "gui/main/main_window.hpp"
 #include "gui/settings/anilist_auth_dialog.hpp"
+#include "gui/settings/cache_diagnostics_dialog.hpp"
 #include "gui/settings/torrent_filters_dialog.hpp"
 #include "gui/utils/image_provider.hpp"
 #include "gui/utils/theme.hpp"
@@ -1655,36 +1656,11 @@ void SettingsDialog::populatePlaceholderPage(const QString& parent, const QStrin
     enabled->setChecked(taiga::settings.cacheDiagnosticsEnabled());
     layout->addWidget(enabled);
 
-    auto* logBox = new QTextEdit(page);
-    logBox->setReadOnly(true);
-    logBox->setMinimumHeight(220);
-    logBox->setVisible(taiga::settings.cacheDiagnosticsEnabled());
-    logBox->setText(track::libraryEpisodeIndexCacheDebugLog());
-    layout->addWidget(logBox);
+    addParagraph(tr("Opens a separate window that updates as new log lines are written."));
+    addButton(tr("View live log…"), [this]() { CacheDiagnosticsDialog::show(this); });
 
-    auto* refreshRow = new QWidget(page);
-    auto* hr = new QHBoxLayout(refreshRow);
-    hr->setContentsMargins(0, 0, 0, 0);
-    auto* btnRefresh = new QPushButton(tr("Refresh log"), refreshRow);
-    auto* btnCopy = new QPushButton(tr("Copy to clipboard"), refreshRow);
-    hr->addWidget(btnRefresh);
-    hr->addWidget(btnCopy);
-    hr->addStretch(1);
-    refreshRow->setVisible(taiga::settings.cacheDiagnosticsEnabled());
-    layout->addWidget(refreshRow);
-
-    connect(enabled, &QCheckBox::toggled, this, [this, logBox, refreshRow](const bool on) {
+    connect(enabled, &QCheckBox::toggled, this, [](const bool on) {
       taiga::settings.setCacheDiagnosticsEnabled(on);
-      logBox->setVisible(on);
-      refreshRow->setVisible(on);
-      if (on) logBox->setText(track::libraryEpisodeIndexCacheDebugLog());
-    });
-    connect(btnRefresh, &QPushButton::clicked, this,
-            [logBox]() { logBox->setText(track::libraryEpisodeIndexCacheDebugLog()); });
-    connect(btnCopy, &QPushButton::clicked, this, [logBox]() {
-      if (auto* cb = QApplication::clipboard()) {
-        cb->setText(logBox->toPlainText());
-      }
     });
   } else {
     // Generic fallback.

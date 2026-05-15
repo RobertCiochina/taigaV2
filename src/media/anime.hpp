@@ -19,6 +19,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -59,18 +60,13 @@ enum class TitleLanguage {
 };
 
 constexpr std::array<Status, 3> kStatuses{
-  Status::FinishedAiring,
-  Status::Airing,
-  Status::NotYetAired,
+    Status::FinishedAiring,
+    Status::Airing,
+    Status::NotYetAired,
 };
 
 constexpr std::array<Type, 6> kTypes{
-  Type::Tv,
-  Type::Ova,
-  Type::Movie,
-  Type::Special,
-  Type::Ona,
-  Type::Music,
+    Type::Tv, Type::Ova, Type::Movie, Type::Special, Type::Ona, Type::Music,
 };
 
 constexpr int kMaxEpisodeCount = 1900;
@@ -104,6 +100,13 @@ struct RelationEdge {
   RelationType type = RelationType::Unknown;
 };
 
+/// Whether relation edges from a full media fetch are known (see `relations_json` in media.sqlite).
+enum class RelationsCache : std::uint8_t {
+  Unknown,     // NULL/empty column — list/search sync or never fetched with Media.relations
+  KnownEmpty,  // Full fetch returned zero anime relation edges (`[]`)
+  Cached,      // Populated edges from a full fetch (`[{...}]`)
+};
+
 struct Details {
   int id = kUnknownId;
   // std::map<sync::ServiceId, std::string> uids;
@@ -130,6 +133,7 @@ struct Details {
   int last_aired_episode = 0;
   std::time_t next_episode_time = 0;
   std::vector<RelationEdge> relations;
+  RelationsCache relations_cache = RelationsCache::Unknown;
 };
 
 /// Primary string for list display / sorting for the given language (fallback to romaji).

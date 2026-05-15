@@ -234,8 +234,12 @@ private:
   void scheduleUpdateCheckStartup();
   void scheduleLibraryScanStartup();
   void scheduleListSyncStartup();
-  void initAnnouncedRelatedDailyRefresh();
-  void maybeRunAnnouncedRelatedDailyRefresh();
+  void initAnnouncedRelatedRefresh();
+  void pauseAnnouncedRelatedRefresh();
+  void scheduleAnnouncedRelatedResumeAfterSync();
+  void onAnnouncedRelatedResumeTimer();
+  void tryRunAnnouncedRelatedAfterStartup();
+  void maybeRunAnnouncedRelatedRefresh();
   void checkAnnouncedRelatedDiffAndNotify();
 
   Ui::MainWindow* ui_ = nullptr;
@@ -256,8 +260,9 @@ private:
   QTimer* m_release_event_timer_ = nullptr;   // lightweight release-event detection
   QTimer* m_delayed_autodl_timer_ = nullptr;  // single-shot delayed auto-download
   QTimer* m_home_qbit_poll_timer_ = nullptr;
-  QTimer* m_announced_related_timer_ = nullptr;       // daily related/new-seasons refresh
-  QTimer* m_announced_related_diff_timer_ = nullptr;  // debounce candidate diff + notify
+  QTimer* m_announced_related_resume_timer_ = nullptr;  // post-sync delay before refresh
+  QTimer* m_announced_related_diff_timer_ = nullptr;    // debounce candidate diff + notify
+  bool m_announced_related_paused_ = false;
   QTimer* m_status_message_timer_ = nullptr;
   QTimer* m_local_backup_timer_ = nullptr;  // debounced auto-write of local MAL XML backup
   QAction* m_autoDownloadAction = nullptr;  // permanent toolbar action (all pages)

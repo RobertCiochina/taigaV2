@@ -19,11 +19,11 @@
 #include "anime_db.hpp"
 
 #include <QFile>
-#include <QSqlError>
-#include <QSqlQuery>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSqlError>
+#include <QSqlQuery>
 #include <QSqlRecord>
 #include <QSqlResult>
 #include <format>
@@ -105,12 +105,15 @@ const QMap<int, ListEntry>& Database::entries() const {
 
 void Database::updateItem(const Anime& item) {
   // Some API endpoints (e.g. list sync / seasonal browse) do not include relations.
-  // Preserve any already-cached relation edges so features like Announced releases
+  // Preserve any already-cached relation state so features like Announced releases
   // remain stable across restarts/syncs.
   Anime merged = item;
-  if (merged.id > 0 && merged.relations.empty()) {
-    if (const auto it = items_.find(merged.id); it != items_.end() && !it->relations.empty()) {
-      merged.relations = it->relations;
+  if (merged.id > 0 && merged.relations_cache == RelationsCache::Unknown) {
+    if (const auto it = items_.find(merged.id); it != items_.end()) {
+      merged.relations_cache = it->relations_cache;
+      if (!it->relations.empty()) {
+        merged.relations = it->relations;
+      }
     }
   }
 
@@ -287,20 +290,27 @@ void Database::bindItemToQuery(const Anime& item, QSqlQuery& q) const {
   q.bindValue(":synopsis", QString::fromStdString(item.synopsis));
   q.bindValue(":last_aired_episode", item.last_aired_episode);
   q.bindValue(":next_episode_time", QString::number(item.next_episode_time));
-  // Persist relations as compact JSON array: [{"id":123,"t":2}, ...]
-  if (item.relations.empty()) {
-    q.bindValue(":relations_json", QString{});
-  } else {
-    QJsonArray arr;
-    for (const auto& e : item.relations) {
-      if (e.related_id <= 0) continue;
-      QJsonObject o;
-      o.insert(QStringLiteral("id"), e.related_id);
-      o.insert(QStringLiteral("t"), static_cast<int>(e.type));
-      arr.push_back(o);
+  // Persist relations: NULL = unknown, "[]" = confirmed empty, "[{...}]" = cached edges.
+  switch (item.relations_cache) {
+    case RelationsCache::KnownEmpty:
+      q.bindValue(":relations_json", QStringLiteral("[]"));
+      break;
+    case RelationsCache::Cached: {
+      QJsonArray arr;
+      for (const auto& e : item.relations) {
+        if (e.related_id <= 0) continue;
+        QJsonObject o;
+        o.insert(QStringLiteral("id"), e.related_id);
+        o.insert(QStringLiteral("t"), static_cast<int>(e.type));
+        arr.push_back(o);
+      }
+      q.bindValue(":relations_json",
+                  QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact)));
+      break;
     }
-    q.bindValue(":relations_json",
-                QString::fromUtf8(QJsonDocument(arr).toJson(QJsonDocument::Compact)));
+    case RelationsCache::Unknown:
+      q.bindValue(":relations_json", QVariant{});
+      break;
   }
   q.bindValue(":modified", QString::number(item.last_modified));
 }
@@ -354,9 +364,12 @@ Anime Database::itemFromQuery(const QSqlQuery& q) const {
       .next_episode_time = q.value("next_episode_time").toInt(),
   };
   const QString rel = q.value("relations_json").toString().trimmed();
-  if (!rel.isEmpty()) {
+  if (rel == QStringLiteral("[]")) {
+    a.relations_cache = RelationsCache::KnownEmpty;
+  } else if (!rel.isEmpty()) {
     const QJsonDocument doc = QJsonDocument::fromJson(rel.toUtf8());
     if (doc.isArray()) {
+      a.relations_cache = RelationsCache::Cached;
       for (const QJsonValue& v : doc.array()) {
         if (!v.isObject()) continue;
         const QJsonObject o = v.toObject();

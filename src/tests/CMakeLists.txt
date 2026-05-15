@@ -84,6 +84,9 @@ target_sources(taiga.tests.string_helpers PRIVATE base/test_string_helpers.cpp)
 taiga_add_qttest_core(taiga.tests.anime_list_utils)
 target_sources(taiga.tests.anime_list_utils PRIVATE media/test_anime_list_utils.cpp)
 
+taiga_add_qttest_core(taiga.tests.announced_related_refresh)
+target_sources(taiga.tests.announced_related_refresh PRIVATE media/test_announced_related_refresh.cpp)
+
 taiga_add_qttest_core(taiga.tests.version)
 target_sources(taiga.tests.version PRIVATE taiga/test_version.cpp)
 
@@ -112,5 +115,6 @@ add_dependencies(
   taiga.tests.anime_utils
   taiga.tests.string_helpers
   taiga.tests.anime_list_utils
+  taiga.tests.announced_related_refresh
   taiga.tests.version
   taiga.tests.ui_strings)

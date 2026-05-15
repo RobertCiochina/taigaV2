@@ -18,8 +18,6 @@
 
 #include "anilist_parsers.hpp"
 
-#include <cmath>
-
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -28,6 +26,7 @@
 #include <QString>
 #include <QUrl>
 #include <QUrlQuery>
+#include <cmath>
 
 #include "base/chrono.hpp"
 #include "media/anime.hpp"
@@ -181,23 +180,26 @@ std::optional<Anime> parseMedia(const QJsonValue& json) {
     if (next_num > 0) {
       item.last_aired_episode = next_num - 1;
     }
-    item.next_episode_time =
-        static_cast<std::time_t>(next_ep["airingAt"].toVariant().toLongLong());
+    item.next_episode_time = static_cast<std::time_t>(next_ep["airingAt"].toVariant().toLongLong());
   } else {
     item.next_episode_time = 0;
   }
 
-  // Relations (AniList Media.relations)
-  const QJsonArray rel_edges = json["relations"]["edges"].toArray();
-  for (const QJsonValue& v : rel_edges) {
-    if (!v.isObject()) continue;
-    const QJsonObject edge = v.toObject();
-    // Exclude non-anime relations (manga/novels/etc.)
-    if (edge["node"]["type"].toString() != QStringLiteral("ANIME")) continue;
-    const int rid = edge["node"]["id"].toInt();
-    if (rid <= 0) continue;
-    item.relations.push_back(
-        anime::RelationEdge{.related_id = rid, .type = parseRelationType(edge["relationType"].toString())});
+  // Relations (only when Media.gql includes `relations`; list/search omit this field).
+  if (const QJsonObject obj = json.toObject(); obj.contains(QStringLiteral("relations"))) {
+    const QJsonArray rel_edges = obj["relations"].toObject()["edges"].toArray();
+    for (const QJsonValue& v : rel_edges) {
+      if (!v.isObject()) continue;
+      const QJsonObject edge = v.toObject();
+      // Exclude non-anime relations (manga/novels/etc.)
+      if (edge["node"]["type"].toString() != QStringLiteral("ANIME")) continue;
+      const int rid = edge["node"]["id"].toInt();
+      if (rid <= 0) continue;
+      item.relations.push_back(anime::RelationEdge{
+          .related_id = rid, .type = parseRelationType(edge["relationType"].toString())});
+    }
+    item.relations_cache =
+        item.relations.empty() ? anime::RelationsCache::KnownEmpty : anime::RelationsCache::Cached;
   }
 
   return item;

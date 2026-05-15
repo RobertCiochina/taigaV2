@@ -39,9 +39,9 @@
 #include "media/anime_list.hpp"
 #include "taiga/path.hpp"
 #include "taiga/settings.hpp"
+#include "track/cache_debug_log.hpp"
 #include "track/episode.hpp"
 #include "track/recognition.hpp"
-
 
 namespace track {
 
@@ -89,8 +89,7 @@ void logCacheEvent(const QString& msg) {
   const QString line =
       QStringLiteral("%1  %2").arg(QDateTime::currentDateTime().toString(Qt::ISODateWithMs), msg);
   g_cache_log.push_back(line);
-  constexpr int kMax = 250;
-  while (g_cache_log.size() > kMax) g_cache_log.pop_front();
+  CacheDebugLog::instance()->relayLine(line);
 }
 
 std::pair<int, int> snapshotIndexSizeLocked() {
@@ -393,6 +392,10 @@ QString libraryEpisodeIndexCacheLastInfo() {
 
 QString libraryEpisodeIndexCacheDebugLog() {
   return g_cache_log.join(QLatin1Char('\n'));
+}
+
+void clearLibraryEpisodeIndexCacheDebugLog() {
+  g_cache_log.clear();
 }
 
 bool libraryHasLocalEpisode(const int anime_id, const int episode_number) {

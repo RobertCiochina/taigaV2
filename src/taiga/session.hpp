@@ -28,7 +28,7 @@
 namespace gui {
 enum class ListViewMode;
 struct AnimeListProxyModelFilter;
-}
+}  // namespace gui
 
 namespace taiga {
 
@@ -48,7 +48,8 @@ public:
   /// Watch-next / watch-order layout: 0 horizontal timeline, 1 list+detail. Legacy raw 2 maps to 1;
   /// former graph map (3) is normalized away on read.
   int watchNextLayoutVariant() const;
-  /// One-shot JSON array from v1 `settings.xml` list columns migration (consumed when list view opens).
+  /// One-shot JSON array from v1 `settings.xml` list columns migration (consumed when list view
+  /// opens).
   void setPendingV1ListColumnLayout(const QString& json) const;
   QString takePendingV1ListColumnLayout() const;
   QByteArray mainWindowGeometry() const;
@@ -59,8 +60,8 @@ public:
   QByteArray mediaDialogGeometry() const;
   QByteArray mediaDialogSplitterState() const;
   gui::AnimeListProxyModelFilter searchListFilters() const;
-  /// True once the user explicitly interacted with the Search season/year filters (including clearing them).
-  /// When false, Search will default to the current year+season on open.
+  /// True once the user explicitly interacted with the Search season/year filters (including
+  /// clearing them). When false, Search will default to the current year+season on open.
   bool searchListSeasonYearCustomized() const;
   int searchListSortColumn() const;
   Qt::SortOrder searchListSortOrder() const;
@@ -83,7 +84,8 @@ public:
   QByteArray torrentRssTableHeaderState() const;
   /// Dismissed anime ids for the Announced releases tab (stored as JSON in session.json).
   QSet<int> announcedReleasesDismissedAnimeIds() const;
-  /// Epoch seconds of the last background "related/new seasons" refresh (0 = never).
+  /// Epoch seconds of the last "related/new seasons" refresh run (0 = never); not a repeat
+  /// interval.
   qint64 announcedReleasesRelatedRefreshAtSecs() const;
   /// Last-known visible Announced releases candidate ids (for "new related anime" detection).
   QSet<int> announcedReleasesKnownCandidateAnimeIds() const;

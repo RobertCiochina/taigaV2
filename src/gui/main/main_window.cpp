@@ -191,7 +191,11 @@ void MainWindow::ensurePageInitialized(const MainWindowPage page) {
 }
 
 void MainWindow::setStartupBlockingActive(const bool on) {
+  const bool was_blocking = m_startup_blocking_active_;
   m_startup_blocking_active_ = on;
+  if (was_blocking && !on) {
+    tryRunAnnouncedRelatedAfterStartup();
+  }
   if (!on && m_welcome_prompt_deferred_) {
     m_welcome_prompt_deferred_ = false;
     scheduleWelcomeSetupPrompt();
@@ -226,9 +230,14 @@ void MainWindow::scheduleLibraryScanStartup() {
 
 void MainWindow::scheduleStartupWork() {
   if (startupBlockingActive()) return;
+  const bool will_sync =
+      taiga::settings.syncAutoOnStart() && taiga::settings.listSynchronizationEnabled();
   scheduleListSyncStartup();
   scheduleUpdateCheckStartup();
   scheduleLibraryScanStartup();
+  if (!will_sync) {
+    tryRunAnnouncedRelatedAfterStartup();
+  }
 }
 
 void MainWindow::runStartupPreSyncScan() {
@@ -390,7 +399,7 @@ void MainWindow::initUi(const bool startup_blocking) {
           &MainWindow::onTorrentCatalogAutocheckTimer);
   refreshTorrentCatalogAutocheckTimer();
 
-  initAnnouncedRelatedDailyRefresh();
+  initAnnouncedRelatedRefresh();
 
   {
     auto* shortcut_find = new QShortcut(QKeySequence::Find, this);
@@ -409,15 +418,12 @@ void MainWindow::initUi(const bool startup_blocking) {
   updateTrayTooltip();
 }
 
-void MainWindow::initAnnouncedRelatedDailyRefresh() {
-  // Periodic refresh while the app is open (small batches every few hours, minimal API usage).
-  m_announced_related_timer_ = new QTimer(this);
-  m_announced_related_timer_->setTimerType(Qt::VeryCoarseTimer);
-  // Check hourly; actual work is gated by the persisted "last run" timestamp.
-  m_announced_related_timer_->start(60 * 60 * 1000);
-  connect(m_announced_related_timer_, &QTimer::timeout, this,
-          &MainWindow::maybeRunAnnouncedRelatedDailyRefresh);
-  QTimer::singleShot(30000, this, &MainWindow::maybeRunAnnouncedRelatedDailyRefresh);
+void MainWindow::initAnnouncedRelatedRefresh() {
+  m_announced_related_resume_timer_ = new QTimer(this);
+  m_announced_related_resume_timer_->setSingleShot(true);
+  m_announced_related_resume_timer_->setTimerType(Qt::CoarseTimer);
+  connect(m_announced_related_resume_timer_, &QTimer::timeout, this,
+          &MainWindow::onAnnouncedRelatedResumeTimer);
 
   m_announced_related_diff_timer_ = new QTimer(this);
   m_announced_related_diff_timer_->setSingleShot(true);
@@ -435,15 +441,44 @@ void MainWindow::initAnnouncedRelatedDailyRefresh() {
   }
 }
 
-void MainWindow::maybeRunAnnouncedRelatedDailyRefresh() {
+void MainWindow::pauseAnnouncedRelatedRefresh() {
+  m_announced_related_paused_ = true;
+  if (m_announced_related_resume_timer_) {
+    m_announced_related_resume_timer_->stop();
+  }
+}
+
+void MainWindow::scheduleAnnouncedRelatedResumeAfterSync() {
+  if (sync::currentServiceId() != sync::ServiceId::AniList) return;
+  if (m_list_sync_in_progress_ || m_list_sync_queued_) return;
+  if (!m_announced_related_resume_timer_) return;
+
+  m_announced_related_paused_ = true;
+  m_announced_related_resume_timer_->start(10 * 60 * 1000);
+  LOGW("announced_related: resume scheduled in 10 min");
+  track::appendLibraryEpisodeIndexCacheDebugLine(
+      QStringLiteral("announced_related: resume scheduled in 10 min"));
+}
+
+void MainWindow::onAnnouncedRelatedResumeTimer() {
+  m_announced_related_paused_ = false;
+  maybeRunAnnouncedRelatedRefresh();
+}
+
+void MainWindow::tryRunAnnouncedRelatedAfterStartup() {
+  if (sync::currentServiceId() != sync::ServiceId::AniList) return;
+  if (m_announced_related_paused_) return;
+  if (m_list_sync_in_progress_ || m_list_sync_queued_) return;
+  maybeRunAnnouncedRelatedRefresh();
+}
+
+void MainWindow::maybeRunAnnouncedRelatedRefresh() {
   if (startupBlockingActive()) return;
+  if (m_announced_related_paused_) return;
   if (sync::currentServiceId() != sync::ServiceId::AniList) return;
 
   const qint64 now = QDateTime::currentSecsSinceEpoch();
   const qint64 last = taiga::session.announcedReleasesRelatedRefreshAtSecs();
-  constexpr qint64 kBatchInterval =
-      3 * 60 * 60;  // check every 3h; full sweep fires when data is stale (>14 days)
-  if (last > 0 && now - last < kBatchInterval) return;
 
   LOGW("announced_related: start now={} last={} delta={}", static_cast<long long>(now),
        static_cast<long long>(last), static_cast<long long>(now - last));
@@ -1585,6 +1620,7 @@ void MainWindow::startListSynchronization(const bool queue_if_busy) {
   }
   m_list_sync_in_progress_ = true;
   refreshSyncActionState();
+  pauseAnnouncedRelatedRefresh();
 
   QPointer<MainWindow> guard(this);
   enqueueStatusMessage(synchronizingWithServiceStatus(sync::serviceName(sync::currentServiceId())),
@@ -1671,7 +1707,9 @@ void MainWindow::finalizeListSyncSession() {
   if (m_list_sync_queued_) {
     m_list_sync_queued_ = false;
     QTimer::singleShot(0, this, [this]() { startListSynchronization(false); });
+    return;
   }
+  scheduleAnnouncedRelatedResumeAfterSync();
 }
 
 void MainWindow::showUserFeedback(QString message, bool error) {

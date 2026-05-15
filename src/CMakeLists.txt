@@ -46,6 +46,7 @@ set(TAIGA_CORE_SOURCES
 	media/announced_releases.cpp
 	media/announced_releases.hpp
 	media/announced_related_refresh.cpp
+	media/announced_related_refresh_stale.cpp
 	media/announced_related_refresh.hpp
 
 	sync/anilist.cpp
@@ -120,6 +121,8 @@ set(TAIGA_CORE_SOURCES
 	track/recognition_cache.hpp
 	track/recognition_normalize.cpp
 	track/recognition_normalize.hpp
+	track/cache_debug_log.cpp
+	track/cache_debug_log.hpp
 	track/scanner.cpp
 	track/scanner.hpp
 	track/streaming_sites.cpp

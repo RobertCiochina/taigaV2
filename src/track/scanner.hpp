@@ -66,6 +66,9 @@ QString libraryEpisodeIndexCacheDebugLog();
 /// Append a line to the cache diagnostics log.
 void appendLibraryEpisodeIndexCacheDebugLine(const QString& msg);
 
+/// Clears the in-memory cache diagnostics log buffer.
+void clearLibraryEpisodeIndexCacheDebugLog();
+
 /// Persist cache after a completed scan, tagged with a source label.
 /// \p allow_regress should be true for authoritative scans (post-sync, manual, watcher).
 void saveLibraryEpisodeIndexCacheAfterScan(const QString& source, bool allow_regress);

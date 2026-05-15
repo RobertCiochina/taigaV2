@@ -276,10 +276,12 @@ void Service::startNextFetchAnime() {
       const QJsonObject edge = v.toObject();
       if (const auto rel_item = parseMedia(edge["node"]); rel_item) {
         Anime merged = *rel_item;
-        if (merged.relations.empty()) {
-          if (const Anime* existing = anime::db.item(merged.id);
-              existing && !existing->relations.empty()) {
-            merged.relations = existing->relations;
+        if (merged.relations_cache == anime::RelationsCache::Unknown) {
+          if (const Anime* existing = anime::db.item(merged.id); existing) {
+            merged.relations_cache = existing->relations_cache;
+            if (!existing->relations.empty()) {
+              merged.relations = existing->relations;
+            }
           }
         }
         anime::db.updateItem(merged);
