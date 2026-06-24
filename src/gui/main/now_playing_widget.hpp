@@ -40,6 +40,13 @@ public:
   void setPlaying(track::Episode episode);
   void syncFromDetection();
 
+  /// Arm list-update tracking for an episode that Taiga itself launched. Unlike detection-driven
+  /// playback, the countdown survives transient gaps where the external player can't be read.
+  void armTaigaInitiatedUpdate(int animeId, int episode, const QString& filePath);
+
+  /// Cancel a pending (not-yet-committed) auto-update countdown for the current episode.
+  void cancelPendingUpdate();
+
 private:
   void refresh();
   void onCountdownTick();
@@ -52,6 +59,12 @@ private:
   QTimer* m_countdown_timer_ = nullptr;
   int m_countdown_remaining_ = 0;
   bool m_update_committed_ = false;
+  bool m_update_canceled_ = false;
+
+  // Set when the current playback was started via Taiga's own Play action. While the countdown is
+  // running, detection drop-outs (empty/unreadable player) are ignored so the update still commits.
+  bool m_taiga_launched_ = false;
+  int m_taiga_launched_anime_id_ = 0;
 
   std::optional<Anime> m_anime;
   std::optional<track::Episode> m_episode;

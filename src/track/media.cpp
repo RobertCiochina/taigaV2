@@ -18,6 +18,11 @@
 
 #include "media.hpp"
 
+#include <QFileInfo>
+#include <QString>
+#include <QStringList>
+#include <string>
+
 #include "base/file.hpp"
 #include "media/anime_db.hpp"
 #include "taiga/settings.hpp"
@@ -25,11 +30,6 @@
 #include "track/recognition.hpp"
 #include "track/scanner.hpp"
 #include "track/streaming_sites.hpp"
-
-#include <QString>
-#include <QStringList>
-#include <QFileInfo>
-#include <string>
 
 namespace track::media {
 
@@ -58,7 +58,7 @@ bool looksLikeVideoFile(const QString& path) {
   const QString ext = QFileInfo(p).suffix().toLower();
   // Keep this conservative: common containers only.
   static const QSet<QString> kVideoExt = {
-      QStringLiteral("mkv"), QStringLiteral("mp4"), QStringLiteral("avi"), QStringLiteral("mov"),
+      QStringLiteral("mkv"), QStringLiteral("mp4"), QStringLiteral("avi"),  QStringLiteral("mov"),
       QStringLiteral("wmv"), QStringLiteral("m4v"), QStringLiteral("webm"), QStringLiteral("ts"),
   };
   return kVideoExt.contains(ext);
@@ -127,6 +127,11 @@ const std::optional<Detection::media_t> Detection::getCurrentMedia() const {
 
 const std::optional<Detection::player_t> Detection::getCurrentPlayer() const {
   return currentPlayer_;
+}
+
+void Detection::notifyTaigaLaunched(const int animeId, const int episode, const QString& filePath) {
+  if (animeId <= 0) return;
+  emit taigaLaunchedEpisode(animeId, episode, filePath);
 }
 
 bool Detection::init() {
@@ -232,7 +237,8 @@ void Detection::poll() {
     // mpv-specific investigation: we sometimes get a 32-hex ID as "title" instead of a path/title.
     const auto is_mpv = [](const std::string& n) {
       if (n.size() != 3) return false;
-      return (n[0] == 'm' || n[0] == 'M') && (n[1] == 'p' || n[1] == 'P') && (n[2] == 'v' || n[2] == 'V');
+      return (n[0] == 'm' || n[0] == 'M') && (n[1] == 'p' || n[1] == 'P') &&
+             (n[2] == 'v' || n[2] == 'V');
     };
     if (is_mpv(player_name)) {
       // Rate-limit: log only when the first result's apparent identity changes.
@@ -258,8 +264,9 @@ void Detection::poll() {
       }
       if (first_title.empty() && !first_tab.empty()) first_title = first_tab;
 
-      const std::string identity = !first_file.empty() ? ("file:" + first_file)
-                                                       : (!first_title.empty() ? ("title:" + first_title) : "none");
+      const std::string identity = !first_file.empty()
+                                       ? ("file:" + first_file)
+                                       : (!first_title.empty() ? ("title:" + first_title) : "none");
       static std::string last_identity;
       if (identity != last_identity) {
         last_identity = identity;
@@ -280,7 +287,8 @@ void Detection::poll() {
                        .arg(QString::fromStdString(rr.player.name))
                        .arg(static_cast<int>(rr.media.size()));
           for (int m = 0; m < static_cast<int>(rr.media.size()) && m < kMaxMediaPerResult; ++m) {
-            parts << QStringLiteral("    - %1").arg(summarizeMediaInfo(rr.media[static_cast<size_t>(m)]));
+            parts << QStringLiteral("    - %1")
+                         .arg(summarizeMediaInfo(rr.media[static_cast<size_t>(m)]));
           }
         }
 
@@ -382,6 +390,31 @@ void Detection::poll() {
 
   const auto animeId = track::recognition::identify(episode);
   episode.setAnimeId(animeId);
+
+  if (taiga::settings.cacheDiagnosticsEnabled()) {
+    const auto t = episode.element(anitomy::ElementKind::Title);
+    if (!t.empty()) {
+      // Rate-limit: only log when the resolved identity changes, otherwise the 3s poll spams.
+      static std::string last_dbg;
+      const std::string sig = std::to_string(animeId) + "|" +
+                              episode.element(anitomy::ElementKind::Season, {}) + "E" +
+                              episode.element(anitomy::ElementKind::Episode, {}) + "|" + t;
+      if (sig != last_dbg) {
+        last_dbg = sig;
+        if (animeId <= 0) {
+          track::appendLibraryEpisodeIndexCacheDebugLine(
+              QStringLiteral("mediaDetect: unrecognized | %1")
+                  .arg(track::recognition::debugIdentifySummary(episode)));
+        } else {
+          track::appendLibraryEpisodeIndexCacheDebugLine(
+              QStringLiteral("mediaDetect: recognized animeId=%1 title='%2' E=%3")
+                  .arg(animeId)
+                  .arg(QString::fromStdString(t).left(80))
+                  .arg(QString::fromStdString(episode.element(anitomy::ElementKind::Episode, {}))));
+        }
+      }
+    }
+  }
 
   if (!currentEpisode_ || currentEpisode_->animeId() != animeId) {
     currentEpisode_ = episode;

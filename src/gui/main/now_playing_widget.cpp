@@ -40,6 +40,7 @@
 #include "taiga/settings.hpp"
 #include "track/episode.hpp"
 #include "track/media.hpp"
+#include "track/recognition.hpp"
 #include "track/scanner.hpp"
 
 namespace gui {
@@ -71,6 +72,7 @@ NowPlayingWidget::NowPlayingWidget(QWidget* parent) : QFrame(parent) {
   m_timerLabel = new QLabel(this);
   m_timerLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
   layout->addWidget(m_timerLabel);
+  connect(m_timerLabel, &QLabel::linkActivated, this, [this]() { cancelPendingUpdate(); });
 
   // Countdown timer (1-second ticks)
   m_countdown_timer_ = new QTimer(this);
@@ -82,10 +84,23 @@ NowPlayingWidget::NowPlayingWidget(QWidget* parent) : QFrame(parent) {
   connect(track::media::detection(), &track::media::Detection::currentEpisodeChanged, this,
           [this](std::optional<track::Episode> episode) {
             if (episode) {
+              // A real detection of a different title supersedes a Taiga-initiated playback.
+              if (m_taiga_launched_ && episode->animeId() != m_taiga_launched_anime_id_) {
+                m_taiga_launched_ = false;
+              }
               setPlaying(*episode);
+            } else if (m_taiga_launched_ && !m_update_committed_ && m_countdown_remaining_ > 0) {
+              // Taiga launched this and the countdown is still running: ignore transient detection
+              // drop-outs (empty window title / unreadable handles) so the update can still commit.
+              return;
             } else {
               reset();
             }
+          });
+
+  connect(track::media::detection(), &track::media::Detection::taigaLaunchedEpisode, this,
+          [this](int animeId, int episode, const QString& filePath) {
+            armTaigaInitiatedUpdate(animeId, episode, filePath);
           });
 }
 
@@ -134,7 +149,8 @@ void NowPlayingWidget::reset() {
       }
     }
 
-    // If the file is now gone, keep the in-memory library index consistent without waiting for a rescan.
+    // If the file is now gone, keep the in-memory library index consistent without waiting for a
+    // rescan.
     if (anime_id > 0 && !QFileInfo::exists(path)) {
       track::removeLibraryEpisode(anime_id, ep_no);
     }
@@ -151,6 +167,9 @@ void NowPlayingWidget::reset() {
 
   m_countdown_remaining_ = 0;
   m_update_committed_ = false;
+  m_update_canceled_ = false;
+  m_taiga_launched_ = false;
+  m_taiga_launched_anime_id_ = 0;
   hide();
   m_anime.reset();
   m_episode.reset();
@@ -182,8 +201,23 @@ void NowPlayingWidget::setPlaying(track::Episode episode) {
     m_anime.reset();
   }
 
+  if (taiga::settings.cacheDiagnosticsEnabled()) {
+    QString line =
+        QStringLiteral("nowPlaying: setPlaying title='%1' S='%2' E='%3' animeId=%4 same=%5")
+            .arg(QString::fromStdString(episode.element(anitomy::ElementKind::Title)).left(80))
+            .arg(QString::fromStdString(episode.element(anitomy::ElementKind::Season, {})))
+            .arg(incoming_ep)
+            .arg(incoming_id)
+            .arg(same_episode ? 1 : 0);
+    if (incoming_id <= 0) {
+      line += QStringLiteral(" | %1").arg(track::recognition::debugIdentifySummary(episode));
+    }
+    track::appendLibraryEpisodeIndexCacheDebugLine(line);
+  }
+
   if (!same_episode) {
     m_update_committed_ = false;
+    m_update_canceled_ = false;
     m_countdown_timer_->stop();
     m_countdown_remaining_ = 0;
 
@@ -230,17 +264,36 @@ void NowPlayingWidget::onCountdownTick() {
 }
 
 void NowPlayingWidget::commitListUpdate() {
-  if (!m_episode || m_update_committed_) return;
+  const auto dbg = [](const QString& reason) {
+    if (taiga::settings.cacheDiagnosticsEnabled()) {
+      track::appendLibraryEpisodeIndexCacheDebugLine(
+          QStringLiteral("nowPlaying: commit %1").arg(reason));
+    }
+  };
+
+  if (!m_episode || m_update_committed_) {
+    dbg(QStringLiteral("skip: no episode or already committed"));
+    return;
+  }
   const int anime_id = m_episode->animeId();
-  if (anime_id <= 0) return;
+  if (anime_id <= 0) {
+    dbg(QStringLiteral("skip: unrecognized (animeId<=0)"));
+    return;
+  }
 
   const auto* item = anime::db.item(anime_id);
-  if (!item) return;
+  if (!item) {
+    dbg(QStringLiteral("skip: no db item for id=%1").arg(anime_id));
+    return;
+  }
 
   const QString ep_str = QString::fromStdString(m_episode->element(anitomy::ElementKind::Episode));
   bool ok = false;
   int ep_no = ep_str.toInt(&ok);
-  if (!ok || ep_no <= 0) return;
+  if (!ok || ep_no <= 0) {
+    dbg(QStringLiteral("skip: no/invalid episode number ('%1')").arg(ep_str));
+    return;
+  }
 
   // Season 0 / specials: filenames often use global indices (e.g. S00E10..E12) even when the
   // AniList entry is a short multi-episode OVA/movie. Map to 1..N so list progress advances.
@@ -254,6 +307,7 @@ void NowPlayingWidget::commitListUpdate() {
   // out-of-range guard: skip update if episode exceeds known total
   if (taiga::settings.recognitionUpdateOutOfRange() && item->episode_count > 0 &&
       ep_no > item->episode_count) {
+    dbg(QStringLiteral("skip: out-of-range ep=%1 > count=%2").arg(ep_no).arg(item->episode_count));
     return;
   }
 
@@ -265,12 +319,18 @@ void NowPlayingWidget::commitListUpdate() {
     new_entry.status = anime::list::Status::Watching;
     new_entry.watched_episodes = ep_no;
     m_update_committed_ = true;
+    dbg(QStringLiteral("create: new Watching entry id=%1 ep=%2").arg(anime_id).arg(ep_no));
     gui::commitListEntryLocalAndMaybeRemote(new_entry, this);
     return;
   }
 
   // Only update if detected episode advances the counter
-  if (ep_no <= entry->watched_episodes) return;
+  if (ep_no <= entry->watched_episodes) {
+    dbg(QStringLiteral("skip: already counted ep=%1 <= watched=%2")
+            .arg(ep_no)
+            .arg(entry->watched_episodes));
+    return;
+  }
 
   ListEntry updated = *entry;
   updated.watched_episodes = ep_no;
@@ -279,9 +339,28 @@ void NowPlayingWidget::commitListUpdate() {
     updated.status = anime::list::Status::Watching;
   }
   m_update_committed_ = true;
+  dbg(QStringLiteral("commit: id=%1 ep=%2 (was %3)")
+          .arg(anime_id)
+          .arg(ep_no)
+          .arg(entry->watched_episodes));
   // Mark as Completed when the last episode is reached (silent; no popup).
   gui::maybePromptCompletion(this, *item, updated);
   gui::commitListEntryLocalAndMaybeRemote(updated, this);
+}
+
+void NowPlayingWidget::cancelPendingUpdate() {
+  if (m_update_committed_ || m_countdown_remaining_ <= 0) return;
+
+  m_countdown_timer_->stop();
+  m_countdown_remaining_ = 0;
+  m_update_canceled_ = true;
+
+  if (taiga::settings.cacheDiagnosticsEnabled()) {
+    track::appendLibraryEpisodeIndexCacheDebugLine(
+        QStringLiteral("nowPlaying: update canceled by user"));
+  }
+
+  refresh();
 }
 
 void NowPlayingWidget::syncFromDetection() {
@@ -294,6 +373,20 @@ void NowPlayingWidget::syncFromDetection() {
   } else {
     reset();
   }
+}
+
+void NowPlayingWidget::armTaigaInitiatedUpdate(int animeId, int episode, const QString& filePath) {
+  if (animeId <= 0) return;
+  if (!taiga::session.mainWindowNowPlayingBarEnabled()) return;
+
+  track::Episode ep;
+  ep.setAnimeId(animeId);
+  if (episode > 0) ep.setElement(anitomy::ElementKind::Episode, std::to_string(episode));
+  if (!filePath.isEmpty()) ep.setFilePath(filePath.toStdString());
+
+  m_taiga_launched_ = true;
+  m_taiga_launched_anime_id_ = animeId;
+  setPlaying(std::move(ep));
 }
 
 void NowPlayingWidget::refresh() {
@@ -334,12 +427,16 @@ void NowPlayingWidget::refresh() {
 
   if (m_update_committed_) {
     m_timerLabel->setText(tr("List <b style=\"font-weight:600;\">updated</b>"));
+  } else if (m_update_canceled_) {
+    m_timerLabel->setText(tr("Update <b style=\"font-weight:600;\">canceled</b>"));
   } else if (m_countdown_remaining_ > 0) {
     const int mins = m_countdown_remaining_ / 60;
     const int secs = m_countdown_remaining_ % 60;
     m_timerLabel->setText(
-        tr("List update in <b style=\"font-weight:600;\">%1</b>")
-            .arg(u"%1:%2"_s.arg(mins, 2, 10, QChar('0')).arg(secs, 2, 10, QChar('0'))));
+        tr("List update in <b style=\"font-weight:600;\">%1</b> · "
+           "<a href=\"#cancel\" style=\"text-decoration:none;\">%2</a>")
+            .arg(u"%1:%2"_s.arg(mins, 2, 10, QChar('0')).arg(secs, 2, 10, QChar('0')))
+            .arg(tr("Cancel")));
   } else {
     m_timerLabel->setText({});
   }

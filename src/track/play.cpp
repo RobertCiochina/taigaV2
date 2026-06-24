@@ -27,9 +27,26 @@
 
 #include "media/anime_db.hpp"
 #include "taiga/settings.hpp"
+#include "track/media.hpp"
 #include "track/scanner.hpp"
 
 namespace track {
+
+namespace {
+
+// Launch the configured player (or OS default) for `path`. On success, tell media detection that
+// Taiga itself initiated playback so list-update tracking works even if the external player can't
+// be read (empty window title, unreadable handles, etc.).
+bool launchAndArm(const int animeId, const int number, const QString& path) {
+  const QString exe = QString::fromStdString(taiga::settings.mediaPlayerExecutablePath()).trimmed();
+  const bool ok = (!exe.isEmpty() && QFileInfo::exists(exe))
+                      ? QProcess::startDetached(exe, QStringList{path})
+                      : QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+  if (ok) track::media::detection()->notifyTaigaLaunched(animeId, number, path);
+  return ok;
+}
+
+}  // namespace
 
 bool playEpisode(int animeId, int number) {
   QElapsedTimer t;
@@ -40,12 +57,7 @@ bool playEpisode(int animeId, int number) {
   if (const auto cached = libraryEpisodePath(animeId, number)) {
     if (QFileInfo::exists(*cached)) {
       if (diag) qDebug() << "playEpisode: cached path hit in" << t.elapsed() << "ms:" << *cached;
-      const QString exe =
-          QString::fromStdString(taiga::settings.mediaPlayerExecutablePath()).trimmed();
-      if (!exe.isEmpty() && QFileInfo::exists(exe)) {
-        return QProcess::startDetached(exe, QStringList{*cached});
-      }
-      return QDesktopServices::openUrl(QUrl::fromLocalFile(*cached));
+      return launchAndArm(animeId, number, *cached);
     }
     // Stale cache entry (file moved/deleted). Drop it so next attempt can fall back.
     removeLibraryEpisodePath(animeId, number);
@@ -57,11 +69,7 @@ bool playEpisode(int animeId, int number) {
     const auto episodePath = findEpisode(QString::fromStdString(folder), animeId, number);
     if (episodePath) {
       if (diag) qDebug() << "playEpisode: found by scan in" << t.elapsed() << "ms:" << *episodePath;
-      const QString exe = QString::fromStdString(taiga::settings.mediaPlayerExecutablePath()).trimmed();
-      if (!exe.isEmpty() && QFileInfo::exists(exe)) {
-        return QProcess::startDetached(exe, QStringList{*episodePath});
-      }
-      return QDesktopServices::openUrl(QUrl::fromLocalFile(*episodePath));
+      return launchAndArm(animeId, number, *episodePath);
     }
   }
 
@@ -96,8 +104,8 @@ bool playNextEpisode(int animeId) {
 
   const bool ok = playEpisode(animeId, nextEpisode);
   if (diag) {
-    qDebug() << "playNextEpisode:" << (ok ? "ok" : "fail") << "in" << t.elapsed() << "ms (animeId="
-             << animeId << "next=" << nextEpisode << ")";
+    qDebug() << "playNextEpisode:" << (ok ? "ok" : "fail") << "in" << t.elapsed()
+             << "ms (animeId=" << animeId << "next=" << nextEpisode << ")";
   }
   return ok;
 }

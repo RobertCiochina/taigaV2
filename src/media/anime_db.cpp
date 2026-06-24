@@ -108,11 +108,20 @@ void Database::updateItem(const Anime& item) {
   // Preserve any already-cached relation state so features like Announced releases
   // remain stable across restarts/syncs.
   Anime merged = item;
-  if (merged.id > 0 && merged.relations_cache == RelationsCache::Unknown) {
+  if (merged.id > 0) {
     if (const auto it = items_.find(merged.id); it != items_.end()) {
-      merged.relations_cache = it->relations_cache;
-      if (!it->relations.empty()) {
-        merged.relations = it->relations;
+      const Anime& existing = *it;
+      if (merged.relations_cache == RelationsCache::Unknown) {
+        merged.relations_cache = existing.relations_cache;
+        if (!existing.relations.empty()) {
+          merged.relations = existing.relations;
+        }
+      }
+      // Partial responses (list/search/related nodes, or currently-airing entries with a null
+      // `episodes` field) can report episode_count as 0. Don't let that clobber a previously known
+      // positive count, otherwise recognition's out-of-range guard would reject valid episodes.
+      if (merged.episode_count <= 0 && existing.episode_count > 0) {
+        merged.episode_count = existing.episode_count;
       }
     }
   }

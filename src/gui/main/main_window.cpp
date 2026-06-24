@@ -360,11 +360,22 @@ void MainWindow::initUi(const bool startup_blocking) {
   m_local_backup_timer_->setSingleShot(true);
   m_local_backup_timer_->setInterval(2000);
   connect(m_local_backup_timer_, &QTimer::timeout, this, &MainWindow::writeLocalListBackup);
-  connect(&anime::db, &anime::Database::itemUpdated, this, [this](int) {
+  connect(&anime::db, &anime::Database::itemUpdated, this, [this](int id) {
+    // Keep recognition in sync with title/episode-count changes from any source (fetchAnime,
+    // media dialog, search, season browse) — not just full list syncs. Only update incrementally
+    // when the cache is already built; an empty cache is (re)built lazily by identify().
+    if (auto* c = track::recognition::cache(); !c->empty()) {
+      if (const auto* it = anime::db.item(id)) c->update(*it);
+    }
     if (m_watch_next_modal_open_) return;
     refreshNavigationSidebar();
     refreshHomeDashboard();
   });
+
+  // Bulk updates (list sync) suppress per-item signals; invalidate the recognition cache once so
+  // newly-synced titles and corrected episode counts are indexed on the next lookup.
+  connect(&anime::db, &anime::Database::batchFinished, this,
+          []() { track::recognition::cache()->clear(); });
 
   if (const QByteArray splitter_state = taiga::session.mainWindowSplitterState();
       !splitter_state.isEmpty()) {
