@@ -64,6 +64,9 @@ private:
   std::optional<media_t> currentMedia_;
   std::optional<player_t> currentPlayer_;
   std::vector<player_t> players_;
+  // True while a media player window is currently present (even if its media can't be read).
+  // Lets us emit "stopped" exactly once when the player actually closes.
+  bool playerActive_ = false;
 
   QTimer* pollTimer_;
 };

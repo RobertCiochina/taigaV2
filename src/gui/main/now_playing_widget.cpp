@@ -84,16 +84,10 @@ NowPlayingWidget::NowPlayingWidget(QWidget* parent) : QFrame(parent) {
   connect(track::media::detection(), &track::media::Detection::currentEpisodeChanged, this,
           [this](std::optional<track::Episode> episode) {
             if (episode) {
-              // A real detection of a different title supersedes a Taiga-initiated playback.
-              if (m_taiga_launched_ && episode->animeId() != m_taiga_launched_anime_id_) {
-                m_taiga_launched_ = false;
-              }
               setPlaying(*episode);
-            } else if (m_taiga_launched_ && !m_update_committed_ && m_countdown_remaining_ > 0) {
-              // Taiga launched this and the countdown is still running: ignore transient detection
-              // drop-outs (empty window title / unreadable handles) so the update can still commit.
-              return;
             } else {
+              // Detection emits "nothing playing" only when the player actually closes (not on
+              // transient unreadable polls), so this reliably ends the session: hide + auto-delete.
               reset();
             }
           });
@@ -168,8 +162,6 @@ void NowPlayingWidget::reset() {
   m_countdown_remaining_ = 0;
   m_update_committed_ = false;
   m_update_canceled_ = false;
-  m_taiga_launched_ = false;
-  m_taiga_launched_anime_id_ = 0;
   hide();
   m_anime.reset();
   m_episode.reset();
@@ -192,6 +184,14 @@ void NowPlayingWidget::setPlaying(track::Episode episode) {
   const bool same_episode =
       m_episode.has_value() && m_episode->animeId() == incoming_id &&
       QString::fromStdString(m_episode->element(anitomy::ElementKind::Episode)) == incoming_ep;
+
+  // Preserve a known local file path across detections that can't report one. Window-title based
+  // detection (and Taiga-initiated playback that detection later picks up) yields an episode with
+  // no file handle; without this, auto-delete-after-watched would lose the path before reset().
+  if (episode.filePath().empty() && m_episode && !m_episode->filePath().empty() &&
+      m_episode->animeId() == incoming_id) {
+    episode.setFilePath(m_episode->filePath());
+  }
 
   m_episode = episode;
 
@@ -384,8 +384,6 @@ void NowPlayingWidget::armTaigaInitiatedUpdate(int animeId, int episode, const Q
   if (episode > 0) ep.setElement(anitomy::ElementKind::Episode, std::to_string(episode));
   if (!filePath.isEmpty()) ep.setFilePath(filePath.toStdString());
 
-  m_taiga_launched_ = true;
-  m_taiga_launched_anime_id_ = animeId;
   setPlaying(std::move(ep));
 }
 

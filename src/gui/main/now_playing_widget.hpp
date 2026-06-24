@@ -61,11 +61,6 @@ private:
   bool m_update_committed_ = false;
   bool m_update_canceled_ = false;
 
-  // Set when the current playback was started via Taiga's own Play action. While the countdown is
-  // running, detection drop-outs (empty/unreadable player) are ignored so the update still commits.
-  bool m_taiga_launched_ = false;
-  int m_taiga_launched_anime_id_ = 0;
-
   std::optional<Anime> m_anime;
   std::optional<track::Episode> m_episode;
 };

@@ -195,6 +195,18 @@ void Detection::poll() {
 #ifdef Q_OS_WINDOWS
   if (players_.empty()) return;
 
+  // Signal "nothing playing" once when the previously-active player disappears. Guarding on
+  // `playerActive_` (not just `currentEpisode_`) ensures the stop fires even when the player was
+  // never recognized (e.g. an mpv whose window title/handles couldn't be read).
+  const auto emitStopped = [this]() {
+    const bool was_active = currentEpisode_.has_value() || playerActive_;
+    currentPlayer_.reset();
+    currentMedia_.reset();
+    currentEpisode_.reset();
+    playerActive_ = false;
+    if (was_active) emit currentEpisodeChanged(std::nullopt);
+  };
+
   const bool want_players = taiga::settings.mediaDetectionPlayersEnabled();
   const bool want_streaming = taiga::settings.mediaDetectionStreamingEnabled();
   std::vector<player_t> players;
@@ -206,12 +218,7 @@ void Detection::poll() {
     }
   }
   if (players.empty()) {
-    currentPlayer_.reset();
-    currentMedia_.reset();
-    if (currentEpisode_) {
-      currentEpisode_.reset();
-      emit currentEpisodeChanged(std::nullopt);
-    }
+    emitStopped();
     return;
   }
 
@@ -221,12 +228,7 @@ void Detection::poll() {
 
   std::vector<anisthesia::win::Result> results;
   if (!anisthesia::win::GetResults(players, media_proc, results)) {
-    currentPlayer_.reset();
-    currentMedia_.reset();
-    if (currentEpisode_) {
-      currentEpisode_.reset();
-      emit currentEpisodeChanged(std::nullopt);
-    }
+    emitStopped();
     return;
   }
 
@@ -297,9 +299,18 @@ void Detection::poll() {
     }
   }
 
+  // No player window present this poll: the player closed. Emit "stopped" so listeners can end the
+  // session (also guards the results.front() access below).
+  if (results.empty()) {
+    emitStopped();
+    return;
+  }
+
   const auto& res = results.front();
   currentPlayer_ = res.player;
   currentMedia_ = res.media.empty() ? std::nullopt : std::optional<media_t>{res.media.front()};
+  // A player window is present (even if its media is unreadable below).
+  playerActive_ = true;
 
   std::string file;
   std::string url;
@@ -365,24 +376,16 @@ void Detection::poll() {
       track::streaming::normalizeBrowserTitle(url, parse_str);
       if (const auto slug = track::streaming::matchProviderSlugByUrl(url)) {
         if (!taiga::settings.streamProviderEnabled(std::string(*slug))) {
-          currentPlayer_.reset();
-          currentMedia_.reset();
-          if (currentEpisode_) {
-            currentEpisode_.reset();
-            emit currentEpisodeChanged(std::nullopt);
-          }
+          emitStopped();
           return;
         }
         (void)track::streaming::refineTitleForProvider(*slug, parse_str);
       }
     }
     if (parse_str.empty()) {
-      currentPlayer_.reset();
-      currentMedia_.reset();
-      if (currentEpisode_) {
-        currentEpisode_.reset();
-        emit currentEpisodeChanged(std::nullopt);
-      }
+      // Player is open but its media can't be read (empty window title / unreadable handles). Keep
+      // `playerActive_` so a Taiga-armed countdown survives; "stopped" is emitted only on a real
+      // close (no player window), not on these transient unreadable polls.
       return;
     }
     episode = track::recognition::parse(parse_str);
