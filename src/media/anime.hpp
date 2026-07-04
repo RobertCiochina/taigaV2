@@ -134,6 +134,10 @@ struct Details {
   std::time_t next_episode_time = 0;
   std::vector<RelationEdge> relations;
   RelationsCache relations_cache = RelationsCache::Unknown;
+  // When relations were last populated by a full media fetch. Distinct from `last_modified`,
+  // which routine list syncs bump on every write; this advances only on a real relations fetch,
+  // so the announced-releases sweep can use a true per-title 30-day cadence.
+  std::time_t relations_fetched_at = 0;
 };
 
 /// Primary string for list display / sorting for the given language (fallback to romaji).

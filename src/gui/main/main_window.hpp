@@ -23,6 +23,7 @@
 #include <QMainWindow>
 #include <QPointer>
 #include <QQueue>
+#include <QSet>
 #include <optional>
 #include <vector>
 
@@ -296,6 +297,7 @@ private:
   qint64 m_last_release_event_trigger_secs_ = 0;
   qint64 m_last_announced_related_check_started_secs_ = 0;
   int m_last_announced_related_fetch_count_ = 0;
+  QSet<int> m_announced_related_pending_ids_;  // ids queued by the current sweep (for diag logging)
 
   QQueue<StatusMessage> m_status_message_queue_;
 

@@ -23,5 +23,6 @@ CREATE TABLE IF NOT EXISTS anime(
   last_aired_episode INTEGER,
   next_episode_time TEXT,
   relations_json TEXT,
+  relations_fetched_at INTEGER,
   modified TEXT
 );

@@ -118,6 +118,14 @@
 
 namespace gui {
 
+namespace {
+
+QString announcedRelatedDiagTitle(const Anime& a) {
+  return QString::fromStdString(anime::preferredListTitleString(a, anime::TitleLanguage::English));
+}
+
+}  // namespace
+
 MainWindow::MainWindow() : QMainWindow(), ui_(new Ui::MainWindow) {
   ui_->setupUi(this);
 
@@ -444,11 +452,21 @@ void MainWindow::initAnnouncedRelatedRefresh() {
 
   if (sync::currentServiceId() == sync::ServiceId::AniList) {
     auto* svc = sync::anilist::Service::instance();
-    connect(svc, &sync::anilist::Service::mediaFetchFinished, this,
-            [this](int /*id*/, bool /*success*/) {
-              // Any media refresh may reveal new sequels; debounce to avoid spam.
-              if (m_announced_related_diff_timer_) m_announced_related_diff_timer_->start(2500);
-            });
+    connect(svc, &sync::anilist::Service::mediaFetchFinished, this, [this](int id, bool success) {
+      // Log completion of items the current announced-related sweep queued.
+      if (m_announced_related_pending_ids_.remove(id)) {
+        const Anime* a = anime::db.item(id);
+        track::appendLibraryEpisodeIndexCacheDebugLine(
+            QStringLiteral("announced_related: refreshed aid=%1 success=%2 remaining=%3 "
+                           "title='%4'")
+                .arg(id)
+                .arg(success ? 1 : 0)
+                .arg(m_announced_related_pending_ids_.size())
+                .arg(a ? announcedRelatedDiagTitle(*a) : QStringLiteral("?")));
+      }
+      // Any media refresh may reveal new sequels; debounce to avoid spam.
+      if (m_announced_related_diff_timer_) m_announced_related_diff_timer_->start(2500);
+    });
   }
 }
 
@@ -516,7 +534,18 @@ void MainWindow::maybeRunAnnouncedRelatedRefresh() {
       QStringLiteral("announced_related: queued_refresh_ids=%1 stale_after_secs=%2")
           .arg(ids.size())
           .arg(kStaleAfter));
+  m_announced_related_pending_ids_.clear();
   for (const int id : ids) {
+    const Anime* a = anime::db.item(id);
+    const QString title = a ? announcedRelatedDiagTitle(*a) : QStringLiteral("?");
+    const qint64 age_days =
+        (a && a->relations_fetched_at > 0) ? (now - a->relations_fetched_at) / 86400 : -1;
+    track::appendLibraryEpisodeIndexCacheDebugLine(
+        QStringLiteral("announced_related: queue aid=%1 last_fetch_age_days=%2 title='%3'")
+            .arg(id)
+            .arg(age_days)
+            .arg(title));
+    m_announced_related_pending_ids_.insert(id);
     sync::fetchAnime(id);
   }
 

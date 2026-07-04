@@ -24,6 +24,7 @@ INSERT OR REPLACE INTO
     last_aired_episode,
     next_episode_time,
     relations_json,
+    relations_fetched_at,
     modified
   )
   VALUES(
@@ -51,5 +52,6 @@ INSERT OR REPLACE INTO
     :last_aired_episode,
     :next_episode_time,
     :relations_json,
+    :relations_fetched_at,
     :modified
   )

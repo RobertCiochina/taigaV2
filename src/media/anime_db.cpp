@@ -18,6 +18,7 @@
 
 #include "anime_db.hpp"
 
+#include <QDateTime>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -61,6 +62,17 @@ void ensureAnimeTableHasRelationsJson(QSqlDatabase& db) {
   q.exec(QStringLiteral("ALTER TABLE anime ADD COLUMN relations_json TEXT"));
 }
 
+void ensureAnimeTableHasRelationsFetchedAt(QSqlDatabase& db) {
+  if (!db.isOpen() && !db.open()) return;
+  if (tableHasColumn(db, QStringLiteral("anime"), QStringLiteral("relations_fetched_at"))) return;
+  QSqlQuery q{db};
+  q.exec(QStringLiteral("ALTER TABLE anime ADD COLUMN relations_fetched_at INTEGER"));
+  // Backfill rows that already have relations cached so upgrading doesn't force a mass
+  // re-fetch: seed the clock from their last-known modified time.
+  q.exec(QStringLiteral(
+      "UPDATE anime SET relations_fetched_at = modified WHERE relations_json IS NOT NULL"));
+}
+
 }  // namespace
 
 void Database::init() {
@@ -78,6 +90,7 @@ void Database::init() {
   // (Do this before reading items so in-memory cache matches disk schema.)
   if (db_.open()) {
     ensureAnimeTableHasRelationsJson(db_);
+    ensureAnimeTableHasRelationsFetchedAt(db_);
     db_.close();
   }
 
@@ -108,6 +121,12 @@ void Database::updateItem(const Anime& item) {
   // Preserve any already-cached relation state so features like Announced releases
   // remain stable across restarts/syncs.
   Anime merged = item;
+  // A full media fetch (the only response carrying relations) advances the per-title
+  // "relations last fetched" clock. Routine list/search syncs (relations_cache == Unknown)
+  // must NOT touch it, otherwise the announced-releases 30-day cadence never elapses.
+  if (merged.relations_cache != RelationsCache::Unknown) {
+    merged.relations_fetched_at = QDateTime::currentSecsSinceEpoch();
+  }
   if (merged.id > 0) {
     if (const auto it = items_.find(merged.id); it != items_.end()) {
       const Anime& existing = *it;
@@ -116,6 +135,8 @@ void Database::updateItem(const Anime& item) {
         if (!existing.relations.empty()) {
           merged.relations = existing.relations;
         }
+        // List/search sync carries no relations: keep the prior fetch time.
+        merged.relations_fetched_at = existing.relations_fetched_at;
       }
       // Partial responses (list/search/related nodes, or currently-airing entries with a null
       // `episodes` field) can report episode_count as 0. Don't let that clobber a previously known
@@ -321,6 +342,7 @@ void Database::bindItemToQuery(const Anime& item, QSqlQuery& q) const {
       q.bindValue(":relations_json", QVariant{});
       break;
   }
+  q.bindValue(":relations_fetched_at", QString::number(item.relations_fetched_at));
   q.bindValue(":modified", QString::number(item.last_modified));
 }
 
@@ -390,6 +412,7 @@ Anime Database::itemFromQuery(const QSqlQuery& q) const {
       }
     }
   }
+  a.relations_fetched_at = q.value("relations_fetched_at").toLongLong();
   return a;
 }
 
