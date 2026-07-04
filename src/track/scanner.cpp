@@ -31,6 +31,7 @@
 #include <QSaveFile>
 #include <QSet>
 #include <QStringList>
+#include <mutex>
 #include <optional>
 #include <shared_mutex>
 
@@ -58,6 +59,11 @@ std::shared_mutex g_index_mu;
 QString g_cache_last_error;
 QString g_cache_last_info;
 QStringList g_cache_log;
+// The cache log is written from both the UI thread (scan begin/end, save) and the scan worker
+// thread (per-file diagnostics), so guard it. Also collapses identical consecutive events.
+std::mutex g_cache_log_mu;
+QString g_cache_log_last_msg;
+int g_cache_log_repeat = 0;
 int g_best_saved_series = -1;
 int g_best_saved_eps = -1;
 
@@ -85,11 +91,37 @@ void loadManualLibraryOverridesOnce() {
   }
 }
 
-void logCacheEvent(const QString& msg) {
-  const QString line =
-      QStringLiteral("%1  %2").arg(QDateTime::currentDateTime().toString(Qt::ISODateWithMs), msg);
+QString repeatSummaryLine(const int count) {
+  return QStringLiteral("    (previous line repeated %1 more time%2)")
+      .arg(count)
+      .arg(count == 1 ? QString() : QStringLiteral("s"));
+}
+
+void appendCacheLogLineLocked(const QString& line) {
+  // Bounded ring buffer: keep the log useful without growing without limit across long sessions.
+  constexpr int kMaxLines = 2000;
   g_cache_log.push_back(line);
+  while (g_cache_log.size() > kMaxLines) g_cache_log.removeFirst();
   CacheDebugLog::instance()->relayLine(line);
+}
+
+void logCacheEvent(const QString& msg) {
+  std::lock_guard<std::mutex> lk(g_cache_log_mu);
+
+  // Collapse identical consecutive events (e.g. repeated no-op rescans from the filesystem
+  // watcher) into a single line plus a repeat count, so changing/useful events aren't buried.
+  if (msg == g_cache_log_last_msg) {
+    ++g_cache_log_repeat;
+    return;
+  }
+  if (g_cache_log_repeat > 0) {
+    appendCacheLogLineLocked(repeatSummaryLine(g_cache_log_repeat));
+    g_cache_log_repeat = 0;
+  }
+  g_cache_log_last_msg = msg;
+
+  appendCacheLogLineLocked(
+      QStringLiteral("%1  %2").arg(QDateTime::currentDateTime().toString(Qt::ISODateWithMs), msg));
 }
 
 std::pair<int, int> snapshotIndexSizeLocked() {
@@ -256,14 +288,10 @@ void appendLibraryEpisodeIndexCacheDebugLine(const QString& msg) {
 void saveLibraryEpisodeIndexCacheAfterScan(const QString& source, const bool allow_regress) {
   g_cache_last_error.clear();
   g_cache_last_info.clear();
-  logCacheEvent(QStringLiteral("cache: save requested (source=%1, allowRegress=%2)")
-                    .arg(source)
-                    .arg(allow_regress ? 1 : 0));
   const CacheSaveResult r = saveLibraryEpisodeIndexCacheLocked(allow_regress, source);
   if (r == CacheSaveResult::Saved) {
     g_cache_last_info =
         QStringLiteral("saved %1 series").arg(static_cast<int>(g_library_episodes.size()));
-    logCacheEvent(QStringLiteral("cache: save ok (%1)").arg(g_cache_last_info));
   } else if (r == CacheSaveResult::Failed) {
     g_cache_last_error = QStringLiteral("write failed");
     logCacheEvent(
@@ -282,7 +310,6 @@ bool libraryScanHasResults() {
 bool loadLibraryEpisodeIndexCache() {
   g_cache_last_error.clear();
   g_cache_last_info.clear();
-  logCacheEvent(QStringLiteral("cache: load requested"));
   QFile f(libraryIndexCachePath());
   if (!f.exists()) {
     g_cache_last_error = QStringLiteral("cache file missing");
@@ -391,11 +418,20 @@ QString libraryEpisodeIndexCacheLastInfo() {
 }
 
 QString libraryEpisodeIndexCacheDebugLog() {
-  return g_cache_log.join(QLatin1Char('\n'));
+  std::lock_guard<std::mutex> lk(g_cache_log_mu);
+  QString out = g_cache_log.join(QLatin1Char('\n'));
+  if (g_cache_log_repeat > 0) {
+    if (!out.isEmpty()) out += QLatin1Char('\n');
+    out += repeatSummaryLine(g_cache_log_repeat);
+  }
+  return out;
 }
 
 void clearLibraryEpisodeIndexCacheDebugLog() {
+  std::lock_guard<std::mutex> lk(g_cache_log_mu);
   g_cache_log.clear();
+  g_cache_log_last_msg.clear();
+  g_cache_log_repeat = 0;
 }
 
 bool libraryHasLocalEpisode(const int anime_id, const int episode_number) {
@@ -486,28 +522,6 @@ LibraryScanSummary scanLibraryFolders(const std::vector<std::string>& folders,
           recognition::parseFileInfo(fi, {}, taiga::settings.libraryScanLookupParentDirectories());
       const int aid = recognition::identify(episode);
 
-      // Targeted diagnostics (requested): help debug intermittent recognition of specific titles.
-      // Logged only when cache diagnostics are enabled.
-      const bool target_diag =
-          diag &&
-          (fi.filePath().contains(QStringLiteral("Witch Hat Atelier"), Qt::CaseInsensitive) ||
-           fi.dir().dirName().contains(QStringLiteral("Witch Hat Atelier"), Qt::CaseInsensitive));
-      if (target_diag) {
-        const QString t = QString::fromStdString(episode.element(anitomy::ElementKind::Title, {}));
-        const QString s0 =
-            QString::fromStdString(episode.element(anitomy::ElementKind::Season, {}));
-        const QString e0 =
-            QString::fromStdString(episode.element(anitomy::ElementKind::Episode, {}));
-        logCacheEvent(QStringLiteral("scan: target: title='%1' S='%2' E='%3' parent='%4' file='%5'")
-                          .arg(t.left(120))
-                          .arg(s0)
-                          .arg(e0)
-                          .arg(fi.dir().dirName().left(120))
-                          .arg(fi.fileName().left(160)));
-        logCacheEvent(QStringLiteral("scan: target: %1")
-                          .arg(recognition::debugIdentifySummary(episode).left(260)));
-      }
-
       if (aid != anime::kUnknownId) {
         ++s.recognized;
         const int ep = storageEpisodeNumber(aid, episode);
@@ -534,26 +548,8 @@ LibraryScanSummary scanLibraryFolders(const std::vector<std::string>& folders,
             m[1] = fp;
           }
         }
-        if (target_diag) {
-          const Anime* item = anime::db.item(aid);
-          QString name = QStringLiteral("<unknown>");
-          if (item) {
-            if (!item->titles.english.empty()) {
-              name = QString::fromStdString(item->titles.english);
-            } else {
-              name = QString::fromStdString(item->titles.romaji);
-            }
-          }
-          logCacheEvent(QStringLiteral("scan: target: recognized aid=%1 '%2' storedEp=%3")
-                            .arg(aid)
-                            .arg(name.left(120))
-                            .arg(ep > 0 ? ep : 1));
-        }
       } else {
         ++unknown_files;
-        if (target_diag) {
-          logCacheEvent(QStringLiteral("scan: target: NOT recognized (aid=unknown)"));
-        }
         // For startup-pre-sync diagnostics: sample a few unknown matches so we can see what the
         // parser produced before the post-sync scan fixes them.
         if (diag && !allow_regress_apply && diag_unknown_logged < kDiagUnknownLimit) {
@@ -630,9 +626,6 @@ LibraryScanSummary scanLibraryFolders(const std::vector<std::string>& folders,
       g_library_episodes = std::move(local);
       g_library_episode_paths = std::move(local_paths);
       g_has_scan_results = true;
-      logCacheEvent(QStringLiteral("scan: apply ok (%1 series, %2 eps)")
-                        .arg(static_cast<int>(g_library_episodes.size()))
-                        .arg(local_eps));
     }
   }
   return s;

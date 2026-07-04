@@ -12,6 +12,9 @@
 # Local porting notes (local only)
 /_PORTING_ARCHIVE.md
 /_PORTING_SCRATCH.md
+
+# Per-task working spec (auto-created by the session-start hook; local only)
+/spec.md
 build-taiga-only.cmd
 run-tests-coverage.cmd
 run-tests.cmd

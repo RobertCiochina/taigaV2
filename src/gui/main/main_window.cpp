@@ -505,7 +505,7 @@ void MainWindow::maybeRunAnnouncedRelatedRefresh() {
   anime::prefetchMissingAnnouncedSequelMediaFromAnchors();
 
   // Full sweep of all stale ids (>30 days). Paced at 3s/req so rate-limit risk is minimal.
-  constexpr qint64 kStaleAfter = 30LL * 24 * 60 * 60;  // 14 days
+  constexpr qint64 kStaleAfter = 30LL * 24 * 60 * 60;  // 30 days
   const auto ids = anime::computeAnnouncedRelatedRefreshAnimeIds(std::numeric_limits<int>::max(),
                                                                  now, kStaleAfter);
   m_last_announced_related_check_started_secs_ = now;
@@ -1827,9 +1827,6 @@ void MainWindow::runLibraryScan(const bool startup_silent, const LibraryScanReas
     emit libraryScanFinished(reasonLabel, tr("Library scan: no library folders are configured."));
     return;
   }
-  track::appendLibraryEpisodeIndexCacheDebugLine(
-      QStringLiteral("scan: begin (%1, silent=%2)").arg(reasonLabel).arg(startup_silent ? 1 : 0));
-
   enqueueStatusMessage(tr("Scanning library folders…"), false);
 
   // Library scans can take seconds+; always run them off the UI thread.
