@@ -56,21 +56,22 @@ void stripIgnoredSubstrings(std::string& s) {
 }
 
 /// True when the folder name looks like a release pack (codec/resolution/group) rather than the
-/// anime library folder — in that case a grandparent directory is a better title hint for S00 files.
-/// Do not use path length alone: long official English titles are common and would false-positive.
+/// anime library folder — in that case a grandparent directory is a better title hint for S00
+/// files. Do not use path length alone: long official English titles are common and would
+/// false-positive.
 bool directoryLooksLikeTorrentReleasePack(const QString& name) {
   const QString lower = name.toLower();
   static const QStringList kMarkers{
-      QStringLiteral("1080p"), QStringLiteral("720p"),  QStringLiteral("480p"),
-      QStringLiteral("2160p"), QStringLiteral("1440p"), QStringLiteral("576p"),
-      QStringLiteral("webrip"), QStringLiteral("web-dl"), QStringLiteral("webdl"),
-      QStringLiteral("bluray"), QStringLiteral("bdrip"), QStringLiteral("dvdrip"),
-      QStringLiteral("hdtv"),   QStringLiteral("ntsc"),  QStringLiteral("pal"),
-      QStringLiteral("x264"),   QStringLiteral("x265"),  QStringLiteral("hevc"),
-      QStringLiteral("h.264"),  QStringLiteral("h264"),   QStringLiteral("av1"),
-      QStringLiteral("dual audio"), QStringLiteral("multi-audio"),
-      QStringLiteral("aac"),   QStringLiteral("flac"),   QStringLiteral("opus"),
-      QStringLiteral("10bit"),  QStringLiteral("8bit"),
+      QStringLiteral("1080p"),      QStringLiteral("720p"),        QStringLiteral("480p"),
+      QStringLiteral("2160p"),      QStringLiteral("1440p"),       QStringLiteral("576p"),
+      QStringLiteral("webrip"),     QStringLiteral("web-dl"),      QStringLiteral("webdl"),
+      QStringLiteral("bluray"),     QStringLiteral("bdrip"),       QStringLiteral("dvdrip"),
+      QStringLiteral("hdtv"),       QStringLiteral("ntsc"),        QStringLiteral("pal"),
+      QStringLiteral("x264"),       QStringLiteral("x265"),        QStringLiteral("hevc"),
+      QStringLiteral("h.264"),      QStringLiteral("h264"),        QStringLiteral("av1"),
+      QStringLiteral("dual audio"), QStringLiteral("multi-audio"), QStringLiteral("aac"),
+      QStringLiteral("flac"),       QStringLiteral("opus"),        QStringLiteral("10bit"),
+      QStringLiteral("8bit"),
   };
   for (const QString& m : kMarkers) {
     if (lower.contains(m)) return true;
@@ -84,10 +85,25 @@ void inferSeasonZeroFromFilename(Episode& episode, const std::string& fileName) 
   if (!episode.element(anitomy::ElementKind::Season).empty()) return;
   const QString qfn = QString::fromStdString(fileName);
   static const QRegularExpression kS00(QStringLiteral(R"(\bS00\s*E\d+)"),
-                                      QRegularExpression::CaseInsensitiveOption);
+                                       QRegularExpression::CaseInsensitiveOption);
   if (kS00.match(qfn).hasMatch()) {
     episode.setElement(anitomy::ElementKind::Season, "0");
   }
+}
+
+/// Anitomy can emit a spurious `Episode = 0` from audio/codec tags in dot-delimited release names
+/// (e.g. the `.0` of `AAC2.0`, or `5.1`), because it only recognises bracketed numbers as years and
+/// falls back to the last free number otherwise. A bare episode 0 is never a real episode here —
+/// genuine specials carry an explicit `S00` season — and it blocks identification of movies and
+/// single-file releases (`isValidMatch` rejects any episode value < 1). Drop it so such files fall
+/// back to the "no episode number" path, which maps single-episode anime (movies) to episode 1.
+void dropSpuriousZeroEpisode(Episode& episode) {
+  const auto numbers = episode.allElements(anitomy::ElementKind::Episode);
+  if (numbers.size() != 1) return;  // leave multi-episode ranges (e.g. `00-12`) untouched
+  if (QString::fromStdString(numbers.front()).toInt() != 0) return;
+  const auto season = episode.element(anitomy::ElementKind::Season);
+  if (season == "0" || season == "00") return;  // genuine S00E00 special
+  episode.removeElement(anitomy::ElementKind::Episode);
 }
 
 }  // namespace
@@ -99,6 +115,7 @@ Episode parse(std::string_view input, const anitomy::Options options) {
   stripIgnoredSubstrings(work);
   auto elements = anitomy::parse(work, options);
   episode.setElements(elements);
+  dropSpuriousZeroEpisode(episode);
 
   return episode;
 }
@@ -116,8 +133,7 @@ Episode parseFileInfo(const QFileInfo& info, const anitomy::Options options,
     // scene abbreviation in the filename (e.g. "Iseleve") typically refers to the
     // main series while the folder name matches the actual special AniList entry.
     const auto season_str = episode.element(anitomy::ElementKind::Season);
-    const bool isSeason0 = !season_str.empty() &&
-                           (season_str == "0" || season_str == "00");
+    const bool isSeason0 = !season_str.empty() && (season_str == "0" || season_str == "00");
 
     if (!episode.contains(anitomy::ElementKind::Title) || isSeason0) {
       std::string dirName;
@@ -179,7 +195,8 @@ int identify(Episode& episode) {
     matches.append_range(data->matches | std::views::values | std::ranges::to<std::vector>());
   }
 
-  // Folder / filesystem names are sometimes truncated vs AniList (e.g. final "s" dropped on long paths).
+  // Folder / filesystem names are sometimes truncated vs AniList (e.g. final "s" dropped on long
+  // paths).
   if (matches.empty() && title.size() > 16) {
     const QString qt = QString::fromStdString(title).trimmed();
     if (!qt.endsWith(QLatin1Char('s'), Qt::CaseInsensitive)) {
@@ -193,8 +210,7 @@ int identify(Episode& episode) {
   // "Title Part N" / "Title Nth Season" etc., so season-specific DB entries are
   // preferred over an ambiguously-named base season.
   if (season_num > 1) {
-    const auto titleWithSeason =
-        normalize(std::format("{} season {}", title, season_num));
+    const auto titleWithSeason = normalize(std::format("{} season {}", title, season_num));
     if (const auto data = cache()->find(titleWithSeason)) {
       for (const auto& [id, match] : data->matches) {
         constexpr float kSeasonBoost = 0.6f;
@@ -228,8 +244,8 @@ int identify(Episode& episode) {
       }
     };
 
-    for (const auto& secondary : episode.allElements(anitomy::ElementKind::Title) |
-                                     std::views::drop(1)) {
+    for (const auto& secondary :
+         episode.allElements(anitomy::ElementKind::Title) | std::views::drop(1)) {
       const auto normSecondary = normalize(secondary);
       if (normSecondary.empty() || normSecondary == normalizedTitle) continue;
 
@@ -253,9 +269,11 @@ int identify(Episode& episode) {
   }
 
   // Deterministic and user-friendly ordering:
-  // - Prefer anime that is actually on the user's list (entry exists) when multiple ids share a title key.
+  // - Prefer anime that is actually on the user's list (entry exists) when multiple ids share a
+  // title key.
   // - Then prefer higher weight.
-  // - Then prefer smaller id for stability across runs (unordered_map iteration can otherwise shuffle ties).
+  // - Then prefer smaller id for stability across runs (unordered_map iteration can otherwise
+  // shuffle ties).
   std::ranges::sort(matches, [&](const Cache::Data::Match& a, const Cache::Data::Match& b) {
     const bool a_on_list = anime::db.entry(a.id) != nullptr;
     const bool b_on_list = anime::db.entry(b.id) != nullptr;
@@ -309,7 +327,9 @@ QString debugIdentifySummary(const Episode& episode) {
     }
   }
 
-  return QStringLiteral("identify: title='%1' S='%2' E='%3' key0='%4' hit0=%5 m0=%6 missingDb=%7 hitS=%8 hitSeason=%9")
+  return QStringLiteral(
+             "identify: title='%1' S='%2' E='%3' key0='%4' hit0=%5 m0=%6 missingDb=%7 hitS=%8 "
+             "hitSeason=%9")
       .arg(QString::fromStdString(title).left(80))
       .arg(QString::fromStdString(season_str))
       .arg(QString::fromStdString(ep_str))

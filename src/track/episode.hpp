@@ -33,16 +33,21 @@ public:
 
   const std::vector<anitomy::Element>& elements() const noexcept;
   void setElements(std::vector<anitomy::Element>& elements);
-  
+
   bool contains(const anitomy::ElementKind kind) const;
   std::string element(const anitomy::ElementKind kind, const std::string placeholder = {}) const;
   std::vector<std::string> allElements(anitomy::ElementKind kind) const;
   void addElement(const anitomy::ElementKind kind, const std::string& value);
   void setElement(const anitomy::ElementKind kind, const std::string& value);
+  void removeElement(const anitomy::ElementKind kind);
 
   /// Full path of the local media file being played, if known. Empty for browser/streaming.
-  const std::string& filePath() const noexcept { return file_path_; }
-  void setFilePath(const std::string& path) { file_path_ = path; }
+  const std::string& filePath() const noexcept {
+    return file_path_;
+  }
+  void setFilePath(const std::string& path) {
+    file_path_ = path;
+  }
 
 private:
   auto find(const anitomy::ElementKind kind) const;
