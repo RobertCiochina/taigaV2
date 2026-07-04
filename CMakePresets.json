@@ -11,39 +11,67 @@
       "hidden": true,
       "generator": "Ninja Multi-Config",
       "binaryDir": "${sourceDir}/build/${presetName}",
-      "toolset": { "value": "host=x64", "strategy": "external" }
+      "toolset": {
+        "value": "host=x64",
+        "strategy": "external"
+      },
+      "cacheVariables": {
+        "CMAKE_DEFAULT_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_CONFIGURATION_TYPES": "RelWithDebInfo;Debug;Release"
+      }
     },
     {
       "name": "x64",
       "hidden": true,
-      "architecture": { "value": "x64", "strategy": "external" }
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      }
     },
     {
       "name": "clang",
       "hidden": true,
-      "cacheVariables": { "CMAKE_CXX_COMPILER": "clang++" }
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++"
+      }
     },
     {
       "name": "gcc",
       "hidden": true,
-      "cacheVariables": { "CMAKE_CXX_COMPILER": "g++" }
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "g++"
+      }
     },
     {
       "name": "msvc",
       "hidden": true,
-      "cacheVariables": { "CMAKE_CXX_COMPILER": "cl" }
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "cl"
+      }
     },
     {
       "name": "clang-x64",
-      "inherits": ["base", "clang", "x64"]
+      "inherits": [
+        "base",
+        "clang",
+        "x64"
+      ]
     },
     {
       "name": "gcc-x64",
-      "inherits": ["base", "gcc", "x64"]
+      "inherits": [
+        "base",
+        "gcc",
+        "x64"
+      ]
     },
     {
       "name": "msvc-x64",
-      "inherits": ["base", "msvc", "x64"]
+      "inherits": [
+        "base",
+        "msvc",
+        "x64"
+      ]
     }
   ],
   "buildPresets": [

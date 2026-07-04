@@ -19,15 +19,16 @@
 #include "kitsu_parsers.hpp"
 
 #include <QDateTime>
-#include "base/chrono.hpp"
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QMap>
 
+#include "base/chrono.hpp"
 #include "media/anime.hpp"
 #include "media/anime_list.hpp"
 #include "sync/service.hpp"
+
 
 namespace sync::kitsu {
 
@@ -104,6 +105,7 @@ anime::list::Status parseListStatus(const QString& value) {
 QString fromListStatus(const anime::list::Status value) {
   // clang-format off
   switch (value) {
+    case anime::list::Status::NotInList: return "";
     case anime::list::Status::Watching: return "current";
     case anime::list::Status::Completed: return "completed";
     case anime::list::Status::OnHold: return "on_hold";
@@ -122,8 +124,10 @@ std::optional<Anime> parseAnimeResource(const QJsonObject& data) {
   Anime item{
       .id = id,
       .last_modified = QDateTime::currentSecsSinceEpoch(),
-      .episode_count = a["episodeCount"].isNull() ? anime::kUnknownEpisodeCount : a["episodeCount"].toInt(),
-      .episode_length = a["episodeLength"].isNull() ? anime::kUnknownEpisodeLength : a["episodeLength"].toInt(),
+      .episode_count =
+          a["episodeCount"].isNull() ? anime::kUnknownEpisodeCount : a["episodeCount"].toInt(),
+      .episode_length =
+          a["episodeLength"].isNull() ? anime::kUnknownEpisodeLength : a["episodeLength"].toInt(),
       .age_rating = parseAgeRating(a["ageRating"].toString()),
       .status = parseStatus(a["status"].toString()),
       .type = parseType(a["subtype"].toString()),
@@ -157,7 +161,10 @@ std::optional<ListEntry> parseLibraryEntryResource(const QJsonObject& data) {
   const qint64 libId = libIdStr.toLongLong();
   if (!libId) return std::nullopt;
 
-  const int anime_id = data["relationships"].toObject()["anime"].toObject()["data"].toObject()["id"]
+  const int anime_id = data["relationships"]
+                           .toObject()["anime"]
+                           .toObject()["data"]
+                           .toObject()["id"]
                            .toString()
                            .toInt();
   if (!anime_id) return std::nullopt;

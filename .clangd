@@ -1,0 +1,12 @@
+CompileFlags:
+  # Use the compile_commands.json produced by the msvc-x64 CMake preset so clangd
+  # resolves the real Qt/project include paths and flags (fixes spurious
+  # "file not found" / "unknown type" diagnostics).
+  CompilationDatabase: build/msvc-x64
+
+Diagnostics:
+  # clangd's include-cleaner can't attribute user-defined literals (e.g. the `_s`
+  # QString literal from base/string.hpp, brought in via `using namespace`) or many
+  # macros/templates to their header, producing false "unused include" warnings across
+  # the codebase. Disable that unreliable heuristic instead of per-file IWYU pragmas.
+  UnusedIncludes: None
