@@ -105,7 +105,7 @@ private:
                                     std::function<void(bool found)> on_done);
   void startFetch(const QUrl& url, const QString& status_message, FetchKind kind);
   void onFetchFinished(QNetworkReply* reply);
-  void populateTable(const rss::Feed& feed);
+  void populateTable(const rss::Feed& feed, int context_anime_id = 0);
   void applyCatalogFingerprintState(const rss::Feed& feed, bool notify_if_new);
   void applyRssTableSortFromSettings();
   void applyResultFilter();

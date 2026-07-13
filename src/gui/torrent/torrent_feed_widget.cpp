@@ -169,7 +169,25 @@ QList<QRegularExpression> compileRegexList(const QStringList& lines) {
   return out;
 }
 
-QList<const rss::Item*> filterRssItemsBySettings(const rss::Feed& feed) {
+/// When a search/download runs inside a specific anime context, drop RSS items that positively
+/// identify as a *different* anime. This prevents a Season 1 / Part 2 release (e.g.
+/// "Mushoku Tensei Jobless Reincarnation S1Pt2") from being surfaced — and picked as the "best
+/// match" — while the user is searching Season 3.
+///
+/// Items that fail recognition (kUnknownId) are kept: weak recognition should never silently empty
+/// the results, and this mirrors how `hide_not_in_list` treats unrecognized items.
+bool rssItemBelongsToAnimeContext(const rss::Item& it, const int context_anime_id) {
+  if (context_anime_id <= 0) return true;
+  track::Episode ep = track::recognition::parse(it.title);
+  const int id = track::recognition::identify(ep);
+  if (id == anime::kUnknownId) return true;
+  return id == context_anime_id;
+}
+
+/// `context_anime_id > 0` restricts results to a single anime (see rssItemBelongsToAnimeContext);
+/// pass 0 for free-text / catalog feeds that are not tied to one entry.
+QList<const rss::Item*> filterRssItemsBySettings(const rss::Feed& feed,
+                                                 const int context_anime_id = 0) {
   const QStringList includeLines =
       splitRegexLines(QString::fromStdString(taiga::settings.torrentFeedIncludeRegexList()));
   const QStringList excludeLines =
@@ -234,6 +252,9 @@ QList<const rss::Item*> filterRssItemsBySettings(const rss::Feed& feed) {
       }
     }
     if (blocked) continue;
+
+    // Anime-scoped search/download: keep only releases that belong to the target entry.
+    if (!rssItemBelongsToAnimeContext(it, context_anime_id)) continue;
 
     if (hide_dropped || hide_not_in_list || hide_watched || hide_available || hide_older_versions) {
       track::Episode ep = track::recognition::parse(it.title);
@@ -1608,7 +1629,7 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
           }
 
           const rss::Feed feed = gui::parseSyndicationFeed(reply->readAll()).value_or(rss::Feed{});
-          const QList<const rss::Item*> filtered = filterRssItemsBySettings(feed);
+          const QList<const rss::Item*> filtered = filterRssItemsBySettings(feed, anime_id);
           if (filtered.isEmpty()) {
             (*try_fn)();
             return;
@@ -2334,7 +2355,9 @@ void TorrentFeedWidget::runSearch() {
       out.items = std::move(kept);
     }
 
-    populateTable(out);
+    // This branch only runs with a valid anime context (see runSearch above), so restrict results
+    // to that entry — prevents wrong-season releases (e.g. S1 Part 2) from showing for a S3 search.
+    populateTable(out, m_manual_search_anime_id_);
     if (auto* mw = mainWindow()) {
       mw->statusBar()->clearMessage();
     }
@@ -2684,8 +2707,8 @@ void TorrentFeedWidget::applyCatalogFingerprintState(const rss::Feed& feed,
   }
 }
 
-void TorrentFeedWidget::populateTable(const rss::Feed& feed) {
-  const QList<const rss::Item*> filtered = filterRssItemsBySettings(feed);
+void TorrentFeedWidget::populateTable(const rss::Feed& feed, const int context_anime_id) {
+  const QList<const rss::Item*> filtered = filterRssItemsBySettings(feed, context_anime_id);
 
   size_t n = static_cast<size_t>(filtered.size());
   if (taiga::settings.torrentFeedFilterEnabled()) {
