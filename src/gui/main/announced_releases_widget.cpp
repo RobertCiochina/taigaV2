@@ -8,10 +8,12 @@
 #include <QDateTime>
 #include <QFrame>
 #include <QHBoxLayout>
+#include <QHideEvent>
 #include <QLabel>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QShowEvent>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -22,6 +24,7 @@
 #include "media/anime.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_utils.hpp"
+#include "media/announced_related_refresh.hpp"
 #include "media/announced_releases.hpp"
 #include "sync/service.hpp"
 #include "taiga/session.hpp"
@@ -78,18 +81,20 @@ AnnouncedReleasesWidget::AnnouncedReleasesWidget(QWidget* parent) : QWidget(pare
           "AnnouncedReleases",
           "Shows anime that are <b>not yet aired</b> or <b>currently airing</b> when they are a "
           "<b>direct sequel</b> (on AniList) to something on your list as <b>Completed</b> or "
-          "<b>Planning</b> or <b>Watching</b>. Keep your list synchronized; sequel links cached on those titles are "
-          "read from disk, and missing sequel entries are fetched from AniList when you open this page."),
+          "<b>Planning</b> or <b>Watching</b>. Keep your list synchronized; sequel links cached on "
+          "those titles are "
+          "read from disk, and missing sequel entries are fetched from AniList when you open this "
+          "page."),
       this);
   hint->setWordWrap(true);
   hint->setTextFormat(Qt::RichText);
   outer->addWidget(hint);
 
   auto* top = new QHBoxLayout();
-  auto* addAll = new QPushButton(QApplication::translate("AnnouncedReleases", "Add all to Planning"),
-                                 this);
-  addAll->setToolTip(
-      QApplication::translate("AnnouncedReleases", "Adds every visible title to Planning on your list."));
+  auto* addAll =
+      new QPushButton(QApplication::translate("AnnouncedReleases", "Add all to Planning"), this);
+  addAll->setToolTip(QApplication::translate("AnnouncedReleases",
+                                             "Adds every visible title to Planning on your list."));
   connect(addAll, &QPushButton::clicked, this, [this]() {
     const auto cands = anime::computeAnnouncedReleaseCandidates(
         taiga::session.announcedReleasesDismissedAnimeIds());
@@ -99,20 +104,21 @@ AnnouncedReleasesWidget::AnnouncedReleasesWidget(QWidget* parent) : QWidget(pare
       if (!a) continue;
       if (!taiga::settings.listShowMatureContent() && anime::isNsfw(*a)) continue;
       const QString t = uiTitle(*a);
-      if (!m_filter.trimmed().isEmpty() &&
-          !t.contains(m_filter.trimmed(), Qt::CaseInsensitive)) {
+      if (!m_filter.trimmed().isEmpty() && !t.contains(m_filter.trimmed(), Qt::CaseInsensitive)) {
         continue;
       }
       ids.push_back(c.anime_id);
     }
     if (ids.isEmpty()) {
-      QMessageBox::information(this, QApplication::translate("AnnouncedReleases", "Announced releases"),
+      QMessageBox::information(this,
+                               QApplication::translate("AnnouncedReleases", "Announced releases"),
                                QApplication::translate("AnnouncedReleases", "Nothing to add."));
       return;
     }
     const auto answer = QMessageBox::question(
         this, QApplication::translate("AnnouncedReleases", "Add all to Planning"),
-        QApplication::translate("AnnouncedReleases", "Add %1 title(s) to Planning?").arg(ids.size()),
+        QApplication::translate("AnnouncedReleases", "Add %1 title(s) to Planning?")
+            .arg(ids.size()),
         QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
     if (answer != QMessageBox::Yes) return;
 
@@ -130,6 +136,15 @@ AnnouncedReleasesWidget::AnnouncedReleasesWidget(QWidget* parent) : QWidget(pare
   top->addWidget(addAll);
   top->addStretch(1);
   outer->addLayout(top);
+
+  m_scheduleLabel_ = new QLabel(this);
+  m_scheduleLabel_->setWordWrap(true);
+  m_scheduleLabel_->setTextFormat(Qt::RichText);
+  m_scheduleLabel_->setStyleSheet(
+      QStringLiteral("QLabel{color: palette(text); font-size:13px; font-weight:600;"
+                     " background: palette(alternate-base); border: 1px solid palette(mid);"
+                     " border-radius:6px; padding:8px 10px;}"));
+  outer->addWidget(m_scheduleLabel_);
 
   auto* scroll = new QScrollArea(this);
   scroll->setWidgetResizable(true);
@@ -149,6 +164,24 @@ AnnouncedReleasesWidget::AnnouncedReleasesWidget(QWidget* parent) : QWidget(pare
     if (!isVisible()) return;
     m_dbRefreshDebounce_->start(400);
   });
+
+  // Keeps the "next scan" countdown live without rebuilding the (potentially large) rows list.
+  m_scheduleTick_ = new QTimer(this);
+  m_scheduleTick_->setTimerType(Qt::VeryCoarseTimer);
+  m_scheduleTick_->setInterval(60 * 1000);
+  connect(m_scheduleTick_, &QTimer::timeout, this,
+          &AnnouncedReleasesWidget::updateScanScheduleLabel);
+}
+
+void AnnouncedReleasesWidget::showEvent(QShowEvent* event) {
+  QWidget::showEvent(event);
+  updateScanScheduleLabel();
+  if (m_scheduleTick_) m_scheduleTick_->start();
+}
+
+void AnnouncedReleasesWidget::hideEvent(QHideEvent* event) {
+  QWidget::hideEvent(event);
+  if (m_scheduleTick_) m_scheduleTick_->stop();
 }
 
 void AnnouncedReleasesWidget::applyToolbarTextFilter(const QString& text) {
@@ -156,10 +189,79 @@ void AnnouncedReleasesWidget::applyToolbarTextFilter(const QString& text) {
   rebuildRows();
 }
 
-void AnnouncedReleasesWidget::refresh() { rebuildRows(); }
+void AnnouncedReleasesWidget::refresh() {
+  rebuildRows();
+}
+
+namespace {
+
+QString formatCountdown(qint64 secs) {
+  if (secs < 60) return QApplication::translate("AnnouncedReleases", "under a minute");
+  const qint64 days = secs / 86400;
+  const qint64 hours = (secs % 86400) / 3600;
+  const qint64 mins = (secs % 3600) / 60;
+  if (days > 0) {
+    return QApplication::translate("AnnouncedReleases", "%1d %2h").arg(days).arg(hours);
+  }
+  if (hours > 0) {
+    return QApplication::translate("AnnouncedReleases", "%1h %2m").arg(hours).arg(mins);
+  }
+  return QApplication::translate("AnnouncedReleases", "%1m").arg(mins);
+}
+
+}  // namespace
+
+void AnnouncedReleasesWidget::updateScanScheduleLabel() {
+  if (!m_scheduleLabel_) return;
+
+  if (sync::currentServiceId() != sync::ServiceId::AniList) {
+    m_scheduleLabel_->hide();
+    return;
+  }
+
+  const qint64 now = QDateTime::currentSecsSinceEpoch();
+  const auto s =
+      anime::computeAnnouncedRelatedScanSchedule(now, anime::kAnnouncedRelatedStaleAfterSecs);
+
+  if (s.total_count == 0) {
+    m_scheduleLabel_->setText(QApplication::translate(
+        "AnnouncedReleases",
+        "No related titles are being tracked yet. Add sequels' roots to your list to start."));
+    m_scheduleLabel_->show();
+    return;
+  }
+
+  QString text;
+  if (s.due_now_count > 0) {
+    // A due title is refreshed on the next sync-triggered sweep (all due titles at once, ~3s each).
+    text = QApplication::translate(
+               "AnnouncedReleases",
+               "<b>%1</b> of %2 related title(s) are due for a refresh now — they'll all be "
+               "refreshed together (~3s each) on the next sync-triggered scan.")
+               .arg(s.due_now_count)
+               .arg(s.total_count);
+  } else if (s.next_due_secs > 0) {
+    const QDateTime when = QDateTime::fromSecsSinceEpoch(s.next_due_secs);
+    text = QApplication::translate(
+               "AnnouncedReleases",
+               "All %1 related titles are up to date. Next one becomes due in <b>%2</b> (%3); "
+               "each title refreshes on its own 30-day cadence.")
+               .arg(s.total_count)
+               .arg(formatCountdown(s.next_due_secs - now),
+                    when.toString(QStringLiteral("ddd, MMM d, HH:mm")));
+  } else {
+    text = QApplication::translate("AnnouncedReleases", "Tracking %1 related title(s).")
+               .arg(s.total_count);
+  }
+
+  m_scheduleLabel_->setText(text);
+  m_scheduleLabel_->show();
+}
 
 void AnnouncedReleasesWidget::rebuildRows() {
   if (!m_rowsLayout) return;
+
+  updateScanScheduleLabel();
 
   while (m_rowsLayout->count()) {
     QLayoutItem* it = m_rowsLayout->takeAt(0);
@@ -169,7 +271,8 @@ void AnnouncedReleasesWidget::rebuildRows() {
 
   if (sync::currentServiceId() != sync::ServiceId::AniList) {
     auto* empty = new QLabel(
-        QApplication::translate("AnnouncedReleases", "Announced releases require AniList as the active list service."),
+        QApplication::translate("AnnouncedReleases",
+                                "Announced releases require AniList as the active list service."),
         this);
     empty->setWordWrap(true);
     empty->setStyleSheet(QStringLiteral("QLabel{color: palette(placeholderText);}"));
@@ -185,8 +288,7 @@ void AnnouncedReleasesWidget::rebuildRows() {
   if (cands.isEmpty()) {
     const QString emptyText =
         anime::hasAnnouncedSequelAnchorsAwaitingMediaFetch()
-            ? QApplication::translate("AnnouncedReleases",
-                                        "Fetching related sequels from AniList…")
+            ? QApplication::translate("AnnouncedReleases", "Fetching related sequels from AniList…")
             : QApplication::translate("AnnouncedReleases", "No matching titles right now.");
     auto* empty = new QLabel(emptyText, this);
     empty->setWordWrap(true);
@@ -226,8 +328,7 @@ void AnnouncedReleasesWidget::rebuildRows() {
     const int aid = c.anime_id;
     auto paintPoster = [poster, aid]() {
       if (const QPixmap* p = imageProvider.loadPoster(aid); p && !p->isNull()) {
-        poster->setPixmap(
-            p->scaled(poster->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        poster->setPixmap(p->scaled(poster->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
         poster->setText(QString());
       } else {
         poster->clear();
@@ -238,8 +339,7 @@ void AnnouncedReleasesWidget::rebuildRows() {
     connect(&imageProvider, &ImageProvider::posterChanged, frame, [poster, aid](const int id) {
       if (id != aid) return;
       if (const QPixmap* p = imageProvider.loadPoster(aid); p && !p->isNull()) {
-        poster->setPixmap(
-            p->scaled(poster->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        poster->setPixmap(p->scaled(poster->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
         poster->setText(QString());
       }
     });
@@ -249,8 +349,8 @@ void AnnouncedReleasesWidget::rebuildRows() {
     auto* t1 = new QLabel(QStringLiteral("<b>%1</b>").arg(title.toHtmlEscaped()), frame);
     t1->setTextFormat(Qt::RichText);
     t1->setWordWrap(true);
-    const QString meta = QStringLiteral("%1 · %2")
-                             .arg(mediaStatusLabel(a->status), formatTypeLabel(a->type));
+    const QString meta =
+        QStringLiteral("%1 · %2").arg(mediaStatusLabel(a->status), formatTypeLabel(a->type));
     auto* t2 = new QLabel(meta, frame);
     t2->setStyleSheet(QStringLiteral("QLabel{color: palette(placeholderText); font-size:11px;}"));
     auto* t3 = new QLabel(anchorLine, frame);

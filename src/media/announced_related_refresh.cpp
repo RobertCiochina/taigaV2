@@ -21,6 +21,42 @@ bool isAnchorStatus(const anime::list::Status s) {
   return s == Status::Completed || s == Status::PlanToWatch || s == Status::Watching;
 }
 
+// The full anchor + sequel-frontier candidate set (no staleness filter), deduplicated.
+// Shared by the refresh sweep and the schedule/countdown so both reason over the same titles.
+QVector<int> collectAnnouncedRelatedCandidateIds() {
+  QVector<int> out;
+  QSet<int> seen;
+
+  // 1) Anchor titles from the user's list (these are the roots that define what's "related to
+  // you").
+  for (auto it = anime::db.entries().cbegin(); it != anime::db.entries().cend(); ++it) {
+    const ListEntry& e = it.value();
+    if (!isAnchorStatus(e.status)) continue;
+    const int aid = e.anime_id;
+    if (aid <= 0 || seen.contains(aid)) continue;
+    seen.insert(aid);
+    out.push_back(aid);
+  }
+
+  // 2) Sequel frontier: if an anchor already points at a sequel, new seasons will attach to the
+  // end of that chain, not to the anchor again. Include sequel nodes too.
+  for (auto it = anime::db.entries().cbegin(); it != anime::db.entries().cend(); ++it) {
+    const ListEntry& e = it.value();
+    if (!isAnchorStatus(e.status)) continue;
+    const Anime* a = anime::db.item(e.anime_id);
+    if (!a) continue;
+    for (const auto& rel : a->relations) {
+      if (rel.type != RelationType::Sequel) continue;
+      const int sid = rel.related_id;
+      if (sid <= 0 || seen.contains(sid)) continue;
+      seen.insert(sid);
+      out.push_back(sid);
+    }
+  }
+
+  return out;
+}
+
 }  // namespace
 
 QVector<int> computeAnnouncedRelatedRefreshAnimeIds(const int max_count, const qint64 now_secs,
@@ -33,37 +69,10 @@ QVector<int> computeAnnouncedRelatedRefreshAnimeIds(const int max_count, const q
   };
 
   QVector<Candidate> candidates;
-  QSet<int> seen;
-
-  // 1) Anchor titles from the user's list (these are the roots that define what's "related to
-  // you").
-  for (auto it = anime::db.entries().cbegin(); it != anime::db.entries().cend(); ++it) {
-    const ListEntry& e = it.value();
-    if (!isAnchorStatus(e.status)) continue;
-    const int aid = e.anime_id;
-    if (aid <= 0 || seen.contains(aid)) continue;
-    const Anime* a = anime::db.item(aid);
+  for (const int id : collectAnnouncedRelatedCandidateIds()) {
+    const Anime* a = anime::db.item(id);
     if (!isStaleForAnnouncedRelatedRefresh(a, now_secs, stale_after_secs)) continue;
-    seen.insert(aid);
-    candidates.push_back({aid, a ? static_cast<qint64>(a->last_modified) : 0});
-  }
-
-  // 2) Sequel frontier: if an anchor already points at a sequel, new seasons will attach to the
-  // end of that chain, not to the anchor again. Refresh sequel nodes too (minimal depth, capped).
-  for (auto it = anime::db.entries().cbegin(); it != anime::db.entries().cend(); ++it) {
-    const ListEntry& e = it.value();
-    if (!isAnchorStatus(e.status)) continue;
-    const Anime* a = anime::db.item(e.anime_id);
-    if (!a) continue;
-    for (const auto& rel : a->relations) {
-      if (rel.type != RelationType::Sequel) continue;
-      const int sid = rel.related_id;
-      if (sid <= 0 || seen.contains(sid)) continue;
-      const Anime* s = anime::db.item(sid);
-      if (!isStaleForAnnouncedRelatedRefresh(s, now_secs, stale_after_secs)) continue;
-      seen.insert(sid);
-      candidates.push_back({sid, s ? static_cast<qint64>(s->last_modified) : 0});
-    }
+    candidates.push_back({id, a ? static_cast<qint64>(a->last_modified) : 0});
   }
 
   // Sort oldest-first so the least-recently-refreshed titles get priority when the cap is hit.
@@ -77,6 +86,28 @@ QVector<int> computeAnnouncedRelatedRefreshAnimeIds(const int max_count, const q
   out.reserve(n);
   for (int i = 0; i < n; ++i) out.push_back(candidates[i].id);
   return out;
+}
+
+AnnouncedRelatedScanSchedule computeAnnouncedRelatedScanSchedule(const qint64 now_secs,
+                                                                 const qint64 stale_after_secs) {
+  AnnouncedRelatedScanSchedule schedule;
+  const auto ids = collectAnnouncedRelatedCandidateIds();
+  schedule.total_count = static_cast<int>(ids.size());
+
+  for (const int id : ids) {
+    const Anime* a = anime::db.item(id);
+    if (isStaleForAnnouncedRelatedRefresh(a, now_secs, stale_after_secs)) {
+      ++schedule.due_now_count;
+      continue;
+    }
+    // Not stale ⇒ has a known cache and a real fetch timestamp; it becomes due 30 days after.
+    const qint64 due = static_cast<qint64>(a->relations_fetched_at) + stale_after_secs;
+    if (schedule.next_due_secs < 0 || due < schedule.next_due_secs) {
+      schedule.next_due_secs = due;
+    }
+  }
+
+  return schedule;
 }
 
 QSet<int> computeVisibleAnnouncedReleaseCandidateIds(const QSet<int>& dismissed,

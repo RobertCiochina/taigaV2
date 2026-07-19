@@ -450,6 +450,12 @@ void MainWindow::initAnnouncedRelatedRefresh() {
   connect(m_announced_related_diff_timer_, &QTimer::timeout, this,
           &MainWindow::checkAnnouncedRelatedDiffAndNotify);
 
+  m_announced_related_due_timer_ = new QTimer(this);
+  m_announced_related_due_timer_->setSingleShot(true);
+  m_announced_related_due_timer_->setTimerType(Qt::CoarseTimer);
+  connect(m_announced_related_due_timer_, &QTimer::timeout, this,
+          &MainWindow::onAnnouncedRelatedDueTimer);
+
   if (sync::currentServiceId() == sync::ServiceId::AniList) {
     auto* svc = sync::anilist::Service::instance();
     connect(svc, &sync::anilist::Service::mediaFetchFinished, this, [this](int id, bool success) {
@@ -463,17 +469,24 @@ void MainWindow::initAnnouncedRelatedRefresh() {
                 .arg(success ? 1 : 0)
                 .arg(m_announced_related_pending_ids_.size())
                 .arg(a ? announcedRelatedDiagTitle(*a) : QStringLiteral("?")));
+        // Sweep finished: re-arm the due-check for the next title to expire.
+        if (m_announced_related_pending_ids_.isEmpty()) rescheduleAnnouncedRelatedDueCheck();
       }
       // Any media refresh may reveal new sequels; debounce to avoid spam.
       if (m_announced_related_diff_timer_) m_announced_related_diff_timer_->start(2500);
     });
   }
+
+  rescheduleAnnouncedRelatedDueCheck();
 }
 
 void MainWindow::pauseAnnouncedRelatedRefresh() {
   m_announced_related_paused_ = true;
   if (m_announced_related_resume_timer_) {
     m_announced_related_resume_timer_->stop();
+  }
+  if (m_announced_related_due_timer_) {
+    m_announced_related_due_timer_->stop();
   }
 }
 
@@ -483,6 +496,7 @@ void MainWindow::scheduleAnnouncedRelatedResumeAfterSync() {
   if (!m_announced_related_resume_timer_) return;
 
   m_announced_related_paused_ = true;
+  if (m_announced_related_due_timer_) m_announced_related_due_timer_->stop();
   m_announced_related_resume_timer_->start(10 * 60 * 1000);
   LOGW("announced_related: resume scheduled in 10 min");
   track::appendLibraryEpisodeIndexCacheDebugLine(
@@ -492,6 +506,48 @@ void MainWindow::scheduleAnnouncedRelatedResumeAfterSync() {
 void MainWindow::onAnnouncedRelatedResumeTimer() {
   m_announced_related_paused_ = false;
   maybeRunAnnouncedRelatedRefresh();
+}
+
+void MainWindow::rescheduleAnnouncedRelatedDueCheck() {
+  if (!m_announced_related_due_timer_) return;
+  m_announced_related_due_timer_->stop();
+  if (sync::currentServiceId() != sync::ServiceId::AniList) return;
+  if (m_announced_related_paused_) return;                  // resume path will re-arm
+  if (startupBlockingActive()) return;                      // unblock path will re-arm
+  if (!m_announced_related_pending_ids_.isEmpty()) return;  // sweep in flight; re-armed on finish
+
+  const qint64 now = QDateTime::currentSecsSinceEpoch();
+  const auto schedule =
+      anime::computeAnnouncedRelatedScanSchedule(now, anime::kAnnouncedRelatedStaleAfterSecs);
+
+  qint64 delay_ms = -1;
+  if (schedule.due_now_count > 0) {
+    // A title is already due. Auto-trigger, but keep a minimum spacing between sweeps so a title
+    // whose fetch can't clear its stale state (e.g. transient failures) can't spin the loop.
+    constexpr qint64 kMinAutoRescanSecs = 6LL * 60 * 60;  // 6 hours
+    const qint64 last = taiga::session.announcedReleasesRelatedRefreshAtSecs();
+    const qint64 since = last > 0 ? (now - last) : kMinAutoRescanSecs;
+    delay_ms = since >= kMinAutoRescanSecs ? 0 : (kMinAutoRescanSecs - since) * 1000;
+  } else if (schedule.next_due_secs > 0) {
+    delay_ms = (schedule.next_due_secs - now) * 1000;
+    if (delay_ms < 1000) delay_ms = 1000;
+    // Cap so the list/DB is re-evaluated periodically even for far-future due times.
+    constexpr qint64 kMaxDelayMs = 6LL * 60 * 60 * 1000;  // 6 hours
+    if (delay_ms > kMaxDelayMs) delay_ms = kMaxDelayMs;
+  }
+
+  if (delay_ms >= 0) m_announced_related_due_timer_->start(static_cast<int>(delay_ms));
+}
+
+void MainWindow::onAnnouncedRelatedDueTimer() {
+  const qint64 now = QDateTime::currentSecsSinceEpoch();
+  const auto schedule =
+      anime::computeAnnouncedRelatedScanSchedule(now, anime::kAnnouncedRelatedStaleAfterSecs);
+  if (schedule.due_now_count > 0) {
+    // maybeRun guards against pause/startup-blocking/AniList/in-flight overlap.
+    maybeRunAnnouncedRelatedRefresh();
+  }
+  rescheduleAnnouncedRelatedDueCheck();
 }
 
 void MainWindow::tryRunAnnouncedRelatedAfterStartup() {
@@ -505,6 +561,8 @@ void MainWindow::maybeRunAnnouncedRelatedRefresh() {
   if (startupBlockingActive()) return;
   if (m_announced_related_paused_) return;
   if (sync::currentServiceId() != sync::ServiceId::AniList) return;
+  // Don't start an overlapping sweep while one is still fetching.
+  if (!m_announced_related_pending_ids_.isEmpty()) return;
 
   const qint64 now = QDateTime::currentSecsSinceEpoch();
   const qint64 last = taiga::session.announcedReleasesRelatedRefreshAtSecs();
@@ -523,7 +581,7 @@ void MainWindow::maybeRunAnnouncedRelatedRefresh() {
   anime::prefetchMissingAnnouncedSequelMediaFromAnchors();
 
   // Full sweep of all stale ids (>30 days). Paced at 3s/req so rate-limit risk is minimal.
-  constexpr qint64 kStaleAfter = 30LL * 24 * 60 * 60;  // 30 days
+  constexpr qint64 kStaleAfter = anime::kAnnouncedRelatedStaleAfterSecs;
   const auto ids = anime::computeAnnouncedRelatedRefreshAnimeIds(std::numeric_limits<int>::max(),
                                                                  now, kStaleAfter);
   m_last_announced_related_check_started_secs_ = now;
@@ -553,6 +611,10 @@ void MainWindow::maybeRunAnnouncedRelatedRefresh() {
     enqueueStatusMessage(tr("New seasons check: queued %1 refresh(es)…").arg(ids.size()), false);
   }
   if (m_announced_related_diff_timer_) m_announced_related_diff_timer_->start(6000);
+
+  // If nothing was queued (all up to date), arm the timer for the next title to expire.
+  // Otherwise the pending-empty handler re-arms once fetches complete.
+  if (ids.isEmpty()) rescheduleAnnouncedRelatedDueCheck();
 }
 
 void MainWindow::checkAnnouncedRelatedDiffAndNotify() {

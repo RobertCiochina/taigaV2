@@ -242,6 +242,8 @@ private:
   void tryRunAnnouncedRelatedAfterStartup();
   void maybeRunAnnouncedRelatedRefresh();
   void checkAnnouncedRelatedDiffAndNotify();
+  void rescheduleAnnouncedRelatedDueCheck();
+  void onAnnouncedRelatedDueTimer();
 
   Ui::MainWindow* ui_ = nullptr;
 
@@ -263,6 +265,7 @@ private:
   QTimer* m_home_qbit_poll_timer_ = nullptr;
   QTimer* m_announced_related_resume_timer_ = nullptr;  // post-sync delay before refresh
   QTimer* m_announced_related_diff_timer_ = nullptr;    // debounce candidate diff + notify
+  QTimer* m_announced_related_due_timer_ = nullptr;     // fires when a title's 30-day cache expires
   bool m_announced_related_paused_ = false;
   QTimer* m_status_message_timer_ = nullptr;
   QTimer* m_local_backup_timer_ = nullptr;  // debounced auto-write of local MAL XML backup
