@@ -171,81 +171,18 @@ SearchWidget::SearchWidget(QWidget* parent)
         "Download the full year+season catalog from the active service into the local database.\n"
         "If that season was already loaded before, this will use the local database.\n"
         "Tip: hold Shift while clicking to force refresh from the service."));
-    connect(m_btnLoadAll, &QPushButton::clicked, this, [this]() {
-      if (m_seasonBrowseInFlight) {
-        if (auto* mw = mainWindow()) {
-          mw->statusBar()->showMessage(tr("Please wait for the current refresh to finish."), 3500);
-        }
-        return;
-      }
-      const qint64 now_ms = QDateTime::currentMSecsSinceEpoch();
-      if (m_lastNetworkOpMs > 0 && (now_ms - m_lastNetworkOpMs) < 1200) {
-        if (auto* mw = mainWindow()) {
-          mw->statusBar()->showMessage(tr("Please wait a moment and try again."), 2500);
-        }
-        return;
-      }
-
-      // Temporarily show all results (not just titles in the user's list).
-      m_proxyModel->setListStatusFilter({});
-      const int yi = m_comboYear->currentIndex();
-      const int si = m_comboSeason->currentIndex();
-      if (yi < 0 || si < 0) {
-        taiga::userFeedback(tr("Select a year and season first."), true);
-        return;
-      }
-      const int y = m_comboYear->itemData(yi).toInt();
-      const auto season = static_cast<anime::SeasonName>(m_comboSeason->itemData(si).toInt());
-      if (y <= 0 || season == anime::SeasonName::Unknown) {
-        taiga::userFeedback(tr("Select a valid year and season."), true);
-        return;
-      }
-
-      const bool force_refresh =
-          (QGuiApplication::keyboardModifiers() & Qt::KeyboardModifier::ShiftModifier) != 0;
-      const QString key = taiga::seasonBrowseCacheKey(sync::currentServiceId(), y, season);
-      const QStringList loaded_keys = taiga::session.searchListSeasonBrowseLoadedKeys();
-      if (!taiga::shouldFetchSeasonBrowse(loaded_keys, key, force_refresh)) {
-        reloadAnimeList();
-        if (auto* mw = mainWindow()) {
-          mw->refreshNavigationSidebar();
-          mw->statusBar()->showMessage(
-              tr("Season already loaded. Hold Shift and click Load all to refresh."), 5000);
-        }
-        return;
-      }
-
-      QPointer<SearchWidget> guard(this);
-      if (auto* mw = mainWindow()) {
-        mw->statusBar()->showMessage(tr("Loading seasonal catalog…"));
-      }
-      m_seasonBrowseInFlight = true;
-      m_lastNetworkOpMs = now_ms;
-      if (m_btnLoadAll) m_btnLoadAll->setEnabled(false);
-      if (m_btnLoadMyList) m_btnLoadMyList->setEnabled(false);
-
-      sync::fetchSeasonBrowse(season, y, [guard, key](const bool ok, const QString& msg) {
-        if (!guard) return;
-        guard->m_seasonBrowseInFlight = false;
-        if (guard->m_btnLoadAll) guard->m_btnLoadAll->setEnabled(true);
-        if (guard->m_btnLoadMyList) guard->m_btnLoadMyList->setEnabled(true);
-        if (auto* mw = mainWindow()) {
-          mw->statusBar()->clearMessage();
-          if (ok) {
-            taiga::session.setSearchListSeasonBrowseLoadedKeys(taiga::seasonBrowseCacheAdd(
-                taiga::session.searchListSeasonBrowseLoadedKeys(), key));
-            guard->reloadAnimeList();
-            mw->refreshNavigationSidebar();
-            mw->statusBar()->showMessage(msg.isEmpty() ? tr("Season loaded.") : msg, 6000);
-          } else {
-            // Avoid a modal network error popup on rapid repeated actions; status bar is enough.
-            taiga::userFeedback(msg.isEmpty() ? QStringLiteral("Season request failed.") : msg,
-                                false);
-          }
-        }
-      });
-    });
+    connect(m_btnLoadAll, &QPushButton::clicked, this, [this]() { startSeasonBrowse({}); });
     filtersLayout->addWidget(m_btnLoadAll);
+
+    m_btnLoadNotInList = new QPushButton(tr("Not in my list"), this);
+    m_btnLoadNotInList->setToolTip(
+        tr("Load the selected year+season catalog, then show only titles that are not on your "
+           "list.\n"
+           "If that season was already loaded before, this will use the local database.\n"
+           "Tip: hold Shift while clicking to force refresh from the service."));
+    connect(m_btnLoadNotInList, &QPushButton::clicked, this,
+            [this]() { startSeasonBrowse({.notInList = true}); });
+    filtersLayout->addWidget(m_btnLoadNotInList);
 
     m_btnLoadMyList = new QPushButton(tr("Load my list"), this);
     m_btnLoadMyList->setToolTip(
@@ -413,6 +350,93 @@ void SearchWidget::maybeAutoLoadDefaultSeason() {
         mw->statusBar()->showMessage(msg.isEmpty() ? tr("Season loaded.") : msg, 6000);
       } else {
         taiga::userFeedback(msg.isEmpty() ? QStringLiteral("Season request failed.") : msg, true);
+      }
+    }
+  });
+}
+
+void SearchWidget::setSeasonBrowseButtonsEnabled(const bool enabled) {
+  if (m_btnLoadAll) m_btnLoadAll->setEnabled(enabled);
+  if (m_btnLoadNotInList) m_btnLoadNotInList->setEnabled(enabled);
+  if (m_btnLoadMyList) m_btnLoadMyList->setEnabled(enabled);
+}
+
+void SearchWidget::startSeasonBrowse(const AnimeListStatusFilter& postLoadFilter) {
+  if (m_seasonBrowseInFlight) {
+    if (auto* mw = mainWindow()) {
+      mw->statusBar()->showMessage(tr("Please wait for the current refresh to finish."), 3500);
+    }
+    return;
+  }
+  const qint64 now_ms = QDateTime::currentMSecsSinceEpoch();
+  if (m_lastNetworkOpMs > 0 && (now_ms - m_lastNetworkOpMs) < 1200) {
+    if (auto* mw = mainWindow()) {
+      mw->statusBar()->showMessage(tr("Please wait a moment and try again."), 2500);
+    }
+    return;
+  }
+
+  m_proxyModel->setListStatusFilter(postLoadFilter);
+
+  const int yi = m_comboYear->currentIndex();
+  const int si = m_comboSeason->currentIndex();
+  if (yi < 0 || si < 0) {
+    taiga::userFeedback(tr("Select a year and season first."), true);
+    return;
+  }
+  const int y = m_comboYear->itemData(yi).toInt();
+  const auto season = static_cast<anime::SeasonName>(m_comboSeason->itemData(si).toInt());
+  if (y <= 0 || season == anime::SeasonName::Unknown) {
+    taiga::userFeedback(tr("Select a valid year and season."), true);
+    return;
+  }
+
+  const bool force_refresh =
+      (QGuiApplication::keyboardModifiers() & Qt::KeyboardModifier::ShiftModifier) != 0;
+  const QString key = taiga::seasonBrowseCacheKey(sync::currentServiceId(), y, season);
+  const QStringList loaded_keys = taiga::session.searchListSeasonBrowseLoadedKeys();
+  if (!taiga::shouldFetchSeasonBrowse(loaded_keys, key, force_refresh)) {
+    reloadAnimeList();
+    if (auto* mw = mainWindow()) {
+      mw->refreshNavigationSidebar();
+      const QString msg =
+          postLoadFilter.notInList
+              ? tr("Showing titles not in your list. Hold Shift and click to refresh the season.")
+              : tr("Season already loaded. Hold Shift and click Load all to refresh.");
+      mw->statusBar()->showMessage(msg, 5000);
+    }
+    return;
+  }
+
+  QPointer<SearchWidget> guard(this);
+  if (auto* mw = mainWindow()) {
+    mw->statusBar()->showMessage(tr("Loading seasonal catalog…"));
+  }
+  m_seasonBrowseInFlight = true;
+  m_lastNetworkOpMs = now_ms;
+  setSeasonBrowseButtonsEnabled(false);
+
+  const bool not_in_list = postLoadFilter.notInList;
+  sync::fetchSeasonBrowse(season, y, [guard, key, not_in_list](const bool ok, const QString& msg) {
+    if (!guard) return;
+    guard->m_seasonBrowseInFlight = false;
+    guard->setSeasonBrowseButtonsEnabled(true);
+    if (auto* mw = mainWindow()) {
+      mw->statusBar()->clearMessage();
+      if (ok) {
+        taiga::session.setSearchListSeasonBrowseLoadedKeys(
+            taiga::seasonBrowseCacheAdd(taiga::session.searchListSeasonBrowseLoadedKeys(), key));
+        guard->reloadAnimeList();
+        mw->refreshNavigationSidebar();
+        if (not_in_list) {
+          mw->statusBar()->showMessage(msg.isEmpty() ? tr("Showing titles not in your list.") : msg,
+                                       6000);
+        } else {
+          mw->statusBar()->showMessage(msg.isEmpty() ? tr("Season loaded.") : msg, 6000);
+        }
+      } else {
+        // Avoid a modal network error popup on rapid repeated actions; status bar is enough.
+        taiga::userFeedback(msg.isEmpty() ? QStringLiteral("Season request failed.") : msg, false);
       }
     }
   });

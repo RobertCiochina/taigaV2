@@ -174,7 +174,10 @@ bool AnimeListProxyModel::filterAcceptsRow(int row, const QModelIndex& parent) c
   }
 
   // List status
-  if (m_filter.listStatus.status) {
+  if (m_filter.listStatus.notInList) {
+    const auto status = entry ? entry->status : anime::list::Status::NotInList;
+    if (status != anime::list::Status::NotInList) return false;
+  } else if (m_filter.listStatus.status) {
     const auto status = entry ? entry->status : anime::list::Status::NotInList;
     if (m_filter.listStatus.anyStatus) {
       if (status == anime::list::Status::NotInList) return false;

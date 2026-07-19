@@ -54,6 +54,15 @@ private slots:
     // All
     proxy.setListStatusFilter({});
     QCOMPARE(proxy.rowCount(), 2);
+
+    // Not in my list
+    proxy.setListStatusFilter({.notInList = true});
+    QCOMPARE(proxy.rowCount(), 1);
+    const auto* kept = proxy.index(0, 0)
+                           .data(static_cast<int>(AnimeListItemDataRole::Anime))
+                           .value<const Anime*>();
+    QVERIFY(kept != nullptr);
+    QCOMPARE(kept->id, 2);
   }
 };
 
@@ -62,4 +71,3 @@ private slots:
 QTEST_MAIN(gui::test::SearchMyListOnlyTest)
 
 #include "test_search_my_list_only.moc"
-

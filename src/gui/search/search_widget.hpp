@@ -25,11 +25,11 @@
 #include "gui/common/anime_list_view_base.hpp"
 #include "gui/common/combobox.hpp"
 #include "gui/common/page_widget.hpp"
+#include "gui/models/anime_list_proxy_model.hpp"
 
 namespace gui {
 
 class AnimeListModel;
-class AnimeListProxyModel;
 class ListView;
 class ListViewCards;
 
@@ -56,6 +56,10 @@ private:
   void applyDefaultSeasonYearIfNeeded();
   void maybeAutoLoadDefaultSeason();
   void syncSeasonYearCombosFromFilters();
+  // Loads the selected year+season catalog from the service (or local DB if already cached) and
+  // applies `postLoadFilter` to what's shown. Shared by "Load all" and "Not in my list".
+  void startSeasonBrowse(const AnimeListStatusFilter& postLoadFilter);
+  void setSeasonBrowseButtonsEnabled(bool enabled);
   void setViewMode(ListViewMode mode);
   void initToolbar();
   void initViewMenu();
@@ -73,6 +77,7 @@ private:
   QMenu* m_sortMenu = nullptr;
   QMenu* m_viewMenu = nullptr;
   QPushButton* m_btnLoadAll = nullptr;
+  QPushButton* m_btnLoadNotInList = nullptr;
   QPushButton* m_btnLoadMyList = nullptr;
   bool m_seasonBrowseInFlight = false;
   qint64 m_lastNetworkOpMs = 0;

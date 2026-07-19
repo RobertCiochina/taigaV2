@@ -24,12 +24,13 @@
 
 #include "media/anime.hpp"
 
-
 namespace gui {
 
 struct AnimeListStatusFilter {
   std::optional<int> status;
   bool anyStatus = false;
+  // When true, keep only titles that are NOT on the user's list (overrides `status`/`anyStatus`).
+  bool notInList = false;
 };
 
 struct AnimeListProxyModelFilter {
