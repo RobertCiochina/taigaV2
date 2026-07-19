@@ -70,8 +70,10 @@ void paintProgressBar(QPainter* painter, const QStyleOption& option, const Anime
   // - Blue: episode(s) available on disk
   // - Grey: aired but not downloaded yet
   const QColor watchedColor = theme.isDark() ? QColor{12, 164, 12, 140} : QColor{12, 164, 12, 220};
-  const QColor availableColor = theme.isDark() ? QColor{80, 160, 255, 180} : QColor{33, 150, 243, 200};
-  const QColor airedColor = theme.isDark() ? QColor{158, 158, 158, 140} : QColor{158, 158, 158, 200};
+  const QColor availableColor =
+      theme.isDark() ? QColor{80, 160, 255, 180} : QColor{33, 150, 243, 200};
+  const QColor airedColor =
+      theme.isDark() ? QColor{158, 158, 158, 140} : QColor{158, 158, 158, 200};
 
   if (taiga::settings.listProgressShowAired() && ratio_aired > 0.f) {
     QRect ar = r;
@@ -91,19 +93,23 @@ void paintProgressBar(QPainter* painter, const QStyleOption& option, const Anime
     const int eps_aired = anime::list::lastAiredEpisodeForProgress(*anime, entry);
     int eps_span = std::max(eps_total, eps_aired);
     if (eps_span < 1) eps_span = 1;
-    const int bar_width = eps_total > 0 ? r.width() : static_cast<int>(std::lround(r.width() * 0.8f));
+    const int bar_width =
+        eps_total > 0 ? r.width() : static_cast<int>(std::lround(r.width() * 0.8f));
     const float ep_width = static_cast<float>(bar_width) / static_cast<float>(eps_span);
-    const int watched_right = r.left() + std::max(0, static_cast<int>(std::lround(r.width() * ratio_watched)));
+    const int watched_right =
+        r.left() + std::max(0, static_cast<int>(std::lround(r.width() * ratio_watched)));
 
     QRect band = r;
     band.setTop(r.bottom() - strip_h + 1);
     for (int i = 1; i <= eps_span; ++i) {
+      // Blue marks "next episode(s) on disk" — i.e. downloaded but not yet watched. Watched
+      // episodes are already shown in green, so skip them (also avoids a lingering blue strip
+      // when the on-disk index is momentarily stale after a delete).
+      if (i <= entry->watched_episodes) continue;
       if (!track::libraryHasLocalEpisode(anime->id, i)) continue;
       int left = r.left() + static_cast<int>(std::floor(ep_width * static_cast<float>(i - 1)));
       int right = left + static_cast<int>(std::ceil(ep_width));
-      if (i == entry->watched_episodes) {
-        right = std::min(r.left() + bar_width, watched_right);
-      }
+      left = std::max(left, watched_right);
       right = std::min(right, r.left() + bar_width);
       if (right <= left) continue;
       painter->fillRect(QRect{left, band.top(), right - left, band.height()}, availableColor);

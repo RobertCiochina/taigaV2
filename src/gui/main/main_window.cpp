@@ -1891,6 +1891,17 @@ void MainWindow::runLibraryScan(const bool startup_silent, const LibraryScanReas
             w->enqueueStatusMessage(msg, false);
             emit w->libraryScanFinished(reasonLabel, msg);
 
+            // Reconcile "delete after watched": remove files for already-watched episodes still on
+            // disk. Skip the startup-pre-sync scan, where list progress may not be loaded yet.
+            if (reasonLabel != QStringLiteral("startup-pre-sync")) {
+              const int auto_deleted = track::deleteAlreadyWatchedEpisodesOnDisk();
+              if (auto_deleted > 0) {
+                track::appendLibraryEpisodeIndexCacheDebugLine(
+                    QStringLiteral("auto-delete: removed %1 watched file(s) still on disk")
+                        .arg(auto_deleted));
+              }
+            }
+
             w->refreshAnimeListProgressDecorations();
             w->refreshAnimeListNewEpisodeHighlight();
             if (w->m_defer_home_refresh_until_startup_scan_) {

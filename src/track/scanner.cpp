@@ -746,4 +746,67 @@ void cleanupEmptyLibraryDirectoriesForAnime(const int anime_id) {
   }
 }
 
+bool deleteWatchedEpisodeFile(const int anime_id, const int episode_number,
+                              const QString& file_path) {
+  if (file_path.trimmed().isEmpty()) return false;
+
+  const bool existed_before = QFileInfo::exists(file_path);
+  const bool removed = existed_before ? QFile::remove(file_path) : true;
+  if (!removed) {
+    // Non-fatal — the file might be in use.
+    qWarning() << "Auto-delete: failed to remove watched file:" << file_path;
+    return false;
+  }
+
+  // Delete companion files (subtitles, metadata, etc.) sharing the same filename stem.
+  // e.g. "EP12.mkv" gone → also delete "EP12.srt", "EP12.en.ass", "EP12.nfo", etc.
+  const QFileInfo file_info(file_path);
+  const QString stem = file_info.completeBaseName();
+  const QDir dir = file_info.absoluteDir();
+  if (!stem.isEmpty() && dir.exists()) {
+    const QString prefix = stem + u'.';
+    for (const QFileInfo& fi : dir.entryInfoList(QDir::Files)) {
+      if (fi.absoluteFilePath() != file_path && fi.fileName().startsWith(prefix)) {
+        QFile::remove(fi.absoluteFilePath());
+      }
+    }
+  }
+
+  // Keep the in-memory availability index consistent without waiting for a rescan.
+  const bool gone = !QFileInfo::exists(file_path);
+  if (anime_id > 0 && gone) {
+    removeLibraryEpisode(anime_id, episode_number);
+  }
+  return gone;
+}
+
+int deleteAlreadyWatchedEpisodesOnDisk() {
+  if (!taiga::settings.recognitionDeleteAfterWatched()) return 0;
+
+  int removed = 0;
+  for (const auto& [anime_id, entry] : anime::db.entries().asKeyValueRange()) {
+    const int watched = entry.watched_episodes;
+    if (anime_id <= 0 || watched < 1) continue;
+
+    bool any_removed = false;
+    for (int ep = 1; ep <= watched; ++ep) {
+      if (!libraryHasLocalEpisode(anime_id, ep)) continue;
+      const auto path = libraryEpisodePath(anime_id, ep);
+      // Without a known file path (e.g. a manual override) we cannot safely delete anything.
+      if (!path.has_value()) continue;
+      const bool existed = QFileInfo::exists(*path);
+      if (deleteWatchedEpisodeFile(anime_id, ep, *path) && existed) {
+        ++removed;
+        any_removed = true;
+      }
+    }
+
+    // Mirror NowPlaying behavior: only prune empty directories for Completed series.
+    if (any_removed && entry.status == anime::list::Status::Completed) {
+      cleanupEmptyLibraryDirectoriesForAnime(anime_id);
+    }
+  }
+  return removed;
+}
+
 }  // namespace track

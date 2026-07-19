@@ -86,6 +86,16 @@ void removeLibraryEpisodePath(int anime_id, int episode_number);
 /// without requiring a full rescan.
 void removeLibraryEpisode(int anime_id, int episode_number);
 
+/// Delete a watched episode's file from disk along with companion files (subtitles, metadata,
+/// etc.) that share the same filename stem. Keeps the in-memory availability index in sync.
+/// Returns true if the primary file no longer exists after the attempt.
+bool deleteWatchedEpisodeFile(int anime_id, int episode_number, const QString& file_path);
+
+/// Reconcile the library with the "delete after watched" setting: delete files for episodes that
+/// are already watched but still present on disk. No-op unless the setting is enabled. Prunes
+/// empty directories for Completed series. Returns the number of primary files removed.
+int deleteAlreadyWatchedEpisodesOnDisk();
+
 /// Register a manually-assigned episode so libraryHasLocalEpisode() returns true for it.
 /// Call after a UI override is applied. Not cleared by scanLibraryFolders.
 void addManualLibraryEpisode(int anime_id, int episode);

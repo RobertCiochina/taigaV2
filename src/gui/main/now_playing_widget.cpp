@@ -114,40 +114,7 @@ void NowPlayingWidget::reset() {
   if (m_update_committed_ && m_episode && !m_episode->filePath().empty() &&
       taiga::settings.recognitionDeleteAfterWatched()) {
     const QString path = QString::fromStdString(m_episode->filePath());
-    const bool existed_before = QFileInfo::exists(path);
-    const bool removed = existed_before ? QFile::remove(path) : true;
-    if (!removed) {
-      // Non-fatal — file might be in use.
-      qWarning() << "Auto-delete: failed to remove watched file:" << path;
-    } else {
-      if (existed_before) {
-        qDebug() << "Auto-delete: removed watched file:" << path;
-      } else {
-        qDebug() << "Auto-delete: watched file already gone:" << path;
-      }
-    }
-
-    // Delete companion files (subtitles, metadata, etc.) with the same filename stem.
-    // e.g. "EP12.mkv" gone → also delete "EP12.srt", "EP12.en.ass", "EP12.nfo", etc.
-    {
-      const QFileInfo fileInfo(path);
-      const QString stem = fileInfo.completeBaseName();
-      const QDir dir = fileInfo.absoluteDir();
-      if (!stem.isEmpty() && dir.exists()) {
-        const QString prefix = stem + u'.';
-        for (const QFileInfo& fi : dir.entryInfoList(QDir::Files)) {
-          if (fi.absoluteFilePath() != path && fi.fileName().startsWith(prefix)) {
-            QFile::remove(fi.absoluteFilePath());
-          }
-        }
-      }
-    }
-
-    // If the file is now gone, keep the in-memory library index consistent without waiting for a
-    // rescan.
-    if (anime_id > 0 && !QFileInfo::exists(path)) {
-      track::removeLibraryEpisode(anime_id, ep_no);
-    }
+    track::deleteWatchedEpisodeFile(anime_id, ep_no, path);
 
     // Folder cleanup is not tied to whether *we* deleted the file: the user may have deleted it
     // manually before marking the series Completed.
