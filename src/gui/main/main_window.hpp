@@ -24,6 +24,7 @@
 #include <QPointer>
 #include <QQueue>
 #include <QSet>
+#include <functional>
 #include <optional>
 #include <vector>
 
@@ -33,6 +34,7 @@ class QLabel;
 class QLineEdit;
 class QAction;
 class QEvent;
+class QFrame;
 class QShowEvent;
 class QTimer;
 class QPushButton;
@@ -132,6 +134,10 @@ public slots:
   /// \p anime_id provides an optional context for manual torrent search enhancements.
   void openTorrentSearchInApp(const QString& title, const QString& fallback = {}, int anime_id = 0);
   void postTrayMessage(const QString& title, const QString& message);
+  /// Persistent top-of-window banner (no auto-timeout). Cleared by Dismiss, Apply, or a newer
+  /// offer.
+  void showSequelCompletionOffer(const QString& text, std::function<void()> onChangeStatus);
+  void clearSequelCompletionOffer();
   void refreshTorrentCatalogAutocheckTimer();
   void resortTorrentRssTableFromSettings();
   /// Kick off the auto-download run (checks all watching anime for new episodes and downloads best
@@ -186,6 +192,7 @@ private:
   void initNowPlaying();
   void initPage(MainWindowPage page);
   void initStatusbar();
+  void initSequelCompletionBanner();
   void initToolbar();
   void initTrayIcon();
   void enqueueStatusMessage(QString message, bool error = false);
@@ -268,6 +275,9 @@ private:
   QTimer* m_announced_related_due_timer_ = nullptr;     // fires when a title's 30-day cache expires
   bool m_announced_related_paused_ = false;
   QTimer* m_status_message_timer_ = nullptr;
+  QFrame* m_sequel_offer_banner_ = nullptr;
+  QLabel* m_sequel_offer_label_ = nullptr;
+  std::function<void()> m_sequel_offer_change_status_;
   QTimer* m_local_backup_timer_ = nullptr;  // debounced auto-write of local MAL XML backup
   QAction* m_autoDownloadAction = nullptr;  // permanent toolbar action (all pages)
   QLabel* m_homeBodyLabel = nullptr;

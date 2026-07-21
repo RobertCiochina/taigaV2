@@ -27,7 +27,6 @@
 #include "media/anime.hpp"
 #include "taiga/list_row_action.hpp"
 
-
 namespace taiga {
 
 /// Legacy `track::TorrentAction` for `rss/torrent/options/newaction`.
@@ -127,6 +126,8 @@ public:
   std::string mediaNotifyBalloonFormatUnrecognized() const;
   /// Extra line appended to unrecognized balloons; can be disabled.
   bool mediaNotifyBalloonUnrecognizedAppendHint() const;
+  /// Top-of-window banner when a title transitions to Completed and has a next AniList Sequel.
+  bool notifySequelsOnCompletion() const;
   /// Legacy: program/general/enablesync — when false, manual/auto list sync is skipped.
   bool listSynchronizationEnabled() const;
   /// Legacy: `account/update/delay` — seconds before pushing the same title after a local change
@@ -282,6 +283,7 @@ public:
   void setMediaNotifyBalloonFormatRecognized(const std::string& format) const;
   void setMediaNotifyBalloonFormatUnrecognized(const std::string& format) const;
   void setMediaNotifyBalloonUnrecognizedAppendHint(bool enabled) const;
+  void setNotifySequelsOnCompletion(bool enabled) const;
   void setListSynchronizationEnabled(bool enabled) const;
   void setSyncListUpdateDelaySeconds(int seconds) const;
   void setSyncListPushAskConfirm(bool enabled) const;

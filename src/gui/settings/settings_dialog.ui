@@ -313,6 +313,16 @@
                </widget>
               </item>
               <item>
+               <widget class="QCheckBox" name="checkNotifySequelsOnCompletion">
+                <property name="text">
+                 <string>Notify at the top of the window when a completed title has a sequel</string>
+                </property>
+                <property name="checked">
+                 <bool>false</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
                <widget class="QLabel" name="labelBalloonFormatHint">
                 <property name="text">
                  <string>Tray message body templates. Use %title%, %romaji%, %english%, %native%, %name%, %episode%, %total%, %score%, %watched%, %user%, %playstatus%, %image%, %animeurl%, %group%, %season%. Type \n or a real newline for line breaks.</string>

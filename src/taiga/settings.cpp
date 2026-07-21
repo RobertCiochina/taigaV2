@@ -259,6 +259,10 @@ bool Settings::mediaNotifyBalloonUnrecognizedAppendHint() const {
   return value("track.notifications.balloonUnrecognizedAppendHint", true).toBool();
 }
 
+bool Settings::notifySequelsOnCompletion() const {
+  return value("notifications.sequelsOnCompletion", false).toBool();
+}
+
 bool Settings::listSynchronizationEnabled() const {
   return value("sync.listUpdates.enabled", true).toBool();
 }
@@ -659,6 +663,10 @@ void Settings::setMediaNotifyBalloonFormatUnrecognized(const std::string& format
 
 void Settings::setMediaNotifyBalloonUnrecognizedAppendHint(const bool enabled) const {
   setValue("track.notifications.balloonUnrecognizedAppendHint", enabled);
+}
+
+void Settings::setNotifySequelsOnCompletion(const bool enabled) const {
+  setValue("notifications.sequelsOnCompletion", enabled);
 }
 
 void Settings::setListSynchronizationEnabled(const bool enabled) const {

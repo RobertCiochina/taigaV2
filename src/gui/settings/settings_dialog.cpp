@@ -316,6 +316,10 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   }
   ui_->checkNotifyMediaRecognized->setChecked(taiga::settings.mediaNotifyRecognizedBalloon());
   ui_->checkNotifyMediaUnrecognized->setChecked(taiga::settings.mediaNotifyUnrecognizedBalloon());
+  ui_->checkNotifySequelsOnCompletion->setChecked(taiga::settings.notifySequelsOnCompletion());
+  ui_->checkNotifySequelsOnCompletion->setToolTip(
+      tr("When you mark a title Completed, show a banner at the top of the window for its next "
+         "AniList sequel so you can change that sequel’s list status. AniList only."));
   ui_->plainBalloonFormatRecognized->setPlainText(
       QString::fromStdString(taiga::settings.mediaNotifyBalloonFormatRecognized()));
   ui_->plainBalloonFormatUnrecognized->setPlainText(
@@ -887,12 +891,10 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   });
   connect(ui_->btnLocalBackupBrowse, &QPushButton::clicked, this, [this]() {
     const QString current = ui_->lineLocalBackupPath->text();
-    const QString def = current.isEmpty()
-                            ? QDir::home().filePath(u"animelist_backup.xml"_s)
-                            : current;
-    const QString path =
-        QFileDialog::getSaveFileName(this, tr("Choose backup file location"), def,
-                                     tr("MAL XML (*.xml);;All files (*)"));
+    const QString def =
+        current.isEmpty() ? QDir::home().filePath(u"animelist_backup.xml"_s) : current;
+    const QString path = QFileDialog::getSaveFileName(this, tr("Choose backup file location"), def,
+                                                      tr("MAL XML (*.xml);;All files (*)"));
     if (!path.isEmpty()) ui_->lineLocalBackupPath->setText(path);
   });
 
@@ -940,6 +942,7 @@ void SettingsDialog::accept() {
       ui_->plainRecognitionIgnored->toPlainText().toStdString());
   taiga::settings.setMediaNotifyRecognizedBalloon(ui_->checkNotifyMediaRecognized->isChecked());
   taiga::settings.setMediaNotifyUnrecognizedBalloon(ui_->checkNotifyMediaUnrecognized->isChecked());
+  taiga::settings.setNotifySequelsOnCompletion(ui_->checkNotifySequelsOnCompletion->isChecked());
   taiga::settings.setMediaNotifyBalloonFormatRecognized(
       ui_->plainBalloonFormatRecognized->toPlainText().toStdString());
   taiga::settings.setMediaNotifyBalloonFormatUnrecognized(
@@ -1482,7 +1485,7 @@ void SettingsDialog::saveDownloadsPage() {
   if (m_dl_autodl_cleanup_unrecognized_) {
     taiga::settings.setTorrentAutoCleanupUnrecognizedDownloads(
         taiga::settings.torrentDownloadCreateSubfolder() &&
-            m_dl_autodl_cleanup_unrecognized_->isChecked());
+        m_dl_autodl_cleanup_unrecognized_->isChecked());
   }
   taiga::settings.setTorrentDownloadUseAnimeFolder(m_dl_use_anime_folder_->isChecked());
   taiga::settings.setTorrentDownloadFallbackOnClientPath(m_dl_fallback_client_->isChecked());
@@ -1659,9 +1662,8 @@ void SettingsDialog::populatePlaceholderPage(const QString& parent, const QStrin
     addParagraph(tr("Opens a separate window that updates as new log lines are written."));
     addButton(tr("View live log…"), [this]() { CacheDiagnosticsDialog::show(this); });
 
-    connect(enabled, &QCheckBox::toggled, this, [](const bool on) {
-      taiga::settings.setCacheDiagnosticsEnabled(on);
-    });
+    connect(enabled, &QCheckBox::toggled, this,
+            [](const bool on) { taiga::settings.setCacheDiagnosticsEnabled(on); });
   } else {
     // Generic fallback.
     auto* lbl = new QLabel(tr("This section is not available in the Qt 6 build yet."), page);

@@ -95,6 +95,8 @@ target_sources(taiga-gui PRIVATE
 	utils/format.hpp
 	utils/list_commit.cpp
 	utils/list_commit.hpp
+	utils/sequel_completion_offer.cpp
+	utils/sequel_completion_offer.hpp
 	utils/image_provider.cpp
 	utils/image_provider.hpp
 	utils/cell_alignment_proxy_model.cpp

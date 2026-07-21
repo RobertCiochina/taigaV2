@@ -15,6 +15,7 @@
 #include <chrono>
 
 #include "gui/main/main_window.hpp"
+#include "gui/utils/sequel_completion_offer.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_list.hpp"
 #include "sync/service.hpp"
@@ -34,6 +35,7 @@ void commitListEntryLocalAndMaybeRemote(const ListEntry& entry, QWidget* context
   if (entry.anime_id > 0 && prev_status != anime::list::Status::Completed &&
       entry.status == anime::list::Status::Completed) {
     track::cleanupEmptyLibraryDirectoriesForAnime(entry.anime_id);
+    maybeOfferNextSequelAfterCompletion(entry.anime_id);
   }
 
   if (!taiga::settings.listSynchronizationEnabled()) return;
@@ -41,15 +43,15 @@ void commitListEntryLocalAndMaybeRemote(const ListEntry& entry, QWidget* context
 
   if (taiga::settings.syncListPushAskConfirm()) {
     QWidget* parent = context_widget ? context_widget : static_cast<QWidget*>(mainWindow());
-    const auto answer =
-        QMessageBox::question(parent, QApplication::translate("ListCommit", "Upload list change?"),
-                              QApplication::translate(
-                                  "ListCommit",
-                                  "Send this update to %1 now?\n\n"
-                                  "(Turn off “Ask before uploading list changes” in Settings → Anime list if "
-                                  "you prefer silent sync.)")
-                                  .arg(sync::serviceName(sync::currentServiceId())),
-                              QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+    const auto answer = QMessageBox::question(
+        parent, QApplication::translate("ListCommit", "Upload list change?"),
+        QApplication::translate(
+            "ListCommit",
+            "Send this update to %1 now?\n\n"
+            "(Turn off “Ask before uploading list changes” in Settings → Anime list if "
+            "you prefer silent sync.)")
+            .arg(sync::serviceName(sync::currentServiceId())),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
     if (answer != QMessageBox::Yes) return;
   }
 
@@ -71,10 +73,9 @@ bool maybePromptCompletion(QWidget* parent, const Anime& item, ListEntry& entry)
   // Set completion date to today if not already set
   if (entry.date_completed.empty()) {
     const QDate today = QDate::currentDate();
-    entry.date_completed = FuzzyDate{
-        std::chrono::year{today.year()},
-        std::chrono::month{static_cast<unsigned>(today.month())},
-        std::chrono::day{static_cast<unsigned>(today.day())}};
+    entry.date_completed = FuzzyDate{std::chrono::year{today.year()},
+                                     std::chrono::month{static_cast<unsigned>(today.month())},
+                                     std::chrono::day{static_cast<unsigned>(today.day())}};
   }
 
   entry.last_updated = static_cast<std::time_t>(QDateTime::currentSecsSinceEpoch());

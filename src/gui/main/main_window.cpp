@@ -392,6 +392,7 @@ void MainWindow::initUi(const bool startup_blocking) {
   initStatusbar();
   initNowPlaying();
   initNoStartupSyncBanner();
+  initSequelCompletionBanner();
   restoreViewChromeFromSession();
   updateTitle();
   updateToolbarSearchPlaceholder();
@@ -1077,6 +1078,77 @@ void MainWindow::initPage(MainWindowPage page) {
 
 void MainWindow::initStatusbar() {
   ui_->statusbar->setContentsMargins(0, 8, 0, 0);
+}
+
+void MainWindow::initSequelCompletionBanner() {
+  if (m_sequel_offer_banner_) return;
+  auto* vl = qobject_cast<QVBoxLayout*>(ui_->centralWidget->layout());
+  if (!vl) return;
+
+  auto* frame = new QFrame(ui_->centralWidget);
+  m_sequel_offer_banner_ = frame;
+  frame->setObjectName(QStringLiteral("sequelCompletionBanner"));
+  frame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
+  frame->setVisible(false);
+  frame->setStyleSheet(QStringLiteral(
+      "QFrame#sequelCompletionBanner{border-bottom:1px solid palette(mid); padding:10px 14px; "
+      "background: palette(toolTipBase); color: palette(toolTipText);}"));
+
+  auto* hl = new QHBoxLayout(frame);
+  hl->setContentsMargins(12, 10, 12, 10);
+  hl->setSpacing(12);
+
+  m_sequel_offer_label_ = new QLabel(frame);
+  m_sequel_offer_label_->setTextFormat(Qt::RichText);
+  m_sequel_offer_label_->setWordWrap(true);
+  m_sequel_offer_label_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
+  {
+    QFont f = m_sequel_offer_label_->font();
+    if (f.pointSizeF() > 0) {
+      f.setPointSizeF(f.pointSizeF() + 1.0);
+    } else if (f.pixelSize() > 0) {
+      f.setPixelSize(f.pixelSize() + 2);
+    }
+    m_sequel_offer_label_->setFont(f);
+  }
+  hl->addWidget(m_sequel_offer_label_, 1);
+
+  auto* changeBtn = new QPushButton(tr("Change status…"), frame);
+  changeBtn->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+  connect(changeBtn, &QPushButton::clicked, this, [this]() {
+    if (m_sequel_offer_change_status_) m_sequel_offer_change_status_();
+  });
+  hl->addWidget(changeBtn, 0, Qt::AlignVCenter);
+
+  auto* dismissBtn = new QPushButton(tr("Dismiss"), frame);
+  dismissBtn->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
+  connect(dismissBtn, &QPushButton::clicked, this, &MainWindow::clearSequelCompletionOffer);
+  hl->addWidget(dismissBtn, 0, Qt::AlignVCenter);
+
+  // Keep this offer above other top banners (e.g. no-startup-sync notice).
+  vl->insertWidget(0, frame);
+  if (const int splitterIdx = vl->indexOf(ui_->splitter); splitterIdx >= 0) {
+    vl->setStretch(splitterIdx, 1);
+  }
+  for (int i = 0; i < vl->count(); ++i) {
+    if (QWidget* w = vl->itemAt(i)->widget(); w && w != ui_->splitter) {
+      vl->setStretch(i, 0);
+    }
+  }
+}
+
+void MainWindow::showSequelCompletionOffer(const QString& text,
+                                           std::function<void()> onChangeStatus) {
+  if (!m_sequel_offer_banner_ || !m_sequel_offer_label_) return;
+  m_sequel_offer_change_status_ = std::move(onChangeStatus);
+  m_sequel_offer_label_->setText(text);
+  m_sequel_offer_banner_->setVisible(true);
+}
+
+void MainWindow::clearSequelCompletionOffer() {
+  m_sequel_offer_change_status_ = {};
+  if (m_sequel_offer_label_) m_sequel_offer_label_->clear();
+  if (m_sequel_offer_banner_) m_sequel_offer_banner_->setVisible(false);
 }
 
 void MainWindow::initToolbar() {
