@@ -123,12 +123,14 @@ private:
   BgRssOp m_bg_rss_op_ = BgRssOp::None;
   QString m_bg_best_match_key_;
   QVector<BestMatchWaiter> m_bg_best_match_waiters_;
-  QNetworkReply* m_qbit_login_reply_ = nullptr;
 
   /// qBittorrent Web API: send a magnet/torrent URL with a target save path.
   /// Authenticates first if username/password are set, then POSTs to /api/v2/torrents/add.
+  /// When `interactive` is false (auto-download / silent), never show blocking credential or
+  /// guidance dialogs — fail via `on_done` so callers can continue without hanging startup.
   void addTorrentViaQBitApi(const QString& torrent_url, const QString& save_path,
-                            std::function<void(bool ok, QString error)> on_done);
+                            std::function<void(bool ok, QString error)> on_done,
+                            bool interactive = true);
 
   QLineEdit* m_query_edit_ = nullptr;
   QLineEdit* m_filter_edit_ = nullptr;

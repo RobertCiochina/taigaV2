@@ -2411,6 +2411,7 @@ void MainWindow::runAutoDownload(const bool silent) {
     msg += u"\n%1 anime total.\n\nProceed?"_s.arg(candidates.size());
     if (QMessageBox::question(this, tr("Auto-download"), msg, QMessageBox::Yes | QMessageBox::No) !=
         QMessageBox::Yes) {
+      emit autoDownloadFinished(0, 0);
       return;
     }
   }

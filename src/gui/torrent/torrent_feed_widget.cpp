@@ -44,6 +44,7 @@
 #include <QUrl>
 #include <QVBoxLayout>
 #include <algorithm>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -1263,23 +1264,60 @@ TorrentFeedWidget::TorrentFeedWidget(QLineEdit* toolbar_query_edit, QWidget* par
 }
 
 void TorrentFeedWidget::addTorrentViaQBitApi(const QString& torrent_url, const QString& save_path,
-                                             std::function<void(bool ok, QString error)> on_done) {
+                                             std::function<void(bool ok, QString error)> on_done,
+                                             const bool interactive) {
   const QString base_url =
       QString::fromStdString(taiga::settings.torrentQBitApiUrl()).trimmed().trimmed();
 
-  const auto showFinalGuidance = [&](const QString& err) {
-    QMessageBox::warning(
-        this, tr("Taiga"),
-        tr("qBittorrent Web API request failed.\n\n"
-           "Error: %1\n\n"
-           "In qBittorrent: Tools → Preferences → Web UI → enable the Web UI.\n"
-           "Then, under Authentication, check “Bypass authentication for clients on localhost”.")
-            .arg(err.toHtmlEscaped()));
-  };
+  // Keep attempt/retry alive across async network replies (no stack `[&]` captures).
+  // Use weak_ptr in the body so the shared_ptr does not form a retain cycle with itself.
+  using AttemptFn = std::function<void(const QString& user, const QString& pass, bool allow_retry)>;
+  const auto attempt = std::make_shared<AttemptFn>();
+  const std::weak_ptr<AttemptFn> attempt_weak = attempt;
 
-  std::function<void(const QString& user, const QString& pass, bool allow_retry)> attemptWithCreds;
-  attemptWithCreds = [&](const QString& user, const QString& pass, const bool allow_retry) {
-    const auto do_add = [=](const QString& cookie) {
+  *attempt = [this, torrent_url, save_path, base_url, on_done, interactive, attempt_weak](
+                 const QString& user, const QString& pass, const bool allow_retry) {
+    // Strong ref for the duration of this attempt's in-flight network work.
+    const auto keep_alive = attempt_weak.lock();
+    if (!keep_alive) {
+      if (on_done) on_done(false, tr("qBittorrent request was cancelled."));
+      return;
+    }
+
+    const auto fail = [this, on_done, interactive](const QString& err, const bool offer_guidance) {
+      if (interactive && offer_guidance) {
+        QMessageBox::warning(
+            this, tr("Taiga"),
+            tr("qBittorrent Web API request failed.\n\n"
+               "Error: %1\n\n"
+               "In qBittorrent: Tools → Preferences → Web UI → enable the Web UI.\n"
+               "Then, under Authentication, check “Bypass authentication for clients on "
+               "localhost”.")
+                .arg(err.toHtmlEscaped()));
+      }
+      if (on_done) on_done(false, err);
+    };
+
+    const auto maybeRetry = [this, attempt_weak, allow_retry, interactive,
+                             fail](const QString& err) -> bool {
+      // Interactive only: one credential prompt, then a single non-retrying attempt.
+      if (!interactive || !allow_retry) return false;
+      if (const auto creds = promptQBitCredentials(this, err)) {
+        taiga::settings.setTorrentQBitApiUsername(creds->username.toStdString());
+        taiga::settings.setTorrentQBitApiPassword(creds->password.toStdString());
+        if (const auto locked = attempt_weak.lock()) {
+          (*locked)(creds->username.trimmed(), creds->password, false);
+        } else {
+          fail(err, true);
+        }
+        return true;
+      }
+      fail(err, true);
+      return true;  // handled (failed after cancel)
+    };
+
+    const auto do_add = [this, torrent_url, save_path, base_url, on_done, maybeRetry, fail,
+                         keep_alive](const QString& cookie) {
       QNetworkRequest req(QUrl(base_url + QStringLiteral("/api/v2/torrents/add")));
       req.setHeader(QNetworkRequest::ContentTypeHeader,
                     QStringLiteral("application/x-www-form-urlencoded"));
@@ -1293,19 +1331,12 @@ void TorrentFeedWidget::addTorrentViaQBitApi(const QString& torrent_url, const Q
 
       auto* reply = taiga::network()->post(req, body);
       connect(reply, &QNetworkReply::finished, this, [=]() mutable {
+        (void)keep_alive;
         reply->deleteLater();
         if (reply->error() != QNetworkReply::NoError) {
           const QString err = reply->errorString();
-          if (allow_retry) {
-            if (const auto creds = promptQBitCredentials(this, err)) {
-              taiga::settings.setTorrentQBitApiUsername(creds->username.toStdString());
-              taiga::settings.setTorrentQBitApiPassword(creds->password.toStdString());
-              attemptWithCreds(creds->username.trimmed(), creds->password, false);
-              return;
-            }
-          }
-          if (allow_retry) showFinalGuidance(err);
-          if (on_done) on_done(false, err);
+          if (maybeRetry(err)) return;
+          fail(err, false);
           return;
         }
 
@@ -1327,16 +1358,8 @@ void TorrentFeedWidget::addTorrentViaQBitApi(const QString& torrent_url, const Q
                         resp.startsWith(QStringLiteral("Ok"), Qt::CaseInsensitive);
         if (!ok) {
           const QString err = resp.isEmpty() ? tr("Unexpected response from qBittorrent.") : resp;
-          if (allow_retry) {
-            if (const auto creds = promptQBitCredentials(this, err)) {
-              taiga::settings.setTorrentQBitApiUsername(creds->username.toStdString());
-              taiga::settings.setTorrentQBitApiPassword(creds->password.toStdString());
-              attemptWithCreds(creds->username.trimmed(), creds->password, false);
-              return;
-            }
-            showFinalGuidance(err);
-          }
-          if (on_done) on_done(false, err);
+          if (maybeRetry(err)) return;
+          fail(err, false);
           return;
         }
 
@@ -1356,34 +1379,20 @@ void TorrentFeedWidget::addTorrentViaQBitApi(const QString& torrent_url, const Q
     const QByteArray login_body = QByteArrayLiteral("username=") + user.toUtf8() +
                                   QByteArrayLiteral("&password=") + pass.toUtf8();
 
-    m_qbit_login_reply_ = taiga::network()->post(login_req, login_body);
-    connect(m_qbit_login_reply_, &QNetworkReply::finished, this, [=]() mutable {
-      auto* r = m_qbit_login_reply_;
-      m_qbit_login_reply_ = nullptr;
-      if (!r) {
-        const QString err = tr("qBittorrent login request was cancelled.");
-        if (allow_retry) showFinalGuidance(err);
-        if (on_done) on_done(false, err);
-        return;
-      }
-      r->deleteLater();
-      if (r->error() != QNetworkReply::NoError) {
-        const QString err = r->errorString();
-        if (allow_retry) {
-          if (const auto creds = promptQBitCredentials(this, err)) {
-            taiga::settings.setTorrentQBitApiUsername(creds->username.toStdString());
-            taiga::settings.setTorrentQBitApiPassword(creds->password.toStdString());
-            attemptWithCreds(creds->username.trimmed(), creds->password, false);
-            return;
-          }
-          showFinalGuidance(err);
-        }
-        if (on_done) on_done(false, err);
+    // Local reply pointer — parallel adds must not share a single member slot.
+    auto* login_reply = taiga::network()->post(login_req, login_body);
+    connect(login_reply, &QNetworkReply::finished, this, [=]() mutable {
+      (void)keep_alive;
+      login_reply->deleteLater();
+      if (login_reply->error() != QNetworkReply::NoError) {
+        const QString err = login_reply->errorString();
+        if (maybeRetry(err)) return;
+        fail(err, false);
         return;
       }
 
       QString cookie_str;
-      const QVariant cv = r->header(QNetworkRequest::SetCookieHeader);
+      const QVariant cv = login_reply->header(QNetworkRequest::SetCookieHeader);
       if (cv.isValid()) {
         for (const QNetworkCookie& c : cv.value<QList<QNetworkCookie>>()) {
           if (!cookie_str.isEmpty()) cookie_str += QStringLiteral("; ");
@@ -1398,7 +1407,8 @@ void TorrentFeedWidget::addTorrentViaQBitApi(const QString& torrent_url, const Q
   const QString username =
       QString::fromStdString(taiga::settings.torrentQBitApiUsername()).trimmed();
   const QString password = QString::fromStdString(taiga::settings.torrentQBitApiPassword());
-  attemptWithCreds(username, password, true);
+  // Interactive: allow one credential retry. Silent/auto: never prompt; just attempt once.
+  (*attempt)(username, password, interactive);
 }
 
 void TorrentFeedWidget::saveSessionState() {
@@ -1612,136 +1622,148 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
     m_bg_rss_op_ = BgRssOp::BatchEpisodes;
     m_bg_fetch_reply_ = taiga::network()->get(req);
 
-    connect(
-        m_bg_fetch_reply_, &QNetworkReply::finished, this,
-        [this, title, folder_name, on_done, try_fn, anime_id]() {
-          auto* reply = m_bg_fetch_reply_;
-          m_bg_fetch_reply_ = nullptr;
-          m_bg_rss_op_ = BgRssOp::None;
-          if (!reply) {
-            if (on_done) on_done(0);
-            return;
-          }
-          reply->deleteLater();
-          if (reply->error() != QNetworkReply::NoError) {
-            (*try_fn)();
-            return;
-          }
+    connect(m_bg_fetch_reply_, &QNetworkReply::finished, this,
+            [this, title, folder_name, on_done, try_fn, anime_id]() {
+              auto* reply = m_bg_fetch_reply_;
+              m_bg_fetch_reply_ = nullptr;
+              m_bg_rss_op_ = BgRssOp::None;
+              if (!reply) {
+                if (on_done) on_done(0);
+                return;
+              }
+              reply->deleteLater();
+              if (reply->error() != QNetworkReply::NoError) {
+                (*try_fn)();
+                return;
+              }
 
-          const rss::Feed feed = gui::parseSyndicationFeed(reply->readAll()).value_or(rss::Feed{});
-          const QList<const rss::Item*> filtered = filterRssItemsBySettings(feed, anime_id);
-          if (filtered.isEmpty()) {
-            (*try_fn)();
-            return;
-          }
+              const rss::Feed feed =
+                  gui::parseSyndicationFeed(reply->readAll()).value_or(rss::Feed{});
+              const QList<const rss::Item*> filtered = filterRssItemsBySettings(feed, anime_id);
+              if (filtered.isEmpty()) {
+                (*try_fn)();
+                return;
+              }
 
-          // Determine which episodes are missing.
-          const auto* item_db = anime::db.item(anime_id);
-          const auto* entry_db = anime::db.entry(anime_id);
-          QList<int> missing;
-          if (item_db && entry_db) {
-            // Use episode_count as fallback when last_aired_episode is not populated.
-            const int last_aired = item_db->last_aired_episode > 0 ? item_db->last_aired_episode
-                                                                   : item_db->episode_count;
-            const int watched = entry_db->watched_episodes;
-            for (int ep = watched + 1; ep <= last_aired; ++ep) {
-              if (!track::libraryHasLocalEpisode(anime_id, ep)) missing.append(ep);
-            }
-          }
-          if (missing.isEmpty()) {
-            if (on_done) on_done(0);
-            return;
-          }
+              // Determine which episodes are missing.
+              const auto* item_db = anime::db.item(anime_id);
+              const auto* entry_db = anime::db.entry(anime_id);
+              QList<int> missing;
+              if (item_db && entry_db) {
+                // Use episode_count as fallback when last_aired_episode is not populated.
+                const int last_aired = item_db->last_aired_episode > 0 ? item_db->last_aired_episode
+                                                                       : item_db->episode_count;
+                const int watched = entry_db->watched_episodes;
+                for (int ep = watched + 1; ep <= last_aired; ++ep) {
+                  if (!track::libraryHasLocalEpisode(anime_id, ep)) missing.append(ep);
+                }
+              }
+              if (missing.isEmpty()) {
+                if (on_done) on_done(0);
+                return;
+              }
 
-          // Build best-per-episode map from filtered feed.
-          const QMap<int, const rss::Item*> best_ep = selectBestPerEpisode(filtered);
+              // Build best-per-episode map from filtered feed.
+              const QMap<int, const rss::Item*> best_ep = selectBestPerEpisode(filtered);
 
-          const int effective_last =
-              item_db ? (item_db->last_aired_episode > 0 ? item_db->last_aired_episode
-                                                         : item_db->episode_count)
-                      : 0;
+              const int effective_last =
+                  item_db ? (item_db->last_aired_episode > 0 ? item_db->last_aired_episode
+                                                             : item_db->episode_count)
+                          : 0;
 
-          // Cache only after we actually queue a download (below).
+              // Cache only after we actually queue a download (below).
 
-          const auto enqueue_batch = [&](const rss::Item* batch) -> bool {
-            if (!batch) return false;
-            const QString batch_url = bestUrlForItem(batch);
-            if (batch_url.isEmpty()) return false;
-            if (anime_id > 0) taiga::settings.setTorrentSearchTitleForAnime(anime_id, title);
-            const QString save_path = resolvedTorrentDownloadDirForSavedTorrent(folder_name);
-            if (taiga::settings.torrentQBitApiEnabled()) {
-              addTorrentViaQBitApi(batch_url, save_path, [on_done](bool ok, const QString& err) {
-                if (!err.isEmpty()) taiga::userFeedback(QStringLiteral("qBit: ") + err, true);
-                if (on_done) on_done(ok ? 1 : 0);
-              });
-            } else {
-              if (const auto u = httpUrlFromUserString(batch_url)) {
-                enqueueSaveTorrent(*u, folder_name);
+              const auto enqueue_batch = [&](const rss::Item* batch) -> bool {
+                if (!batch) return false;
+                const QString batch_url = bestUrlForItem(batch);
+                if (batch_url.isEmpty()) return false;
+                if (anime_id > 0) taiga::settings.setTorrentSearchTitleForAnime(anime_id, title);
+                const QString save_path = resolvedTorrentDownloadDirForSavedTorrent(folder_name);
+                if (taiga::settings.torrentQBitApiEnabled()) {
+                  addTorrentViaQBitApi(
+                      batch_url, save_path,
+                      [on_done](bool ok, const QString& err) {
+                        if (!err.isEmpty())
+                          taiga::userFeedback(QStringLiteral("qBittorrent Web API error: ") + err,
+                                              true);
+                        if (on_done) on_done(ok ? 1 : 0);
+                      },
+                      /*interactive=*/false);
+                } else {
+                  if (const auto u = httpUrlFromUserString(batch_url)) {
+                    enqueueSaveTorrent(*u, folder_name);
+                    startNextQueuedSave();
+                  } else {
+                    openPrimaryTorrentUrl(batch_url);
+                  }
+                  if (on_done) on_done(1);
+                }
+                return true;
+              };
+
+              // ── Batch preference: cour/series complete in DB, several eps missing ─
+              if (item_db && item_db->episode_count > 0 &&
+                  effective_last >= item_db->episode_count && missing.size() >= 3) {
+                if (enqueue_batch(best_ep.value(-1, nullptr))) return;
+              }
+
+              // ── Individual episode downloads ──────────────────────────────────
+              struct DownloadItem {
+                int ep;
+                QString url;
+              };
+              QList<DownloadItem> targets;
+              for (const int ep : missing) {
+                if (const auto* best = best_ep.value(ep, nullptr)) {
+                  const QString ep_url = bestUrlForItem(best);
+                  if (!ep_url.isEmpty()) targets.append({ep, ep_url});
+                }
+              }
+              if (targets.isEmpty()) {
+                // Season packs often have no per-episode rows; try a batch before the next query
+                // variant (e.g. romaji) or giving up.
+                if (enqueue_batch(best_ep.value(-1, nullptr))) return;
+                (*try_fn)();
+                return;
+              }
+
+              if (anime_id > 0) taiga::settings.setTorrentSearchTitleForAnime(anime_id, title);
+
+              if (taiga::settings.torrentQBitApiEnabled()) {
+                const QString save_path = resolvedTorrentDownloadDirForSavedTorrent(folder_name);
+                const int total = targets.size();
+                const auto downloaded = std::make_shared<int>(0);
+                const auto done_count = std::make_shared<int>(0);
+                const auto reported_err = std::make_shared<bool>(false);
+                for (const auto& t : targets) {
+                  addTorrentViaQBitApi(
+                      t.url, save_path,
+                      [downloaded, done_count, total, on_done, reported_err](bool ok,
+                                                                             const QString& err) {
+                        if (!err.isEmpty() && !*reported_err) {
+                          *reported_err = true;
+                          taiga::userFeedback(QStringLiteral("qBittorrent Web API error: ") + err,
+                                              true);
+                        }
+                        if (ok) ++(*downloaded);
+                        if (++(*done_count) >= total) {
+                          if (on_done) on_done(*downloaded);
+                        }
+                      },
+                      /*interactive=*/false);
+                }
+              } else {
+                for (const auto& t : targets) {
+                  if (const auto u = httpUrlFromUserString(t.url)) {
+                    enqueueSaveTorrent(*u, folder_name);
+                  } else {
+                    openPrimaryTorrentUrl(t.url);
+                  }
+                }
                 startNextQueuedSave();
-              } else {
-                openPrimaryTorrentUrl(batch_url);
+                if (on_done) on_done(static_cast<int>(targets.size()));
               }
-              if (on_done) on_done(1);
-            }
-            return true;
-          };
-
-          // ── Batch preference: cour/series complete in DB, several eps missing ─
-          if (item_db && item_db->episode_count > 0 && effective_last >= item_db->episode_count &&
-              missing.size() >= 3) {
-            if (enqueue_batch(best_ep.value(-1, nullptr))) return;
-          }
-
-          // ── Individual episode downloads ──────────────────────────────────
-          struct DownloadItem {
-            int ep;
-            QString url;
-          };
-          QList<DownloadItem> targets;
-          for (const int ep : missing) {
-            if (const auto* best = best_ep.value(ep, nullptr)) {
-              const QString ep_url = bestUrlForItem(best);
-              if (!ep_url.isEmpty()) targets.append({ep, ep_url});
-            }
-          }
-          if (targets.isEmpty()) {
-            // Season packs often have no per-episode rows; try a batch before the next query
-            // variant (e.g. romaji) or giving up.
-            if (enqueue_batch(best_ep.value(-1, nullptr))) return;
-            (*try_fn)();
-            return;
-          }
-
-          if (anime_id > 0) taiga::settings.setTorrentSearchTitleForAnime(anime_id, title);
-
-          if (taiga::settings.torrentQBitApiEnabled()) {
-            const QString save_path = resolvedTorrentDownloadDirForSavedTorrent(folder_name);
-            const int total = targets.size();
-            const auto downloaded = std::make_shared<int>(0);
-            const auto done_count = std::make_shared<int>(0);
-            for (const auto& t : targets) {
-              addTorrentViaQBitApi(
-                  t.url, save_path,
-                  [downloaded, done_count, total, on_done](bool ok, const QString& err) {
-                    if (!err.isEmpty()) taiga::userFeedback(QStringLiteral("qBit: ") + err, true);
-                    if (ok) ++(*downloaded);
-                    if (++(*done_count) >= total) {
-                      if (on_done) on_done(*downloaded);
-                    }
-                  });
-            }
-          } else {
-            for (const auto& t : targets) {
-              if (const auto u = httpUrlFromUserString(t.url)) {
-                enqueueSaveTorrent(*u, folder_name);
-              } else {
-                openPrimaryTorrentUrl(t.url);
-              }
-            }
-            startNextQueuedSave();
-            if (on_done) on_done(static_cast<int>(targets.size()));
-          }
-        });
+            });
   };
   (*try_fn)();
 }
@@ -1870,7 +1892,12 @@ void TorrentFeedWidget::deliverBestMatchFromFiltered(const QList<const rss::Item
       folder_name.isEmpty() ? QString::fromStdString(best->title) : folder_name;
 
   if (taiga::settings.torrentQBitApiEnabled()) {
-    if (!ensureClientDownloadBaseDir(this).has_value()) {
+    // Auto/background best-match: never block on a folder-picker dialog.
+    const QString base =
+        QString::fromStdString(taiga::settings.torrentClientDownloadPath()).trimmed();
+    if (base.isEmpty() || !QDir(base).exists()) {
+      taiga::userFeedback(
+          tr("qBittorrent Web API: torrent client download folder is missing or invalid."), true);
       if (on_done) on_done(false);
       return;
     }
@@ -1889,11 +1916,14 @@ void TorrentFeedWidget::deliverBestMatchFromFiltered(const QList<const rss::Item
     }
 
     const QString save_path = resolvedTorrentDownloadDirForSavedTorrent(effective_folder);
-    addTorrentViaQBitApi(api_url, save_path, [on_done](bool ok, const QString& err) {
-      if (!err.isEmpty())
-        taiga::userFeedback(QStringLiteral("qBittorrent Web API error: ") + err, true);
-      if (on_done) on_done(ok);
-    });
+    addTorrentViaQBitApi(
+        api_url, save_path,
+        [on_done](bool ok, const QString& err) {
+          if (!err.isEmpty())
+            taiga::userFeedback(QStringLiteral("qBittorrent Web API error: ") + err, true);
+          if (on_done) on_done(ok);
+        },
+        /*interactive=*/false);
     return;
   }
 
