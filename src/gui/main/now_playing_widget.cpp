@@ -116,14 +116,8 @@ void NowPlayingWidget::reset() {
     const QString path = QString::fromStdString(m_episode->filePath());
     track::deleteWatchedEpisodeFile(anime_id, ep_no, path);
 
-    // Folder cleanup is not tied to whether *we* deleted the file: the user may have deleted it
-    // manually before marking the series Completed.
-    if (anime_id > 0) {
-      const auto* entry = anime::db.entry(anime_id);
-      if (entry && entry->status == anime::list::Status::Completed) {
-        track::cleanupEmptyLibraryDirectoriesFromPath(path);
-      }
-    }
+    // Title subfolders are recreated on download; always prune empty parents after delete.
+    track::cleanupEmptyLibraryDirectoriesFromPath(path);
   }
 
   m_countdown_remaining_ = 0;

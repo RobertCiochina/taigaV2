@@ -31,6 +31,7 @@
 #include <QSaveFile>
 #include <QSet>
 #include <QStringList>
+#include <algorithm>
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
@@ -226,11 +227,13 @@ QStringList configuredLibraryRootsClean() {
 }
 
 bool isUnderRootPath(const QString& dir, const QString& root) {
-  const QString d = QDir::cleanPath(dir);
-  const QString r = QDir::cleanPath(root);
+  // Normalize separators for stable prefix checks. QDir::cleanPath can yield forward slashes
+  // even on Windows; mixing it with QDir::separator() (backslash) breaks startsWith().
+  const QString d = QDir::fromNativeSeparators(QDir::cleanPath(dir));
+  const QString r = QDir::fromNativeSeparators(QDir::cleanPath(root));
   if (d.isEmpty() || r.isEmpty()) return false;
   if (d.compare(r, Qt::CaseInsensitive) == 0) return true;
-  return d.startsWith(r + QDir::separator(), Qt::CaseInsensitive);
+  return d.startsWith(r + QLatin1Char('/'), Qt::CaseInsensitive);
 }
 
 bool isIgnorableLibraryJunkEntry(const QString& name) {
@@ -247,6 +250,30 @@ bool isIgnorableLibraryJunkEntry(const QString& name) {
   return false;
 }
 
+bool dirIsEmptyOrJunkOnly(const QString& dir_path, QFileInfoList* junk_out = nullptr) {
+  QDir d(dir_path);
+  if (!d.exists()) return false;
+  const QFileInfoList entries =
+      d.entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden, QDir::Name);
+  if (junk_out) junk_out->clear();
+  for (const QFileInfo& fi : entries) {
+    // Only ignore known junk files; never ignore subdirectories.
+    if (fi.isDir()) return false;
+    if (!isIgnorableLibraryJunkEntry(fi.fileName())) return false;
+    if (junk_out) junk_out->push_back(fi);
+  }
+  return true;
+}
+
+bool removeEmptyOrJunkDir(const QString& dir_path) {
+  QFileInfoList junk;
+  if (!dirIsEmptyOrJunkOnly(dir_path, &junk)) return false;
+  for (const QFileInfo& fi : junk) {
+    QFile::remove(fi.absoluteFilePath());
+  }
+  return QDir().rmdir(dir_path);
+}
+
 void removeEmptyDirsUpToRoot(QString start_dir, const QString& root) {
   QString cur = QDir::cleanPath(start_dir);
   const QString root_clean = QDir::cleanPath(root);
@@ -255,26 +282,10 @@ void removeEmptyDirsUpToRoot(QString start_dir, const QString& root) {
 
   // Never delete the root itself.
   while (!cur.isEmpty() && cur.compare(root_clean, Qt::CaseInsensitive) != 0) {
-    QDir d(cur);
-    const QFileInfoList entries =
-        d.entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot, QDir::Name);
-    bool has_non_junk = false;
-    for (const QFileInfo& fi : entries) {
-      const QString name = fi.fileName();
-      // Only ignore known junk files; never ignore subdirectories.
-      if (fi.isDir()) {
-        has_non_junk = true;
-        break;
-      }
-      if (!isIgnorableLibraryJunkEntry(name)) {
-        has_non_junk = true;
-        break;
-      }
-    }
-    if (has_non_junk) break;
+    if (!dirIsEmptyOrJunkOnly(cur)) break;
 
     const QString parent = QFileInfo(cur).absoluteDir().absolutePath();
-    if (!QDir().rmdir(cur)) break;
+    if (!removeEmptyOrJunkDir(cur)) break;
     cur = parent;
   }
 }
@@ -801,9 +812,37 @@ int deleteAlreadyWatchedEpisodesOnDisk() {
       }
     }
 
-    // Mirror NowPlaying behavior: only prune empty directories for Completed series.
-    if (any_removed && entry.status == anime::list::Status::Completed) {
+    // Title subfolders are recreated on download; prune empty shells after deletes.
+    if (any_removed) {
       cleanupEmptyLibraryDirectoriesForAnime(anime_id);
+    }
+  }
+  return removed;
+}
+
+int pruneEmptyLibraryFolders() {
+  int removed = 0;
+  const QStringList roots = configuredLibraryRootsClean();
+  for (const QString& root : roots) {
+    if (root.isEmpty() || !QDir(root).exists()) continue;
+
+    QStringList dirs;
+    QDirIterator it(root, QDir::Dirs | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+      dirs.push_back(QDir::cleanPath(it.next()));
+    }
+    // Deepest paths first so nested empties clear before their parents are considered.
+    std::sort(dirs.begin(), dirs.end(),
+              [](const QString& a, const QString& b) { return a.size() > b.size(); });
+
+    for (const QString& dir : dirs) {
+      if (!isUnderRootPath(dir, root) || dir.compare(root, Qt::CaseInsensitive) == 0) continue;
+      if (!dirIsEmptyOrJunkOnly(dir)) continue;
+
+      if (removeEmptyOrJunkDir(dir)) {
+        ++removed;
+        logCacheEvent(QStringLiteral("folder-prune: removed empty dir '%1'").arg(dir));
+      }
     }
   }
   return removed;

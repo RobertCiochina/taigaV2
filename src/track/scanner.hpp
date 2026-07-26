@@ -129,4 +129,10 @@ void cleanupEmptyLibraryDirectoriesFromPath(const QString& dir_or_file_path);
 /// Safe: only deletes directories that are empty at the time of deletion.
 void cleanupEmptyLibraryDirectoriesForAnime(int anime_id);
 
+/// Reconcile orphan empty library folders under configured roots.
+/// Walks bottom-up; removes directories that are empty (or only OS junk). Status/recognition are
+/// not required — download flows recreate title subfolders when needed. Returns directories
+/// removed.
+int pruneEmptyLibraryFolders();
+
 }  // namespace track

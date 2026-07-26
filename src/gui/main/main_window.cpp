@@ -2034,6 +2034,11 @@ void MainWindow::runLibraryScan(const bool startup_silent, const LibraryScanReas
                     QStringLiteral("auto-delete: removed %1 watched file(s) still on disk")
                         .arg(auto_deleted));
               }
+              const int folders_pruned = track::pruneEmptyLibraryFolders();
+              if (folders_pruned > 0) {
+                track::appendLibraryEpisodeIndexCacheDebugLine(
+                    QStringLiteral("folder-prune: removed %1 empty folder(s)").arg(folders_pruned));
+              }
             }
 
             w->refreshAnimeListProgressDecorations();
