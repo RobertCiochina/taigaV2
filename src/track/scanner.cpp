@@ -663,7 +663,14 @@ std::optional<QString> findEpisode(const QString& path, const int anime_id,
 
     if (recognition::identify(episode) != anime_id) continue;
 
-    if (storageEpisodeNumber(anime_id, episode) != episode_number) continue;
+    const int stored_ep = storageEpisodeNumber(anime_id, episode);
+    if (stored_ep != episode_number) {
+      // Align with library scan indexing: no episode token on a single-episode title is treated as
+      // episode 1 (movies / single-file releases).
+      if (!(stored_ep == 0 && episode_number == 1)) continue;
+      const Anime* item = anime::db.item(anime_id);
+      if (!item || item->episode_count != 1) continue;
+    }
 
     const qint64 ms = t.elapsed();
     if (diag && ms > 200) {

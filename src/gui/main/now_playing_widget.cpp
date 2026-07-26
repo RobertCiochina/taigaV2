@@ -138,13 +138,6 @@ void NowPlayingWidget::reset() {
 
 void NowPlayingWidget::setPlaying(track::Episode episode) {
   const int incoming_id = episode.animeId();
-  const QString incoming_ep =
-      QString::fromStdString(episode.element(anitomy::ElementKind::Episode));
-
-  // Restart countdown only when the episode actually changes
-  const bool same_episode =
-      m_episode.has_value() && m_episode->animeId() == incoming_id &&
-      QString::fromStdString(m_episode->element(anitomy::ElementKind::Episode)) == incoming_ep;
 
   // Preserve a known local file path across detections that can't report one. Window-title based
   // detection (and Taiga-initiated playback that detection later picks up) yields an episode with
@@ -153,6 +146,33 @@ void NowPlayingWidget::setPlaying(track::Episode episode) {
       m_episode->animeId() == incoming_id) {
     episode.setFilePath(m_episode->filePath());
   }
+
+  // Preserve a known episode number when later detection for the same anime has none (common for
+  // movies: AAC2.0 → spurious 0 dropped → empty). Without this, Taiga-armed ep 1 is wiped and
+  // commitListUpdate skips the list update / delete-after-watched.
+  if (episode.element(anitomy::ElementKind::Episode).empty() && m_episode &&
+      m_episode->animeId() == incoming_id) {
+    const auto prev_ep = m_episode->element(anitomy::ElementKind::Episode);
+    if (!prev_ep.empty()) {
+      episode.setElement(anitomy::ElementKind::Episode, prev_ep);
+    }
+  }
+
+  // Single-episode titles (movies) often have no episode token in the filename. Map to 1 so
+  // history, countdown identity, and list commit agree with library scan indexing.
+  if (episode.element(anitomy::ElementKind::Episode).empty() && incoming_id > 0) {
+    if (const auto* item = anime::db.item(incoming_id); item && item->episode_count == 1) {
+      episode.setElement(anitomy::ElementKind::Episode, "1");
+    }
+  }
+
+  const QString incoming_ep =
+      QString::fromStdString(episode.element(anitomy::ElementKind::Episode));
+
+  // Restart countdown only when the episode actually changes
+  const bool same_episode =
+      m_episode.has_value() && m_episode->animeId() == incoming_id &&
+      QString::fromStdString(m_episode->element(anitomy::ElementKind::Episode)) == incoming_ep;
 
   m_episode = episode;
 
@@ -185,6 +205,13 @@ void NowPlayingWidget::setPlaying(track::Episode episode) {
     // Record to History as soon as media detection sees a (new) episode.
     bool ep_ok = false;
     int ep_no = incoming_ep.toInt(&ep_ok);
+    if ((!ep_ok || ep_no <= 0) && incoming_id > 0) {
+      const auto* item = anime::db.item(incoming_id);
+      if (item && item->episode_count == 1) {
+        ep_no = 1;
+        ep_ok = true;
+      }
+    }
     if (ep_ok && incoming_id > 0 && ep_no > 0) {
       // Apply the same S00 mapping as list updates (so history lines up with progress).
       const auto* item = anime::db.item(incoming_id);
@@ -252,8 +279,18 @@ void NowPlayingWidget::commitListUpdate() {
   bool ok = false;
   int ep_no = ep_str.toInt(&ok);
   if (!ok || ep_no <= 0) {
-    dbg(QStringLiteral("skip: no/invalid episode number ('%1')").arg(ep_str));
-    return;
+    // Movies / single-episode OVAs often have no episode token after anitomy cleanup (e.g. AAC2.0
+    // → spurious 0 dropped). Library scan already indexes these as episode 1.
+    if (item->episode_count == 1) {
+      ep_no = 1;
+      ok = true;
+      dbg(QStringLiteral("map: empty/invalid episode ('%1') → 1 for single-episode id=%2")
+              .arg(ep_str)
+              .arg(anime_id));
+    } else {
+      dbg(QStringLiteral("skip: no/invalid episode number ('%1')").arg(ep_str));
+      return;
+    }
   }
 
   // Season 0 / specials: filenames often use global indices (e.g. S00E10..E12) even when the
