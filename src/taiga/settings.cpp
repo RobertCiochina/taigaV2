@@ -487,6 +487,48 @@ void Settings::setTorrentSearchTitleForAnime(const int anime_id, const QString& 
   setValue(QStringLiteral("torrent.searchTitleCache.%1").arg(anime_id), title);
 }
 
+bool Settings::hasAnimeEpisodeOffsetOverride(const int anime_id) const {
+  if (anime_id <= 0) return false;
+  return contains(QStringLiteral("anime.episodeOffset.%1").arg(anime_id));
+}
+
+int Settings::animeEpisodeOffsetOverride(const int anime_id) const {
+  if (anime_id <= 0) return 0;
+  const int v = value(QStringLiteral("anime.episodeOffset.%1").arg(anime_id), 0).toInt();
+  return v > 0 ? v : 0;
+}
+
+void Settings::setAnimeEpisodeOffsetOverride(const int anime_id, const int offset) const {
+  if (anime_id <= 0) return;
+  setValue(QStringLiteral("anime.episodeOffset.%1").arg(anime_id), offset > 0 ? offset : 0);
+}
+
+void Settings::clearAnimeEpisodeOffsetOverride(const int anime_id) const {
+  if (anime_id <= 0) return;
+  remove(QStringLiteral("anime.episodeOffset.%1").arg(anime_id));
+}
+
+QStringList Settings::animeRecognitionTitles(const int anime_id) const {
+  if (anime_id <= 0) return {};
+  return value(QStringLiteral("anime.recognitionTitles.%1").arg(anime_id)).toStringList();
+}
+
+void Settings::setAnimeRecognitionTitles(const int anime_id, const QStringList& titles) const {
+  if (anime_id <= 0) return;
+  QStringList cleaned;
+  cleaned.reserve(titles.size());
+  for (QString t : titles) {
+    t = t.trimmed();
+    if (t.isEmpty()) continue;
+    if (!cleaned.contains(t, Qt::CaseInsensitive)) cleaned.append(t);
+  }
+  if (cleaned.isEmpty()) {
+    remove(QStringLiteral("anime.recognitionTitles.%1").arg(anime_id));
+  } else {
+    setValue(QStringLiteral("anime.recognitionTitles.%1").arg(anime_id), cleaned);
+  }
+}
+
 bool Settings::torrentQBitApiEnabled() const {
   return value("torrent.qbit.apiEnabled", true).toBool();
 }

@@ -27,27 +27,34 @@ namespace base {
 
 class Settings {
 public:
-  /// Groups multiple `setValue` calls into a single `QSettings` instance (one disk sync on scope end).
+  /// Groups multiple `setValue` calls into a single `QSettings` instance (one disk sync on scope
+  /// end).
   class BatchScope {
-   public:
-    explicit BatchScope(const Settings* owner) : owner_(owner) { owner_->enterBatch(); }
-    ~BatchScope() { owner_->leaveBatch(); }
+  public:
+    explicit BatchScope(const Settings* owner) : owner_(owner) {
+      owner_->enterBatch();
+    }
+    ~BatchScope() {
+      owner_->leaveBatch();
+    }
     BatchScope(const BatchScope&) = delete;
     BatchScope& operator=(const BatchScope&) = delete;
 
-   private:
+  private:
     const Settings* owner_;
   };
 
- protected:
+protected:
   virtual QString fileName() const = 0;
 
   QVariant value(QAnyStringView key) const;
   QVariant value(QAnyStringView key, const QVariant& defaultValue) const;
   void setValue(QAnyStringView key, const QVariant& value) const;
   void setValue(QAnyStringView key, const std::string_view value) const;
+  bool contains(QAnyStringView key) const;
+  void remove(QAnyStringView key) const;
 
- private:
+private:
   void enterBatch() const;
   void leaveBatch() const;
 

@@ -24,8 +24,12 @@
 #include "media/anime.hpp"
 #include "media/anime_list.hpp"
 
+class QCheckBox;
+class QLineEdit;
+class QPlainTextEdit;
 class QResizeEvent;
 class QShowEvent;
+class QSpinBox;
 class QWidget;
 
 namespace Ui {
@@ -65,6 +69,8 @@ private:
   void initTitles();
   void initDetails();
   void initList();
+  void initLocalSettings();
+  void saveLocalSettings();
   void loadPosterImage();
   void resizePosterImage();
   void addToList(anime::list::Status status);
@@ -75,6 +81,11 @@ private:
   std::optional<ListEntry> m_entry;
 
   QWidget* m_addToListPanel = nullptr;
+
+  QCheckBox* m_useAutoEpisodeOffset_ = nullptr;
+  QSpinBox* m_firstEpisodeNumber_ = nullptr;
+  QPlainTextEdit* m_recognitionAliases_ = nullptr;
+  QLineEdit* m_torrentSearchTitle_ = nullptr;
 };
 
 }  // namespace gui

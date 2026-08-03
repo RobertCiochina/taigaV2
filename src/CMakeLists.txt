@@ -109,6 +109,8 @@ set(TAIGA_CORE_SOURCES
 
 	track/episode.cpp
 	track/episode.hpp
+	track/episode_offset.cpp
+	track/episode_offset.hpp
 	track/library_watcher.cpp
 	track/library_watcher.hpp
 	track/media.cpp
@@ -121,6 +123,8 @@ set(TAIGA_CORE_SOURCES
 	track/recognition_cache.hpp
 	track/recognition_normalize.cpp
 	track/recognition_normalize.hpp
+	track/recognition_titles.cpp
+	track/recognition_titles.hpp
 	track/cache_debug_log.cpp
 	track/cache_debug_log.hpp
 	track/scanner.cpp

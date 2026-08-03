@@ -18,11 +18,15 @@
 
 #include "recognition_cache.hpp"
 
+#include <QString>
 #include <format>
 
 #include "media/anime_db.hpp"
+#include "taiga/settings.hpp"
 #include "track/recognition.hpp"
 #include "track/recognition_normalize.hpp"
+#include "track/recognition_titles.hpp"
+
 
 namespace track::recognition {
 
@@ -64,7 +68,12 @@ void Cache::add(const anime::Details& item) {
     }
   };
 
-  // @TODO: Add user-defined titles with higher weight
+  // User-defined recognition titles (highest weight — release marketing names, etc.)
+  if (item.id > 0) {
+    for (const QString& alias : taiga::settings.animeRecognitionTitles(item.id)) {
+      add(alias.toStdString(), 1.5f);
+    }
+  }
 
   // Main titles
   add(item.titles.romaji);
@@ -82,6 +91,11 @@ void Cache::add(const anime::Details& item) {
   // Synonyms
   for (const auto& synonym : item.titles.synonyms) {
     add(synonym, 0.5f);
+  }
+
+  // Bounded synthetic forms (e.g. strip "No. 170+1:" → "… More")
+  for (const auto& syn : syntheticTitleSynonyms(item)) {
+    add(syn, 0.75f);
   }
 }
 

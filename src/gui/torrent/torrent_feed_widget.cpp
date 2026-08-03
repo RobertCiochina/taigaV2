@@ -9,6 +9,7 @@
 #include <QChar>
 #include <QClipboard>
 #include <QCoreApplication>
+#include <QDate>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDialog>
@@ -39,11 +40,14 @@
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QTabWidget>
+#include <QTime>
+#include <QTimeZone>
 #include <QTimer>
 #include <QTreeView>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <algorithm>
+#include <cmath>
 #include <memory>
 #include <optional>
 #include <string>
@@ -54,6 +58,7 @@
 #include "gui/torrent/torrent_auto_cleanup.hpp"
 #include "gui/utils/rss_feed_parser.hpp"
 #include "gui/utils/table_view_defaults.hpp"
+#include "media/anime.hpp"
 #include "media/anime_db.hpp"
 #include "taiga/network.hpp"
 #include "taiga/session.hpp"
@@ -61,7 +66,10 @@
 #include "taiga/torrent_discovery.hpp"
 #include "taiga/user_feedback.hpp"
 #include "track/episode.hpp"
+#include "track/episode_offset.hpp"
 #include "track/recognition.hpp"
+#include "track/recognition_normalize.hpp"
+#include "track/recognition_titles.hpp"
 #include "track/scanner.hpp"
 
 namespace gui {
@@ -170,19 +178,103 @@ QList<QRegularExpression> compileRegexList(const QStringList& lines) {
   return out;
 }
 
+bool normalizedTitlesOverlap(const std::string& a, const std::string& b) {
+  if (a.empty() || b.empty()) return false;
+  if (a == b) return true;
+  // Require a reasonably long shared key so "bleach" alone does not pass.
+  constexpr size_t kMin = 12;
+  if (a.size() >= kMin && b.find(a) != std::string::npos) return true;
+  if (b.size() >= kMin && a.find(b) != std::string::npos) return true;
+  return false;
+}
+
+bool parsedTitleOverlapsAnime(const std::string& parsed_title, const anime::Details& item) {
+  const std::string key = track::recognition::normalize(parsed_title);
+  if (key.empty()) return false;
+  if (normalizedTitlesOverlap(key, track::recognition::normalize(item.titles.romaji))) return true;
+  if (normalizedTitlesOverlap(key, track::recognition::normalize(item.titles.english))) return true;
+  if (normalizedTitlesOverlap(key, track::recognition::normalize(item.titles.japanese)))
+    return true;
+  for (const auto& syn : item.titles.synonyms) {
+    if (normalizedTitlesOverlap(key, track::recognition::normalize(syn))) return true;
+  }
+  for (const auto& syn : track::recognition::syntheticTitleSynonyms(item)) {
+    if (normalizedTitlesOverlap(key, track::recognition::normalize(syn))) return true;
+  }
+  if (item.id > 0) {
+    for (const QString& alias : taiga::settings.animeRecognitionTitles(item.id)) {
+      if (normalizedTitlesOverlap(key, track::recognition::normalize(alias.toStdString())))
+        return true;
+    }
+  }
+  return false;
+}
+
+std::optional<int> yearTokenInTitle(const QString& title) {
+  static const QRegularExpression kYear(QStringLiteral(R"(\b((?:19|20)\d{2})\b)"));
+  const auto m = kYear.match(title);
+  if (!m.hasMatch()) return std::nullopt;
+  bool ok = false;
+  const int y = m.captured(1).toInt(&ok);
+  if (!ok) return std::nullopt;
+  return y;
+}
+
 /// When a search/download runs inside a specific anime context, drop RSS items that positively
-/// identify as a *different* anime. This prevents a Season 1 / Part 2 release (e.g.
-/// "Mushoku Tensei Jobless Reincarnation S1Pt2") from being surfaced — and picked as the "best
-/// match" — while the user is searching Season 3.
-///
-/// Items that fail recognition (kUnknownId) are kept: weak recognition should never silently empty
-/// the results, and this mirrors how `hide_not_in_list` treats unrecognized items.
+/// identify as a *different* anime, look like the wrong type/year, or (when unrecognized) do not
+/// overlap the target's titles. This prevents franchise movies / other cours from winning autodl.
 bool rssItemBelongsToAnimeContext(const rss::Item& it, const int context_anime_id) {
   if (context_anime_id <= 0) return true;
+  const auto* item = anime::db.item(context_anime_id);
+  if (!item) return true;
+
   track::Episode ep = track::recognition::parse(it.title);
+  const QString title_full = QString::fromStdString(it.title);
   const int id = track::recognition::identify(ep);
-  if (id == anime::kUnknownId) return true;
-  return id == context_anime_id;
+
+  if (id != anime::kUnknownId && id != context_anime_id) return false;
+
+  // TV/ONA/etc. context: reject movie/special packaging (old franchise BDs, etc.).
+  if (item->type != anime::Type::Movie && isMovieOrSpecial(ep, title_full)) return false;
+
+  if (const auto year = yearTokenInTitle(title_full)) {
+    const int start_y = static_cast<int>(item->date_started.year());
+    if (start_y > 0 && std::abs(*year - start_y) > 1) return false;
+  }
+
+  if (id == anime::kUnknownId) {
+    const std::string parsed = ep.element(anitomy::ElementKind::Title);
+    if (parsed.empty()) return false;
+    return parsedTitleOverlapsAnime(parsed, *item);
+  }
+  return true;
+}
+
+std::optional<qint64> contextAnimeStartMs(const anime::Details& item) {
+  if (item.date_started.empty()) return std::nullopt;
+  const int y = static_cast<int>(item.date_started.year());
+  int m = static_cast<int>(item.date_started.month());
+  int d = static_cast<int>(item.date_started.day());
+  if (y <= 0) return std::nullopt;
+  if (m <= 0) m = 1;
+  if (d <= 0) d = 1;
+  const QDate date(y, m, d);
+  if (!date.isValid()) return std::nullopt;
+  return QDateTime(date, QTime(0, 0), QTimeZone::utc()).toMSecsSinceEpoch();
+}
+
+std::optional<qint64> rssItemPublishedMs(const rss::Item& it) {
+  const QString s = QString::fromStdString(it.pub_date).trimmed();
+  if (s.isEmpty()) return std::nullopt;
+  {
+    const QDateTime dt = QDateTime::fromString(s, Qt::RFC2822Date);
+    if (dt.isValid()) return dt.toMSecsSinceEpoch();
+  }
+  {
+    const QDateTime dt = QDateTime::fromString(s, Qt::ISODate);
+    if (dt.isValid()) return dt.toMSecsSinceEpoch();
+  }
+  return std::nullopt;
 }
 
 /// `context_anime_id > 0` restricts results to a single anime (see rssItemBelongsToAnimeContext);
@@ -227,6 +319,15 @@ QList<const rss::Item*> filterRssItemsBySettings(const rss::Feed& feed,
     }
   }
 
+  const std::optional<qint64> context_start_ms = [&]() -> std::optional<qint64> {
+    if (context_anime_id <= 0) return std::nullopt;
+    const auto* item = anime::db.item(context_anime_id);
+    if (!item) return std::nullopt;
+    // Always apply for anime-context fetches (manual + autodl) when start date is known —
+    // blocks old franchise BD dumps whose pubDate predates the cour.
+    return contextAnimeStartMs(*item);
+  }();
+
   QList<const rss::Item*> filtered;
   filtered.reserve(static_cast<int>(feed.items.size()));
   for (const rss::Item& it : feed.items) {
@@ -257,6 +358,11 @@ QList<const rss::Item*> filterRssItemsBySettings(const rss::Feed& feed,
     // Anime-scoped search/download: keep only releases that belong to the target entry.
     if (!rssItemBelongsToAnimeContext(it, context_anime_id)) continue;
 
+    if (context_start_ms.has_value()) {
+      const auto pub_ms = rssItemPublishedMs(it);
+      if (pub_ms.has_value() && *pub_ms < *context_start_ms) continue;
+    }
+
     if (hide_dropped || hide_not_in_list || hide_watched || hide_available || hide_older_versions) {
       track::Episode ep = track::recognition::parse(it.title);
       const int id = track::recognition::identify(ep);
@@ -269,7 +375,7 @@ QList<const rss::Item*> filterRssItemsBySettings(const rss::Feed& feed,
         continue;
       if (hide_dropped && st == anime::list::Status::Dropped) continue;
 
-      const int ep_no = QString::fromStdString(ep.element(anitomy::ElementKind::Episode)).toInt();
+      int ep_no = QString::fromStdString(ep.element(anitomy::ElementKind::Episode)).toInt();
       // S00 (season 0) is the Nyaa / AniDB convention for Specials/OVAs.
       // Their episode numbers live in a different namespace from the main series, so
       // comparing S00E01 against main-series watched_episodes gives false positives.
@@ -278,6 +384,8 @@ QList<const rss::Item*> filterRssItemsBySettings(const rss::Feed& feed,
       const bool is_season_zero =
           !season_val_str.empty() && QString::fromStdString(season_val_str).toInt() == 0;
       if (id != anime::kUnknownId && ep_no > 0 && !is_season_zero) {
+        const int list_ep = track::toListEpisode(id, ep_no);
+        if (list_ep > 0) ep_no = list_ep;
         if (hide_watched && entry && ep_no <= entry->watched_episodes) continue;
         if (hide_available && track::libraryHasLocalEpisode(id, ep_no)) continue;
         if (hide_older_versions && !max_version_for_key.isEmpty()) {
@@ -1466,19 +1574,30 @@ static QStringList buildTitleVariants(const QString& english, const QString& rom
     return {};
   };
 
+  const auto addIfUseful = [&](const QString& s) {
+    if (track::recognition::isFranchiseOnlySearchTitle(s)) return;
+    addIfNew(s);
+  };
+
+  // Prefer official titles and No.N+1 stripped forms before aggressive subtitle stripping.
+  for (const QString& v :
+       track::recognition::searchTitleVariantsFromOfficialTitles(english, romaji)) {
+    addIfUseful(v);
+  }
+
   // English title variants.
   if (!english.isEmpty()) {
-    addIfNew(english);  // "Classroom of the Elite 4th Season: …"
+    addIfUseful(english);  // "Classroom of the Elite 4th Season: …"
     const QString en_s = stripSubtitle(english);
-    addIfNew(en_s);                   // "Classroom of the Elite 4th Season"
-    addIfNew(toSeasonCode(en_s));     // "Classroom of the Elite S04"
-    addIfNew(toSeasonCode(english));  // (already stripped — same or different)
+    addIfUseful(en_s);                   // "Classroom of the Elite 4th Season"
+    addIfUseful(toSeasonCode(en_s));     // "Classroom of the Elite S04"
+    addIfUseful(toSeasonCode(english));  // (already stripped — same or different)
   }
 
   // Romaji title variants.
   if (!romaji.isEmpty()) {
-    addIfNew(romaji);                 // "Youkoso Jitsuryoku … 2-nensei-hen"
-    addIfNew(stripSubtitle(romaji));  // "Youkoso Jitsuryoku …"
+    addIfUseful(romaji);                 // "Youkoso Jitsuryoku … 2-nensei-hen"
+    addIfUseful(stripSubtitle(romaji));  // "Youkoso Jitsuryoku …"
   }
 
   return result;
@@ -1494,7 +1613,9 @@ void TorrentFeedWidget::downloadBestMatchWithFallbacks(const QString& english_ti
   // If a previously winning title is cached, try it first so successful animes stay fast.
   if (anime_id_cache > 0) {
     const QString cached = taiga::settings.torrentSearchTitleForAnime(anime_id_cache);
-    if (!cached.isEmpty()) variants.append(cached);
+    if (!cached.isEmpty() && !track::recognition::isFranchiseOnlySearchTitle(cached)) {
+      variants.append(cached);
+    }
   }
 
   for (const auto& v : buildTitleVariants(english_title, romaji_title)) {
@@ -1521,8 +1642,10 @@ void TorrentFeedWidget::downloadBestMatchWithFallbacks(const QString& english_ti
                               [this, title, anime_id_cache, on_done, step_fn](bool found) {
                                 if (found) {
                                   if (anime_id_cache > 0)
-                                    taiga::settings.setTorrentSearchTitleForAnime(anime_id_cache,
-                                                                                  title);
+                                    if (!track::recognition::isFranchiseOnlySearchTitle(title)) {
+                                      taiga::settings.setTorrentSearchTitleForAnime(anime_id_cache,
+                                                                                    title);
+                                    }
                                   if (on_done) on_done(true);
                                 } else {
                                   (*step_fn)();
@@ -1587,7 +1710,9 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
   QStringList variants;
   if (anime_id > 0) {
     const QString cached = taiga::settings.torrentSearchTitleForAnime(anime_id);
-    if (!cached.isEmpty()) variants.append(cached);
+    if (!cached.isEmpty() && !track::recognition::isFranchiseOnlySearchTitle(cached)) {
+      variants.append(cached);
+    }
   }
   for (const auto& v : buildTitleVariants(english_title, romaji_title)) {
     if (!variants.contains(v, Qt::CaseInsensitive)) variants.append(v);
@@ -1645,14 +1770,15 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
                 return;
               }
 
-              // Determine which episodes are missing.
+              // Determine which episodes are missing (list-relative numbers).
               const auto* item_db = anime::db.item(anime_id);
               const auto* entry_db = anime::db.entry(anime_id);
               QList<int> missing;
               if (item_db && entry_db) {
                 // Use episode_count as fallback when last_aired_episode is not populated.
-                const int last_aired = item_db->last_aired_episode > 0 ? item_db->last_aired_episode
-                                                                       : item_db->episode_count;
+                const int raw_last = item_db->last_aired_episode > 0 ? item_db->last_aired_episode
+                                                                     : item_db->episode_count;
+                const int last_aired = track::toListLastAiredEpisode(*item_db, raw_last);
                 const int watched = entry_db->watched_episodes;
                 for (int ep = watched + 1; ep <= last_aired; ++ep) {
                   if (!track::libraryHasLocalEpisode(anime_id, ep)) missing.append(ep);
@@ -1663,13 +1789,14 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
                 return;
               }
 
-              // Build best-per-episode map from filtered feed.
+              // Build best-per-episode map from filtered feed (keys are release/file episode nos).
               const QMap<int, const rss::Item*> best_ep = selectBestPerEpisode(filtered);
 
-              const int effective_last =
-                  item_db ? (item_db->last_aired_episode > 0 ? item_db->last_aired_episode
-                                                             : item_db->episode_count)
-                          : 0;
+              const int effective_last = item_db ? track::toListLastAiredEpisode(
+                                                       *item_db, item_db->last_aired_episode > 0
+                                                                     ? item_db->last_aired_episode
+                                                                     : item_db->episode_count)
+                                                 : 0;
 
               // Cache only after we actually queue a download (below).
 
@@ -1677,7 +1804,9 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
                 if (!batch) return false;
                 const QString batch_url = bestUrlForItem(batch);
                 if (batch_url.isEmpty()) return false;
-                if (anime_id > 0) taiga::settings.setTorrentSearchTitleForAnime(anime_id, title);
+                if (anime_id > 0 && !track::recognition::isFranchiseOnlySearchTitle(title)) {
+                  taiga::settings.setTorrentSearchTitleForAnime(anime_id, title);
+                }
                 const QString save_path = resolvedTorrentDownloadDirForSavedTorrent(folder_name);
                 if (taiga::settings.torrentQBitApiEnabled()) {
                   addTorrentViaQBitApi(
@@ -1713,10 +1842,11 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
                 QString url;
               };
               QList<DownloadItem> targets;
-              for (const int ep : missing) {
-                if (const auto* best = best_ep.value(ep, nullptr)) {
+              for (const int list_ep : missing) {
+                const int release_ep = track::toReleaseEpisode(anime_id, list_ep);
+                if (const auto* best = best_ep.value(release_ep, nullptr)) {
                   const QString ep_url = bestUrlForItem(best);
-                  if (!ep_url.isEmpty()) targets.append({ep, ep_url});
+                  if (!ep_url.isEmpty()) targets.append({list_ep, ep_url});
                 }
               }
               if (targets.isEmpty()) {
@@ -1727,7 +1857,9 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
                 return;
               }
 
-              if (anime_id > 0) taiga::settings.setTorrentSearchTitleForAnime(anime_id, title);
+              if (anime_id > 0 && !track::recognition::isFranchiseOnlySearchTitle(title)) {
+                taiga::settings.setTorrentSearchTitleForAnime(anime_id, title);
+              }
 
               if (taiga::settings.torrentQBitApiEnabled()) {
                 const QString save_path = resolvedTorrentDownloadDirForSavedTorrent(folder_name);

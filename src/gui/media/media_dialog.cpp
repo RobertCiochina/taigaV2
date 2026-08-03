@@ -18,18 +18,25 @@
 
 #include "media_dialog.hpp"
 
+#include <QCheckBox>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDialogButtonBox>
+#include <QFormLayout>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPlainTextEdit>
 #include <QPushButton>
 #include <QResizeEvent>
+#include <QSpinBox>
 #include <QToolButton>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <algorithm>
 #include <cmath>
 
 #include "base/string.hpp"
@@ -46,7 +53,10 @@
 #include "media/anime_utils.hpp"
 #include "sync/service.hpp"
 #include "taiga/session.hpp"
+#include "taiga/settings.hpp"
+#include "track/episode_offset.hpp"
 #include "track/play.hpp"
+#include "track/recognition_cache.hpp"
 #include "ui_media_dialog.h"
 
 #ifdef Q_OS_WINDOWS
@@ -137,8 +147,52 @@ MediaDialog::MediaDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::MediaDi
             ui_->dateCompleted->setEnabled(state == Qt::CheckState::Checked);
           });
 
-  // Hide the unimplemented Settings tab (placeholder only)
-  ui_->tabWidget->setTabVisible(static_cast<int>(MediaDialogPage::Settings), false);
+  // Rebuild the Settings tab with local recognition / torrent helpers.
+  {
+    auto* page = ui_->settingsTab;
+    if (auto* old = page->layout()) {
+      QLayoutItem* child = nullptr;
+      while ((child = old->takeAt(0)) != nullptr) {
+        if (child->widget()) child->widget()->deleteLater();
+        delete child;
+      }
+      delete old;
+    }
+    auto* root = new QVBoxLayout(page);
+
+    auto* epBox = new QGroupBox(tr("Episodes"), page);
+    auto* epForm = new QFormLayout(epBox);
+    m_useAutoEpisodeOffset_ = new QCheckBox(tr("Detect first episode number automatically"), epBox);
+    m_firstEpisodeNumber_ = new QSpinBox(epBox);
+    m_firstEpisodeNumber_->setRange(1, 9999);
+    m_firstEpisodeNumber_->setToolTip(
+        tr("Fansub absolute numbering: set to 41 when list episode 1 is release episode 41."));
+    epForm->addRow(m_useAutoEpisodeOffset_);
+    epForm->addRow(tr("First episode number:"), m_firstEpisodeNumber_);
+    root->addWidget(epBox);
+
+    connect(m_useAutoEpisodeOffset_, &QCheckBox::toggled, this, [this](bool on) {
+      if (m_firstEpisodeNumber_) m_firstEpisodeNumber_->setEnabled(!on);
+    });
+
+    auto* titleBox = new QGroupBox(tr("Recognition"), page);
+    auto* titleLay = new QVBoxLayout(titleBox);
+    titleLay->addWidget(new QLabel(tr("Also recognize as (one title per line):"), titleBox));
+    m_recognitionAliases_ = new QPlainTextEdit(titleBox);
+    m_recognitionAliases_->setPlaceholderText(tr("Boku no Hero Academia Final Season - More"));
+    m_recognitionAliases_->setMaximumHeight(120);
+    titleLay->addWidget(m_recognitionAliases_);
+    root->addWidget(titleBox);
+
+    auto* searchBox = new QGroupBox(tr("Torrent search"), page);
+    auto* searchForm = new QFormLayout(searchBox);
+    m_torrentSearchTitle_ = new QLineEdit(searchBox);
+    m_torrentSearchTitle_->setPlaceholderText(tr("Cached RSS search title (optional)"));
+    searchForm->addRow(tr("Search title:"), m_torrentSearchTitle_);
+    root->addWidget(searchBox);
+
+    root->addStretch(1);
+  }
 
   // Add a "Play next episode" button to the left side of the button box
   auto* playBtn =
@@ -196,10 +250,62 @@ void MediaDialog::setAnime(const Anime& anime, const std::optional<ListEntry> en
   initTitles();
   initDetails();
   initList();
+  initLocalSettings();
 
   if (anime::isStale(anime)) {
     sync::fetchAnime(anime.id);
   }
+}
+
+void MediaDialog::initLocalSettings() {
+  if (!m_useAutoEpisodeOffset_ || !m_firstEpisodeNumber_ || !m_recognitionAliases_ ||
+      !m_torrentSearchTitle_) {
+    return;
+  }
+
+  const bool has_manual = track::hasManualEpisodeOffset(m_anime.id);
+  m_useAutoEpisodeOffset_->setChecked(!has_manual);
+  m_firstEpisodeNumber_->setEnabled(has_manual);
+
+  const int offset = track::episodeOffset(m_anime);
+  m_firstEpisodeNumber_->setValue(offset + 1);
+
+  const QString inferred_hint =
+      tr("Automatic would use first episode %1").arg(track::inferredEpisodeOffset(m_anime) + 1);
+  m_useAutoEpisodeOffset_->setToolTip(inferred_hint);
+
+  m_recognitionAliases_->setPlainText(
+      taiga::settings.animeRecognitionTitles(m_anime.id).join(QChar('\n')));
+  m_torrentSearchTitle_->setText(taiga::settings.torrentSearchTitleForAnime(m_anime.id));
+}
+
+void MediaDialog::saveLocalSettings() {
+  if (m_anime.id <= 0) return;
+  if (!m_useAutoEpisodeOffset_ || !m_firstEpisodeNumber_ || !m_recognitionAliases_ ||
+      !m_torrentSearchTitle_) {
+    return;
+  }
+
+  if (m_useAutoEpisodeOffset_->isChecked()) {
+    taiga::settings.clearAnimeEpisodeOffsetOverride(m_anime.id);
+  } else {
+    const int first = m_firstEpisodeNumber_->value();
+    taiga::settings.setAnimeEpisodeOffsetOverride(m_anime.id, std::max(0, first - 1));
+  }
+
+  const QStringList aliases =
+      m_recognitionAliases_->toPlainText().split(QChar('\n'), Qt::SkipEmptyParts);
+  taiga::settings.setAnimeRecognitionTitles(m_anime.id, aliases);
+
+  const QString search = m_torrentSearchTitle_->text().trimmed();
+  if (search.isEmpty()) {
+    taiga::settings.setTorrentSearchTitleForAnime(m_anime.id, {});
+  } else {
+    taiga::settings.setTorrentSearchTitleForAnime(m_anime.id, search);
+  }
+
+  // Refresh recognition keys for this title so aliases apply immediately.
+  track::recognition::cache()->update(m_anime);
 }
 
 void MediaDialog::initTitles() {
@@ -496,7 +602,12 @@ void MediaDialog::resizePosterImage() {
 }
 
 void MediaDialog::accept() {
-  if (!m_entry) return;
+  saveLocalSettings();
+
+  if (!m_entry) {
+    QDialog::accept();
+    return;
+  }
 
   m_entry->watched_episodes = ui_->spinProgress->value();
   m_entry->rewatched_times = ui_->spinRewatches->value();

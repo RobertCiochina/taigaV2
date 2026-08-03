@@ -43,6 +43,7 @@
 #include "taiga/settings.hpp"
 #include "track/cache_debug_log.hpp"
 #include "track/episode.hpp"
+#include "track/episode_offset.hpp"
 #include "track/recognition.hpp"
 
 namespace track {
@@ -209,7 +210,15 @@ int storageEpisodeNumber(const int anime_id, const track::Episode& episode) {
   const std::string season_str = episode.element(anitomy::ElementKind::Season, {});
   const bool is_s0 = season_str == "0" || season_str == "00";
   const Anime* item = anime::db.item(anime_id);
-  if (!item || !is_s0 || item->episode_count < 1) return ep;
+  if (!item) return ep;
+
+  // Multi-cour absolute numbering (non-S00): map release ep → list ep.
+  if (!is_s0) {
+    const int list_ep = track::toListEpisode(anime_id, ep);
+    return list_ep > 0 ? list_ep : 0;
+  }
+
+  if (item->episode_count < 1) return ep;
   if (ep > item->episode_count && item->episode_count <= 12) {
     return ((ep - 1) % item->episode_count) + 1;
   }

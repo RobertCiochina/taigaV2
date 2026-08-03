@@ -18,11 +18,11 @@
 
 #include "settings.hpp"
 
-#include <memory>
-
 #include <QIODevice>
 #include <QJsonDocument>
 #include <QJsonParseError>
+#include <memory>
+
 
 namespace {
 
@@ -70,6 +70,21 @@ QVariant Settings::value(QAnyStringView key, const QVariant& defaultValue) const
   if (batch_depth_ > 0) return batch_->value(key, defaultValue);
   QSettings s(fileName(), jsonSettingsFormat());
   return s.value(key, defaultValue);
+}
+
+bool Settings::contains(QAnyStringView key) const {
+  if (batch_depth_ > 0) return batch_->contains(key);
+  QSettings s(fileName(), jsonSettingsFormat());
+  return s.contains(key);
+}
+
+void Settings::remove(QAnyStringView key) const {
+  if (batch_depth_ > 0) {
+    batch_->remove(key);
+    return;
+  }
+  QSettings s(fileName(), jsonSettingsFormat());
+  s.remove(key);
 }
 
 void Settings::setValue(QAnyStringView key, const QVariant& value) const {

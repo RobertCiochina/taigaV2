@@ -39,6 +39,7 @@
 #include "taiga/session.hpp"
 #include "taiga/settings.hpp"
 #include "track/episode.hpp"
+#include "track/episode_offset.hpp"
 #include "track/media.hpp"
 #include "track/recognition.hpp"
 #include "track/scanner.hpp"
@@ -109,6 +110,10 @@ void NowPlayingWidget::reset() {
   bool ep_ok = false;
   int ep_no = ep_str.toInt(&ep_ok);
   if (!ep_ok || ep_no < 1) ep_no = 1;
+  if (anime_id > 0) {
+    const int list_ep = track::toListEpisode(anime_id, ep_no);
+    if (list_ep > 0) ep_no = list_ep;
+  }
 
   // Auto-delete: if the list was updated and a local file path is known, delete it.
   if (m_update_committed_ && m_episode && !m_episode->filePath().empty() &&
@@ -213,13 +218,16 @@ void NowPlayingWidget::setPlaying(track::Episode episode) {
       }
     }
     if (ep_ok && incoming_id > 0 && ep_no > 0) {
-      // Apply the same S00 mapping as list updates (so history lines up with progress).
+      // Apply the same S00 / absolute-offset mapping as list updates.
       const auto* item = anime::db.item(incoming_id);
       const std::string season_str = episode.element(anitomy::ElementKind::Season, {});
       const bool is_s0 = season_str == "0" || season_str == "00";
       if (item && is_s0 && item->episode_count > 0 && item->episode_count <= 12 &&
           ep_no > item->episode_count) {
         ep_no = ((ep_no - 1) % item->episode_count) + 1;
+      } else if (!is_s0) {
+        const int list_ep = track::toListEpisode(incoming_id, ep_no);
+        if (list_ep > 0) ep_no = list_ep;
       }
       anime::history().recordEpisode(incoming_id, ep_no);
     }
@@ -300,6 +308,9 @@ void NowPlayingWidget::commitListUpdate() {
   if (is_s0 && item->episode_count > 0 && item->episode_count <= 12 &&
       ep_no > item->episode_count) {
     ep_no = ((ep_no - 1) % item->episode_count) + 1;
+  } else if (!is_s0) {
+    const int list_ep = track::toListEpisode(anime_id, ep_no);
+    if (list_ep > 0) ep_no = list_ep;
   }
 
   // out-of-range guard: skip update if episode exceeds known total

@@ -105,6 +105,7 @@
 #include "taiga/update_check.hpp"
 #include "taiga/user_feedback.hpp"
 #include "track/episode.hpp"
+#include "track/episode_offset.hpp"
 #include "track/library_watcher.hpp"
 #include "track/media.hpp"
 #include "track/play.hpp"
@@ -2333,7 +2334,8 @@ void MainWindow::runAutoDownload(const bool silent) {
     const qint64 now_secs = QDateTime::currentSecsSinceEpoch();
     const int watched =
         std::max(entry.watched_episodes, anime::history().maxRecordedEpisodeForAnime(anime_id));
-    const int last_aired = taiga::computeLastAiredEpisodeForAutoDownload(*item, watched, now_secs);
+    const int raw_last = taiga::computeLastAiredEpisodeForAutoDownload(*item, watched, now_secs);
+    const int last_aired = track::toListLastAiredEpisode(*item, raw_last);
     if (last_aired <= watched) continue;
     // Skip only if every episode in [watched+1 .. last_aired] is already on disk.
     // This correctly handles "episodes downloaded but not yet watched" —

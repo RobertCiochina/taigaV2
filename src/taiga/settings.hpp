@@ -335,6 +335,16 @@ public:
   /// Saves the effective RSS search title that produced results for a given anime.
   void setTorrentSearchTitleForAnime(int anime_id, const QString& title) const;
 
+  /// Manual episode offset (release_ep - list_ep). Absent key ⇒ use auto-infer.
+  bool hasAnimeEpisodeOffsetOverride(int anime_id) const;
+  int animeEpisodeOffsetOverride(int anime_id) const;
+  void setAnimeEpisodeOffsetOverride(int anime_id, int offset) const;
+  void clearAnimeEpisodeOffsetOverride(int anime_id) const;
+
+  /// User-defined recognition titles for an anime (one entry per alternate release title).
+  QStringList animeRecognitionTitles(int anime_id) const;
+  void setAnimeRecognitionTitles(int anime_id, const QStringList& titles) const;
+
   // qBittorrent Web API integration (recommended for controlling save path per anime)
   bool torrentQBitApiEnabled() const;
   std::string torrentQBitApiUrl() const;

@@ -33,8 +33,10 @@
 #include "media/anime_db.hpp"
 #include "taiga/settings.hpp"
 #include "track/episode.hpp"
+#include "track/episode_offset.hpp"
 #include "track/recognition_cache.hpp"
 #include "track/recognition_normalize.hpp"
+#include "track/recognition_titles.hpp"
 
 namespace track::recognition {
 
@@ -195,6 +197,17 @@ int identify(Episode& episode) {
     matches.append_range(data->matches | std::views::values | std::ranges::to<std::vector>());
   }
 
+  // Season-noise fallback: "Boku no Hero Academia Final Season - More" → same key as
+  // synthetic "Boku no Hero Academia More" after stripping finalseason / seasonN tokens.
+  if (matches.empty()) {
+    const auto stripped = stripSeasonNoiseFromNormalized(normalizedTitle);
+    if (!stripped.empty() && stripped != normalizedTitle) {
+      if (const auto data = cache()->find(stripped)) {
+        matches.append_range(data->matches | std::views::values | std::ranges::to<std::vector>());
+      }
+    }
+  }
+
   // Folder / filesystem names are sometimes truncated vs AniList (e.g. final "s" dropped on long
   // paths).
   if (matches.empty() && title.size() > 16) {
@@ -346,7 +359,7 @@ bool isValidMatch(const int id, const Episode& episode) {
 
   if (!item) return false;
 
-  const auto is_valid_episode_number = [&episode, &item]() {
+  const auto is_valid_episode_number = [&episode, &item, id]() {
     const auto number = episode.element(anitomy::ElementKind::Episode);
 
     if (number.empty()) {
@@ -366,9 +379,13 @@ bool isValidMatch(const int id, const Episode& episode) {
     // listed episode count (e.g. three OVAs). Still treat as a valid match for identification.
     if (is_s0 && (item->episode_count < 1 || value > item->episode_count)) return true;
 
-    if (value <= item->episode_count) return true;  // in range
+    // Multi-cour absolute numbering: map release ep → list ep via per-anime offset.
+    const int list_ep = track::toListEpisode(id, value);
+    if (list_ep < 1) return false;
 
     if (item->episode_count < 1) return true;  // episode count is unknown, so anything goes
+
+    if (list_ep <= item->episode_count) return true;  // in range
 
     return false;  // out of range
   };
