@@ -25,10 +25,10 @@ QVector<AnnouncedReleaseCandidate> computeAnnouncedReleaseCandidates(const QSet<
 /// This matches the visibility logic used by the Home banner and navigation indicator.
 int countVisibleAnnouncedReleaseCandidates(const QSet<int>& dismissed, bool show_mature);
 
-/// For each Completed / Planning list row whose cached `Anime.relations` includes a Sequel edge to
-/// an id not yet present in `anime::db`, enqueue `sync::fetchAnime` (AniList only, capped). Restores
-/// Announced releases after a cold start once relations were previously fetched for anchors.
-void prefetchMissingAnnouncedSequelMediaFromAnchors();
+/// For each Completed / Planning / Watching list row whose cached `Anime.relations` includes a
+/// Sequel edge to an id not yet present in `anime::db`, enqueue a Media fetch (AniList only).
+/// When `force` is true, bypasses the 24h redundant-fetch skip.
+void prefetchMissingAnnouncedSequelMediaFromAnchors(bool force = false);
 
 /// True when a Completed/Planning entry references a Sequel id not yet in `anime::db` (AniList).
 bool hasAnnouncedSequelAnchorsAwaitingMediaFetch();

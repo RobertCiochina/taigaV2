@@ -18,13 +18,12 @@
 
 #include "service.hpp"
 
-#include <functional>
-#include <memory>
-#include <unordered_map>
-
 #include <QApplication>
 #include <QMap>
 #include <QTimer>
+#include <functional>
+#include <memory>
+#include <unordered_map>
 
 #include "media/anime_db.hpp"
 #include "sync/anilist.hpp"
@@ -36,6 +35,7 @@
 #include "taiga/accounts.hpp"
 #include "taiga/network.hpp"
 #include "taiga/settings.hpp"
+
 
 namespace {
 
@@ -125,7 +125,23 @@ void fetchAnime(const int id) {
       kitsu::Service::instance()->fetchAnime(id);
       break;
     case ServiceId::AniList:
-      anilist::Service::instance()->fetchAnime(id);
+      anilist::Service::instance()->fetchAnime(id, false);
+      break;
+    case ServiceId::Unknown:
+      break;
+  }
+}
+
+void fetchAnimeForced(const int id) {
+  switch (currentServiceId()) {
+    case ServiceId::MyAnimeList:
+      myanimelist::Service::instance()->fetchAnime(id);
+      break;
+    case ServiceId::Kitsu:
+      kitsu::Service::instance()->fetchAnime(id);
+      break;
+    case ServiceId::AniList:
+      anilist::Service::instance()->fetchAnime(id, true);
       break;
     case ServiceId::Unknown:
       break;
@@ -145,7 +161,8 @@ void saveListEntry(const ListEntry& entry) {
     slot.timer = std::make_unique<QTimer>();
     slot.timer->setSingleShot(true);
     const int aid = entry.anime_id;
-    QObject::connect(slot.timer.get(), &QTimer::timeout, qApp, [aid] { onPendingListSaveTimeout(aid); });
+    QObject::connect(slot.timer.get(), &QTimer::timeout, qApp,
+                     [aid] { onPendingListSaveTimeout(aid); });
   }
   slot.entry = entry;
   slot.timer->stop();
@@ -188,8 +205,8 @@ bool remoteListAccessConfigured() {
     case ServiceId::MyAnimeList:
       return !taiga::accounts.myanimelistAccessToken().empty();
     case ServiceId::Kitsu: {
-      const bool has_user = !taiga::accounts.kitsuEmail().empty() ||
-                            !taiga::accounts.kitsuUsername().empty();
+      const bool has_user =
+          !taiga::accounts.kitsuEmail().empty() || !taiga::accounts.kitsuUsername().empty();
       return has_user && !taiga::accounts.kitsuPassword().empty();
     }
     case ServiceId::Unknown:

@@ -147,17 +147,19 @@ void Service::authenticateUser(ListFetchComplete on_complete) {
   manager_.post(api_.createRequest(), data, this, callback);
 }
 
-void Service::fetchAnime(const int id) {
+void Service::fetchAnime(const int id, const bool force) {
   if (id <= 0) return;
   if (fetch_anime_pending_.contains(id)) return;
-  if (const Anime* existing = anime::db.item(id)) {
-    if (anime::shouldSkipRedundantMediaFetch(*existing)) {
-      QTimer::singleShot(0, this, [this, id]() {
-        emit mediaFetchQueued(id);
-        emit mediaFetchStarted(id);
-        emit mediaFetchFinished(id, true);
-      });
-      return;
+  if (!force) {
+    if (const Anime* existing = anime::db.item(id)) {
+      if (anime::shouldSkipRedundantMediaFetch(*existing)) {
+        QTimer::singleShot(0, this, [this, id]() {
+          emit mediaFetchQueued(id);
+          emit mediaFetchStarted(id);
+          emit mediaFetchFinished(id, true);
+        });
+        return;
+      }
     }
   }
   fetch_anime_pending_.insert(id);
@@ -206,7 +208,8 @@ void Service::startNextFetchAnime() {
       fetch_anime_pending_.remove(id);
       if (emit_fin) emit mediaFetchFinished(id, success);
       if (retry_after_delay) {
-        QTimer::singleShot(2500, this, [this, id]() { fetchAnime(id); });
+        // Force: this id was already selected for a real Media query (skip would fake-succeed).
+        QTimer::singleShot(2500, this, [this, id]() { fetchAnime(id, true); });
       }
       startNextFetchAnime();
     };

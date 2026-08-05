@@ -33,6 +33,10 @@ struct AnnouncedRelatedScanSchedule {
 AnnouncedRelatedScanSchedule computeAnnouncedRelatedScanSchedule(qint64 now_secs,
                                                                  qint64 stale_after_secs);
 
+/// All list anchors (Watching/Planning/Completed) plus their current Sequel frontier ids.
+/// Used by the background sweep selection and by a manual full find (Check now).
+QVector<int> collectAnnouncedRelatedCandidateIds();
+
 /// Picks a small set of anime ids to refresh from AniList so sequel relations stay current.
 /// Strategy: include list anchors (Watching/Planning/Completed) with unknown or aged-out relation
 /// cache, and sequel frontier nodes with the same rules,

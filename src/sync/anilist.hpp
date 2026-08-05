@@ -41,7 +41,7 @@ public:
 
   void reloadBearerFromAccounts();
   void authenticateUser(ListFetchComplete on_complete = {});
-  void fetchAnime(const int id);
+  void fetchAnime(const int id, bool force = false);
   void search(const QString& query);
   void fetchSeasonBrowse(anime::SeasonName season, int year, ListFetchComplete on_complete = {});
   void fetchListEntries(ListFetchComplete on_complete = {});

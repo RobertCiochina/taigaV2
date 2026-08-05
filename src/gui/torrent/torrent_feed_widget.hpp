@@ -62,9 +62,9 @@ public:
                                  std::function<void(bool found)> on_done,
                                  const QString& fallback_title = {});
 
-  /// Higher-level auto-download: builds multiple title variants (English, romaji, season-code
-  /// abbreviations), tries them sequentially until RSS results are found, and saves the winning
-  /// title to settings so future calls for the same anime use it directly.
+  /// Higher-level auto-download: builds multiple title variants (season-qualified `SNN` first,
+  /// then bare English/romaji), tries them sequentially until RSS results are found, and saves the
+  /// winning title to settings so future calls for the same anime use it directly.
   /// `anime_id_cache` is the anime DB id used for caching (0 = skip cache).
   void downloadBestMatchWithFallbacks(const QString& english_title, const QString& romaji_title,
                                       const QString& folder_name,

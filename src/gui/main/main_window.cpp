@@ -559,6 +559,35 @@ void MainWindow::tryRunAnnouncedRelatedAfterStartup() {
   maybeRunAnnouncedRelatedRefresh();
 }
 
+void MainWindow::queueAnnouncedRelatedForcedFetches(const QVector<int>& ids) {
+  const qint64 now = QDateTime::currentSecsSinceEpoch();
+  m_last_announced_related_check_started_secs_ = now;
+  m_last_announced_related_fetch_count_ = ids.size();
+  m_announced_related_pending_ids_.clear();
+  for (const int id : ids) {
+    const Anime* a = anime::db.item(id);
+    const QString title = a ? announcedRelatedDiagTitle(*a) : QStringLiteral("?");
+    const qint64 age_days =
+        (a && a->relations_fetched_at > 0) ? (now - a->relations_fetched_at) / 86400 : -1;
+    track::appendLibraryEpisodeIndexCacheDebugLine(
+        QStringLiteral("announced_related: queue aid=%1 last_fetch_age_days=%2 title='%3'")
+            .arg(id)
+            .arg(age_days)
+            .arg(title));
+    m_announced_related_pending_ids_.insert(id);
+    sync::fetchAnimeForced(id);
+  }
+
+  if (!ids.isEmpty()) {
+    enqueueStatusMessage(tr("New seasons check: queued %1 refresh(es)…").arg(ids.size()), false);
+  }
+  if (m_announced_related_diff_timer_) m_announced_related_diff_timer_->start(6000);
+
+  // If nothing was queued (all up to date), arm the timer for the next title to expire.
+  // Otherwise the pending-empty handler re-arms once fetches complete.
+  if (ids.isEmpty()) rescheduleAnnouncedRelatedDueCheck();
+}
+
 void MainWindow::maybeRunAnnouncedRelatedRefresh() {
   if (startupBlockingActive()) return;
   if (m_announced_related_paused_) return;
@@ -579,44 +608,61 @@ void MainWindow::maybeRunAnnouncedRelatedRefresh() {
 
   taiga::session.setAnnouncedReleasesRelatedRefreshAtSecs(now);
 
-  // Always prefetch sequel media ids referenced by cached relations.
-  anime::prefetchMissingAnnouncedSequelMediaFromAnchors();
+  // Forced: bypass 24h redundant Media skip so relations_fetched_at actually updates.
+  anime::prefetchMissingAnnouncedSequelMediaFromAnchors(true);
 
-  // Full sweep of all stale ids (>30 days). Paced at 3s/req so rate-limit risk is minimal.
+  // Stale ids only (>30 days). Paced at 3s/req so rate-limit risk is minimal.
   constexpr qint64 kStaleAfter = anime::kAnnouncedRelatedStaleAfterSecs;
   const auto ids = anime::computeAnnouncedRelatedRefreshAnimeIds(std::numeric_limits<int>::max(),
                                                                  now, kStaleAfter);
-  m_last_announced_related_check_started_secs_ = now;
-  m_last_announced_related_fetch_count_ = ids.size();
   LOGW("announced_related: queued_refresh_ids={} stale_after_secs={}", static_cast<int>(ids.size()),
        static_cast<long long>(kStaleAfter));
   track::appendLibraryEpisodeIndexCacheDebugLine(
       QStringLiteral("announced_related: queued_refresh_ids=%1 stale_after_secs=%2")
           .arg(ids.size())
           .arg(kStaleAfter));
-  m_announced_related_pending_ids_.clear();
-  for (const int id : ids) {
-    const Anime* a = anime::db.item(id);
-    const QString title = a ? announcedRelatedDiagTitle(*a) : QStringLiteral("?");
-    const qint64 age_days =
-        (a && a->relations_fetched_at > 0) ? (now - a->relations_fetched_at) / 86400 : -1;
-    track::appendLibraryEpisodeIndexCacheDebugLine(
-        QStringLiteral("announced_related: queue aid=%1 last_fetch_age_days=%2 title='%3'")
-            .arg(id)
-            .arg(age_days)
-            .arg(title));
-    m_announced_related_pending_ids_.insert(id);
-    sync::fetchAnime(id);
+  queueAnnouncedRelatedForcedFetches(ids);
+}
+
+void MainWindow::runFullAnnouncedRelatedRefresh() {
+  if (startupBlockingActive()) {
+    enqueueStatusMessage(tr("New seasons check: wait until startup finishes…"), false);
+    return;
+  }
+  // Block only while a list sync is actually running/queued. The post-sync
+  // m_announced_related_paused_ cooldown is for automatic sweeps only.
+  if (m_list_sync_in_progress_ || m_list_sync_queued_) {
+    enqueueStatusMessage(tr("New seasons check: wait until list sync finishes…"), false);
+    return;
+  }
+  if (sync::currentServiceId() != sync::ServiceId::AniList) {
+    enqueueStatusMessage(tr("New seasons check requires AniList."), false);
+    return;
+  }
+  if (!m_announced_related_pending_ids_.isEmpty()) {
+    enqueueStatusMessage(tr("New seasons check: already in progress…"), false);
+    return;
   }
 
-  if (!ids.isEmpty()) {
-    enqueueStatusMessage(tr("New seasons check: queued %1 refresh(es)…").arg(ids.size()), false);
+  // Manual Check now cancels the post-sync auto-resume wait; a full find covers that work.
+  if (m_announced_related_paused_) {
+    m_announced_related_paused_ = false;
+    if (m_announced_related_resume_timer_) m_announced_related_resume_timer_->stop();
   }
-  if (m_announced_related_diff_timer_) m_announced_related_diff_timer_->start(6000);
 
-  // If nothing was queued (all up to date), arm the timer for the next title to expire.
-  // Otherwise the pending-empty handler re-arms once fetches complete.
-  if (ids.isEmpty()) rescheduleAnnouncedRelatedDueCheck();
+  const qint64 now = QDateTime::currentSecsSinceEpoch();
+  LOGW("announced_related: full_find now={}", static_cast<long long>(now));
+  track::appendLibraryEpisodeIndexCacheDebugLine(
+      QStringLiteral("announced_related: full_find now=%1").arg(now));
+
+  taiga::session.setAnnouncedReleasesRelatedRefreshAtSecs(now);
+  anime::prefetchMissingAnnouncedSequelMediaFromAnchors(true);
+
+  const auto ids = anime::collectAnnouncedRelatedCandidateIds();
+  LOGW("announced_related: full_find_queued={}", static_cast<int>(ids.size()));
+  track::appendLibraryEpisodeIndexCacheDebugLine(
+      QStringLiteral("announced_related: full_find_queued=%1").arg(ids.size()));
+  queueAnnouncedRelatedForcedFetches(ids);
 }
 
 void MainWindow::checkAnnouncedRelatedDiffAndNotify() {

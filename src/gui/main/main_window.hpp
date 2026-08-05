@@ -24,6 +24,7 @@
 #include <QPointer>
 #include <QQueue>
 #include <QSet>
+#include <QVector>
 #include <functional>
 #include <optional>
 #include <vector>
@@ -154,6 +155,8 @@ public slots:
   void openWatchOrderGuideForAnime(int anime_id);
   /// Refreshes the Announced releases page and Home banner after list/dismiss changes.
   void refreshAnnouncedReleasesSurfaces();
+  /// Force-refreshes all list anchors + sequel frontier from AniList (Check now).
+  void runFullAnnouncedRelatedRefresh();
   /// Sync + auto-download after the embedded list-page watch-order panel or modeless guide edits
   /// the list.
   void applyWatchNextListSideEffects();
@@ -248,6 +251,8 @@ private:
   void onAnnouncedRelatedResumeTimer();
   void tryRunAnnouncedRelatedAfterStartup();
   void maybeRunAnnouncedRelatedRefresh();
+  /// Queues forced Media fetches for `ids` and tracks them in m_announced_related_pending_ids_.
+  void queueAnnouncedRelatedForcedFetches(const QVector<int>& ids);
   void checkAnnouncedRelatedDiffAndNotify();
   void rescheduleAnnouncedRelatedDueCheck();
   void onAnnouncedRelatedDueTimer();

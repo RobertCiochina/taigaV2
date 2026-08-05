@@ -5,6 +5,7 @@
 #include "media/announced_related_refresh.hpp"
 
 #include <QDateTime>
+#include <QSet>
 #include <algorithm>
 
 #include "media/anime.hpp"
@@ -20,6 +21,8 @@ bool isAnchorStatus(const anime::list::Status s) {
   using anime::list::Status;
   return s == Status::Completed || s == Status::PlanToWatch || s == Status::Watching;
 }
+
+}  // namespace
 
 // The full anchor + sequel-frontier candidate set (no staleness filter), deduplicated.
 // Shared by the refresh sweep and the schedule/countdown so both reason over the same titles.
@@ -56,8 +59,6 @@ QVector<int> collectAnnouncedRelatedCandidateIds() {
 
   return out;
 }
-
-}  // namespace
 
 QVector<int> computeAnnouncedRelatedRefreshAnimeIds(const int max_count, const qint64 now_secs,
                                                     const qint64 stale_after_secs) {

@@ -18,14 +18,14 @@
 
 #pragma once
 
-#include <functional>
-
 #include <QNetworkRequestFactory>
 #include <QRestAccessManager>
 #include <QString>
+#include <functional>
 
 #include "media/anime_list.hpp"
 #include "media/anime_season.hpp"
+
 
 namespace sync {
 
@@ -57,12 +57,16 @@ QString serviceName(const ServiceId serviceId);
 QString serviceSlug(const ServiceId serviceId);
 
 void fetchAnime(const int id);
+/// Like `fetchAnime`, but AniList always performs a real Media query (bypasses the 24h
+/// redundant-fetch skip). Use for announced-related relation refreshes.
+void fetchAnimeForced(const int id);
 void saveListEntry(const ListEntry& entry);
 void deleteListEntry(int anime_id);
-/// Push any debounced list updates immediately (e.g. before exit). See `syncListUpdateDelaySeconds`.
+/// Push any debounced list updates immediately (e.g. before exit). See
+/// `syncListUpdateDelaySeconds`.
 void flushPendingListSaves();
-/// Downloads remote anime list when supported (AniList, MyAnimeList, Kitsu). Invokes on_complete on the thread
-/// that receives the HTTP reply (Qt main thread with default QNetworkAccessManager).
+/// Downloads remote anime list when supported (AniList, MyAnimeList, Kitsu). Invokes on_complete on
+/// the thread that receives the HTTP reply (Qt main thread with default QNetworkAccessManager).
 void fetchListEntries(std::function<void(bool ok, QString message)> on_complete = {});
 
 /// Downloads seasonal catalog titles from the active service into the local database.

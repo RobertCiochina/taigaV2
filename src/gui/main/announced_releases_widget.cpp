@@ -91,6 +91,14 @@ AnnouncedReleasesWidget::AnnouncedReleasesWidget(QWidget* parent) : QWidget(pare
   outer->addWidget(hint);
 
   auto* top = new QHBoxLayout();
+  auto* checkNow = new QPushButton(QApplication::translate("AnnouncedReleases", "Check now"), this);
+  checkNow->setToolTip(QApplication::translate(
+      "AnnouncedReleases",
+      "Force-refreshes all list anchors and their sequel links from AniList now."));
+  connect(checkNow, &QPushButton::clicked, this, []() {
+    if (MainWindow* mw = mainWindow()) mw->runFullAnnouncedRelatedRefresh();
+  });
+  top->addWidget(checkNow);
   auto* addAll =
       new QPushButton(QApplication::translate("AnnouncedReleases", "Add all to Planning"), this);
   addAll->setToolTip(QApplication::translate("AnnouncedReleases",
@@ -237,7 +245,8 @@ void AnnouncedReleasesWidget::updateScanScheduleLabel() {
     text = QApplication::translate(
                "AnnouncedReleases",
                "<b>%1</b> of %2 related title(s) are due for a refresh now — they'll all be "
-               "refreshed together (~3s each) on the next sync-triggered scan.")
+               "refreshed together (~3s each) on the next sync-triggered scan. "
+               "Or use <b>Check now</b> for an immediate full find.")
                .arg(s.due_now_count)
                .arg(s.total_count);
   } else if (s.next_due_secs > 0) {
@@ -245,12 +254,15 @@ void AnnouncedReleasesWidget::updateScanScheduleLabel() {
     text = QApplication::translate(
                "AnnouncedReleases",
                "All %1 related titles are up to date. Next one becomes due in <b>%2</b> (%3); "
-               "each title refreshes on its own 30-day cadence.")
+               "each title refreshes on its own 30-day cadence. "
+               "Use <b>Check now</b> to force-refresh all anchors immediately.")
                .arg(s.total_count)
                .arg(formatCountdown(s.next_due_secs - now),
                     when.toString(QStringLiteral("ddd, MMM d, HH:mm")));
   } else {
-    text = QApplication::translate("AnnouncedReleases", "Tracking %1 related title(s).")
+    text = QApplication::translate(
+               "AnnouncedReleases",
+               "Tracking %1 related title(s). Use <b>Check now</b> to force-refresh.")
                .arg(s.total_count);
   }
 

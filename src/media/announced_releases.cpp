@@ -114,9 +114,12 @@ bool hasAnnouncedSequelAnchorsAwaitingMediaFetch() {
   return !missingSequelIdsFromAnnouncedAnchors().isEmpty();
 }
 
-void prefetchMissingAnnouncedSequelMediaFromAnchors() {
+void prefetchMissingAnnouncedSequelMediaFromAnchors(const bool force) {
   for (const int sid : missingSequelIdsFromAnnouncedAnchors()) {
-    sync::fetchAnime(sid);
+    if (force)
+      sync::fetchAnimeForced(sid);
+    else
+      sync::fetchAnime(sid);
   }
 }
 
