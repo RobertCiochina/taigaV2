@@ -48,7 +48,7 @@
 #include "taiga/version.hpp"
 #include "track/library_watcher.hpp"
 #include "track/media.hpp"
-
+#include "track/scanner.hpp"
 
 namespace taiga {
 
@@ -141,12 +141,13 @@ int Application::run() {
     QEventLoop loop;
     // QueuedConnection: if the signal is emitted synchronously before exec(), DirectConnection
     // would call quit() too early and the nested loop can stay running forever.
-    QObject::connect(window_.get(), &gui::MainWindow::listSyncFinished, &loop,
-                     [&loop, &startup_sync_ok](const bool ok, const QString&) {
-                       startup_sync_ok = ok;
-                       loop.quit();
-                     },
-                     Qt::QueuedConnection);
+    QObject::connect(
+        window_.get(), &gui::MainWindow::listSyncFinished, &loop,
+        [&loop, &startup_sync_ok](const bool ok, const QString&) {
+          startup_sync_ok = ok;
+          loop.quit();
+        },
+        Qt::QueuedConnection);
     window_->startListSynchronization(false);
     loop.exec();
   }
@@ -154,28 +155,72 @@ int Application::run() {
   // 2) One scan after sync.
   // If scan-on-startup is disabled, we still run this scan when startup sync ran successfully.
   // If scan-on-startup is enabled, we also only scan here (no pre-sync scan).
+  // Always ensure an episode index exists before auto-download (cache load and/or scan).
+  bool scanned_after_sync = false;
   const bool should_scan_after_sync =
       taiga::settings.scanLibraryOnStartup() || (startup_sync_ran && startup_sync_ok);
   if (should_scan_after_sync) {
     setStep(QObject::tr("Scanning library…"));
     QEventLoop loop;
-    QObject::connect(window_.get(), &gui::MainWindow::libraryScanFinished, &loop,
-                     [&loop](const QString& reason, const QString&) {
-                       if (reason == QStringLiteral("startup-post-sync")) loop.quit();
-                     },
-                     Qt::QueuedConnection);
+    QObject::connect(
+        window_.get(), &gui::MainWindow::libraryScanFinished, &loop,
+        [&loop](const QString& reason, const QString&) {
+          if (reason == QStringLiteral("startup-post-sync")) loop.quit();
+        },
+        Qt::QueuedConnection);
     window_->runStartupPostSyncScan();
     loop.exec();
+    scanned_after_sync = true;
   }
 
-  // 3) Startup auto-download (only if sync succeeded when it ran, and scan produced an index).
-  if (!startup_sync_ran || startup_sync_ok) {
+  // 3) Startup auto-download.
+  // Always run against the local Watching list (even if sync failed) so missing episodes are still
+  // queued. Report the outcome on the splash — a 0-candidate run finishes instantly and was easy
+  // to miss / previously skipped entirely when sync failed.
+  {
+    if (!track::libraryScanHasResults() && !scanned_after_sync) {
+      setStep(QObject::tr("Scanning library…"));
+      QEventLoop loop;
+      QObject::connect(
+          window_.get(), &gui::MainWindow::libraryScanFinished, &loop,
+          [&loop](const QString& reason, const QString&) {
+            if (reason == QStringLiteral("startup-post-sync")) loop.quit();
+          },
+          Qt::QueuedConnection);
+      window_->runStartupPostSyncScan();
+      loop.exec();
+    }
+
     setStep(QObject::tr("Auto-downloading new episodes…"));
+    int torrents_sent = 0;
+    int anime_total = 0;
     QEventLoop dlLoop;
-    QObject::connect(window_.get(), &gui::MainWindow::autoDownloadFinished, &dlLoop,
-                     [&dlLoop](int, int) { dlLoop.quit(); }, Qt::QueuedConnection);
+    QObject::connect(
+        window_.get(), &gui::MainWindow::autoDownloadFinished, &dlLoop,
+        [&dlLoop, &torrents_sent, &anime_total](const int sent, const int total) {
+          torrents_sent = sent;
+          anime_total = total;
+          dlLoop.quit();
+        },
+        Qt::QueuedConnection);
     window_->runAutoDownload(/*silent=*/true);
     dlLoop.exec();
+
+    if (anime_total <= 0) {
+      setStep(QObject::tr("Auto-download: nothing to fetch"));
+      splash->appendLine(QObject::tr("No Watching titles need episode downloads right now."));
+    } else {
+      setStep(QObject::tr("Auto-download: %1/%2 sent").arg(torrents_sent).arg(anime_total));
+      splash->appendLine(QObject::tr("Auto-download finished: %1 torrent(s) sent for %2 anime.")
+                             .arg(torrents_sent)
+                             .arg(anime_total));
+    }
+    // Keep the summary visible briefly so a fast no-op run is still readable.
+    {
+      QEventLoop pause;
+      QTimer::singleShot(900, &pause, &QEventLoop::quit);
+      pause.exec();
+    }
   }
 
   // 4) Update check (network only) before first show; prompt after show if needed.

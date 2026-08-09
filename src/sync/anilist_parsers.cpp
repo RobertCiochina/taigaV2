@@ -183,6 +183,11 @@ std::optional<Anime> parseMedia(const QJsonValue& json) {
     item.next_episode_time = static_cast<std::time_t>(next_ep["airingAt"].toVariant().toLongLong());
   } else {
     item.next_episode_time = 0;
+    // Finished / unscheduled: nextAiringEpisode is null, so without this last_aired stays 0 and
+    // auto-download would skip titles that already aired all episodes.
+    if (item.episode_count > 0) {
+      item.last_aired_episode = item.episode_count;
+    }
   }
 
   // Relations (only when Media.gql includes `relations`; list/search omit this field).

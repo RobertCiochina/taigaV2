@@ -21,6 +21,7 @@
 #include <QApplication>
 #include <QMap>
 #include <QTimer>
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <unordered_map>
@@ -35,7 +36,6 @@
 #include "taiga/accounts.hpp"
 #include "taiga/network.hpp"
 #include "taiga/settings.hpp"
-
 
 namespace {
 
@@ -78,6 +78,9 @@ namespace sync {
 
 Service::Service() : QObject{qApp}, manager_{taiga::network()} {
   api_.setCommonHeaders(taiga::NetworkAccessManager::commonHeaders());
+  // Full list sync (especially AniList MediaListCollection) often exceeds the NAM's default 10s
+  // transfer timeout; Qt then aborts with "Operation canceled".
+  api_.setTransferTimeout(std::chrono::seconds{120});
 }
 
 ServiceId currentServiceId() {

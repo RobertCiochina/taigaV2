@@ -1,6 +1,8 @@
 #include <QDateTime>
 #include <QTest>
+#include <chrono>
 
+#include "base/chrono.hpp"
 #include "media/anime.hpp"
 #include "media/anime_utils.hpp"
 #include "taiga/auto_download_rules.hpp"
@@ -29,6 +31,36 @@ private slots:
     item.episode_count = 12;
     item.last_aired_episode = 0;
     item.next_episode_time = 0;
+
+    const int watched = 1;
+    const std::int64_t now = 123456;
+    QCOMPARE(taiga::computeLastAiredEpisodeForAutoDownload(item, watched, now), 12);
+  }
+
+  void finished_airing_prefers_episode_count_over_stale_last_aired() {
+    anime::Details item;
+    item.status = anime::Status::FinishedAiring;
+    item.episode_count = 12;
+    // Mid-season value left behind when the show finished without a recount.
+    item.last_aired_episode = 5;
+    item.next_episode_time = 0;
+
+    const int watched = 1;
+    const std::int64_t now = 123456;
+    QCOMPARE(taiga::computeLastAiredEpisodeForAutoDownload(item, watched, now), 12);
+  }
+
+  void date_finished_implied_finished_uses_episode_count() {
+    anime::Details item;
+    // Stale/unknown service status, but end date is clearly in the past.
+    item.status = anime::Status::Unknown;
+    item.episode_count = 12;
+    item.last_aired_episode = 0;
+    item.next_episode_time = 0;
+    item.date_started =
+        FuzzyDate{std::chrono::year{2020}, std::chrono::month{1}, std::chrono::day{1}};
+    item.date_finished =
+        FuzzyDate{std::chrono::year{2020}, std::chrono::month{3}, std::chrono::day{1}};
 
     const int watched = 1;
     const std::int64_t now = 123456;
@@ -76,8 +108,8 @@ private slots:
 
   void redundant_media_fetch_not_when_stale() {
     anime::Details item;
-    item.last_modified = static_cast<std::time_t>(
-        QDateTime::currentSecsSinceEpoch() - anime::kRedundantMediaFetchTtlSeconds - 10);
+    item.last_modified = static_cast<std::time_t>(QDateTime::currentSecsSinceEpoch() -
+                                                  anime::kRedundantMediaFetchTtlSeconds - 10);
     item.relations.push_back({1, anime::RelationType::Sequel});
     QVERIFY(!anime::shouldSkipRedundantMediaFetch(item));
   }
@@ -88,4 +120,3 @@ private slots:
 QTEST_MAIN(taiga::test::AutoDownloadRulesTest)
 
 #include "test_auto_download_rules.moc"
-

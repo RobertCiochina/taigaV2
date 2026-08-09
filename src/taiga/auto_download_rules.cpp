@@ -1,11 +1,20 @@
 #include "auto_download_rules.hpp"
 
+#include <algorithm>
+
 #include "media/anime.hpp"
+#include "media/anime_utils.hpp"
 
 namespace taiga {
 
 int computeLastAiredEpisodeForAutoDownload(const anime::Details& item, const int watched_episodes,
-                                          const std::int64_t now_secs) {
+                                           const std::int64_t now_secs) {
+  // Finished airing: prefer the known episode total over a stale mid-season last_aired value
+  // left behind when nextAiringEpisode became null without a full recount.
+  if (anime::isFinishedAiring(item) && item.episode_count > 0) {
+    return std::max(item.last_aired_episode, item.episode_count);
+  }
+
   // If the service provides a last-aired value, trust it.
   if (item.last_aired_episode > 0) return item.last_aired_episode;
 
@@ -14,14 +23,8 @@ int computeLastAiredEpisodeForAutoDownload(const anime::Details& item, const int
     return watched_episodes;
   }
 
-  // If the show is finished airing, episode_count is a safe upper bound when known.
-  if (item.status == anime::Status::FinishedAiring && item.episode_count > 0) {
-    return item.episode_count;
-  }
-
   // Missing schedule metadata: don't assume future episodes aired.
   return watched_episodes;
 }
 
 }  // namespace taiga
-

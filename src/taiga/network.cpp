@@ -36,6 +36,9 @@ namespace taiga {
 
 NetworkAccessManager::NetworkAccessManager(QObject* parent) : QNetworkAccessManager{parent} {
   setAutoDeleteReplies(true);
+  // Keep a short default for RSS/UI fetches. Long service calls (list sync, qBit) override
+  // per-request / via QNetworkRequestFactory — otherwise AniList MediaListCollection aborts with
+  // "Operation canceled" after 10s.
   setTransferTimeout(std::chrono::seconds{10});
 
   connect(this, &QNetworkAccessManager::finished, this, [](QNetworkReply* reply) {
@@ -49,7 +52,8 @@ NetworkAccessManager::NetworkAccessManager(QObject* parent) : QNetworkAccessMana
   });
 }
 
-QNetworkReply* NetworkAccessManager::createRequest(const Operation op, const QNetworkRequest& original,
+QNetworkReply* NetworkAccessManager::createRequest(const Operation op,
+                                                   const QNetworkRequest& original,
                                                    QIODevice* outgoingData) {
   QNetworkRequest req{original};
 #if !defined(QT_NO_SSL)

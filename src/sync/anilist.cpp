@@ -18,13 +18,21 @@
 
 #include "anilist.hpp"
 
+#include <QCoreApplication>
 #include <QDateTime>
+#include <QEventLoop>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonParseError>
+#include <QPointer>
 #include <QRestReply>
+#include <QRunnable>
+#include <QThreadPool>
 #include <QTimer>
 #include <ranges>
+#include <utility>
+#include <vector>
 
 #include "base/file.hpp"
 #include "base/log.hpp"
@@ -434,46 +442,110 @@ void Service::fetchListEntries(ListFetchComplete on_complete) {
       return;
     }
 
-    const auto doc = reply.readJson();
-    if (!doc.has_value()) {
+    // Read raw bytes now — QRestReply is invalid after this callback returns. Heavy JSON parse +
+    // media mapping runs off the UI thread so startup sync does not freeze / trip "not responding".
+    const QByteArray body = reply.readBody();
+    if (body.isEmpty()) {
       finish(false, QStringLiteral("Empty response."));
       return;
     }
 
-    const auto root = doc->object();
-    if (const auto errors = root["errors"]; errors.isArray() && !errors.toArray().isEmpty()) {
-      const auto msg = errors.toArray().first().toObject()["message"].toString();
-      handleError(reply, msg);
-      finish(false, msg);
-      return;
-    }
+    struct ParsedList {
+      std::vector<Anime> items;
+      std::vector<ListEntry> entries;
+      QString error;
+    };
 
-    const auto collection = root["data"].toObject()["MediaListCollection"].toObject();
-    const auto lists = collection["lists"].toArray();
-    int count = 0;
-    anime::db.beginBatch();
-    for (const auto& listVal : lists) {
-      const auto entries = listVal.toObject()["entries"].toArray();
-      for (const auto& entryVal : entries) {
-        const auto entryObj = entryVal.toObject();
-        if (entryObj.isEmpty()) continue;
+    struct ParseJob final : public QRunnable {
+      QByteArray body;
+      ListFetchComplete finish;
+      QPointer<Service> service;
 
-        const auto media = entryObj["media"].toObject();
-        if (!media.isEmpty()) {
-          if (const auto item = parseMedia(QJsonValue(media))) {
-            anime::db.updateItem(*item);
+      void run() override {
+        ParsedList parsed;
+        QJsonParseError perr{};
+        const QJsonDocument doc = QJsonDocument::fromJson(body, &perr);
+        body.clear();  // free network buffer before building item vectors
+        if (doc.isNull()) {
+          parsed.error =
+              perr.errorString().isEmpty() ? QStringLiteral("Invalid JSON.") : perr.errorString();
+        } else {
+          const QJsonObject root = doc.object();
+          if (const auto errors = root.value(QStringLiteral("errors"));
+              errors.isArray() && !errors.toArray().isEmpty()) {
+            parsed.error =
+                errors.toArray().first().toObject().value(QStringLiteral("message")).toString();
+            if (parsed.error.isEmpty()) parsed.error = QStringLiteral("AniList API error");
+          } else {
+            const auto lists = root.value(QStringLiteral("data"))
+                                   .toObject()
+                                   .value(QStringLiteral("MediaListCollection"))
+                                   .toObject()
+                                   .value(QStringLiteral("lists"))
+                                   .toArray();
+            parsed.items.reserve(static_cast<size_t>(lists.size()) * 50);
+            parsed.entries.reserve(static_cast<size_t>(lists.size()) * 50);
+            for (const auto& listVal : lists) {
+              const auto entries = listVal.toObject().value(QStringLiteral("entries")).toArray();
+              for (const auto& entryVal : entries) {
+                const auto entryObj = entryVal.toObject();
+                if (entryObj.isEmpty()) continue;
+
+                const auto media = entryObj.value(QStringLiteral("media")).toObject();
+                if (!media.isEmpty()) {
+                  if (const auto item = parseMedia(QJsonValue(media))) {
+                    parsed.items.push_back(*item);
+                  }
+                }
+
+                if (const auto e = parseMediaListEntry(entryObj, 0)) {
+                  parsed.entries.push_back(*e);
+                }
+              }
+            }
           }
         }
 
-        if (const auto parsed = parseMediaListEntry(entryObj, 0)) {
-          anime::db.updateEntry(*parsed);
-          ++count;
-        }
-      }
-    }
-    anime::db.endBatch();
+        QMetaObject::invokeMethod(
+            service ? static_cast<QObject*>(service.data()) : qApp,
+            [parsed = std::move(parsed), finish = std::move(finish)]() mutable {
+              if (!parsed.error.isEmpty()) {
+                LOGE("{}", parsed.error.toStdString());
+                finish(false, parsed.error);
+                return;
+              }
 
-    finish(true, QStringLiteral("%1 entries updated").arg(count));
+              // Apply in a transaction on the GUI thread (QObject/SQLite affinity), yielding so the
+              // splash stays responsive for large lists.
+              anime::db.beginBatch();
+              constexpr int kYieldEvery = 64;
+              int n = 0;
+              for (const auto& item : parsed.items) {
+                anime::db.updateItem(item);
+                if ((++n % kYieldEvery) == 0) {
+                  QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+                }
+              }
+              for (const auto& entry : parsed.entries) {
+                anime::db.updateEntry(entry);
+                if ((++n % kYieldEvery) == 0) {
+                  QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+                }
+              }
+              const int count = static_cast<int>(parsed.entries.size());
+              anime::db.endBatch();
+              finish(true, QStringLiteral("%1 entries updated").arg(count));
+            },
+            Qt::QueuedConnection);
+      }
+    };
+
+    auto* job = new ParseJob();
+    job->setAutoDelete(true);
+    job->body = body;
+    job->finish = finish;
+    job->service = this;
+    QThreadPool::globalInstance()->start(job);
   };
 
   manager_.post(api_.createRequest(), data, this, callback);

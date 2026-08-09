@@ -38,6 +38,15 @@ void commitListEntryLocalAndMaybeRemote(const ListEntry& entry, QWidget* context
     maybeOfferNextSequelAfterCompletion(entry.anime_id);
   }
 
+  // Any transition into Watching (What to watch next, media dialog/menu, now-playing, etc.):
+  // schedule a coalesced silent auto-download for missing aired episodes.
+  if (entry.anime_id > 0 && prev_status != anime::list::Status::Watching &&
+      entry.status == anime::list::Status::Watching) {
+    if (MainWindow* mw = mainWindow()) {
+      mw->scheduleAutoDownloadAfterWatchingChange();
+    }
+  }
+
   if (!taiga::settings.listSynchronizationEnabled()) return;
   if (!sync::remoteListAccessConfigured()) return;
 

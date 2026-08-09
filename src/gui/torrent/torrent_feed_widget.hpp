@@ -97,6 +97,13 @@ private:
     int ui_row = -1;  // row in queue list widget
   };
 
+  struct PendingQBitAdd {
+    QString torrent_url;
+    QString save_path;
+    std::function<void(bool ok, QString error)> on_done;
+    bool interactive = true;
+  };
+
   void cancelPending();
   /// Aborts `m_bg_fetch_reply_` and fails any queued best-match waiters (superseded fetches).
   void abortBackgroundRss();
@@ -124,13 +131,17 @@ private:
   QString m_bg_best_match_key_;
   QVector<BestMatchWaiter> m_bg_best_match_waiters_;
 
-  /// qBittorrent Web API: send a magnet/torrent URL with a target save path.
+  /// qBittorrent Web API: enqueue a magnet/torrent URL add (processed one at a time).
   /// Authenticates first if username/password are set, then POSTs to /api/v2/torrents/add.
   /// When `interactive` is false (auto-download / silent), never show blocking credential or
   /// guidance dialogs — fail via `on_done` so callers can continue without hanging startup.
   void addTorrentViaQBitApi(const QString& torrent_url, const QString& save_path,
                             std::function<void(bool ok, QString error)> on_done,
                             bool interactive = true);
+  void startNextQBitAdd();
+  void performQBitAdd(PendingQBitAdd job, quint64 generation);
+  void cancelPendingQBitAdds();
+  void updateQBitCancelButton();
 
   QLineEdit* m_query_edit_ = nullptr;
   QLineEdit* m_filter_edit_ = nullptr;
@@ -157,6 +168,9 @@ private:
   QQueue<PendingTorrentSave> m_save_queue_;
   int m_save_queue_total_ = 0;
   QString m_save_queue_dir_;
+  QQueue<PendingQBitAdd> m_qbit_add_queue_;
+  bool m_qbit_add_active_ = false;
+  quint64 m_qbit_add_generation_ = 0;
   FetchKind m_active_fetch_ = FetchKind::None;
   // When the primary search returns 0 results, the fallback title is tried once.
   QString m_search_fallback_title_;

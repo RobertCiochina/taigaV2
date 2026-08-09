@@ -336,9 +336,9 @@ void MainWindow::initUi(const bool startup_blocking) {
   connect(m_status_message_timer_, &QTimer::timeout, this,
           &MainWindow::showNextQueuedStatusMessage);
 
-  // Load last-known library availability index as early as possible so Home "Up next" can populate
-  // immediately when the first page is initialized (before any startup scan runs).
-  if (taiga::settings.scanLibraryOnStartup()) {
+  // Load last-known library availability index as early as possible so Home "Up next" and startup
+  // auto-download can use it even before a scan runs (or when scan-on-startup is disabled).
+  {
     const bool ok = track::loadLibraryEpisodeIndexCache();
     // We can't use the status bar yet (initStatusbar runs later). Stash a short note now and show
     // it once the UI is ready.
@@ -1857,12 +1857,6 @@ void MainWindow::startListSynchronization(const bool queue_if_busy) {
 void MainWindow::handleListSyncFinished(bool ok, QString message) {
   m_list_sync_in_progress_ = false;
   refreshSyncActionState();
-  if (m_post_sync_auto_download_) {
-    m_post_sync_auto_download_ = false;
-    if (ok) {
-      QTimer::singleShot(0, this, [this]() { runAutoDownload(true); });
-    }
-  }
   if (ok) {
     // Invalidate the recognition cache so newly-synced titles are indexed
     // on the next library scan / media-detection lookup.
@@ -2112,6 +2106,12 @@ void MainWindow::runLibraryScan(const bool startup_silent, const LibraryScanReas
             }
             if (w->m_delayed_autodl_after_scan_pending_) {
               w->m_delayed_autodl_after_scan_pending_ = false;
+              QTimer::singleShot(0, w.data(), [w]() {
+                if (w) w->runAutoDownload(true);
+              });
+            }
+            if (w->m_watching_change_autodl_after_scan_pending_) {
+              w->m_watching_change_autodl_after_scan_pending_ = false;
               QTimer::singleShot(0, w.data(), [w]() {
                 if (w) w->runAutoDownload(true);
               });
@@ -2378,8 +2378,10 @@ void MainWindow::runAutoDownload(const bool silent) {
     // Movies are excluded from auto-download RSS (manual torrent search only).
     if (item->type == anime::Type::Movie) continue;
     const qint64 now_secs = QDateTime::currentSecsSinceEpoch();
-    const int watched =
-        std::max(entry.watched_episodes, anime::history().maxRecordedEpisodeForAnime(anime_id));
+    // Use list progress only. History can still show the previous watch-through after a rewatch /
+    // season catch-up (watched_episodes reset), which would incorrectly skip all downloads.
+    // Disk presence is checked separately via libraryHasLocalEpisode below.
+    const int watched = entry.watched_episodes;
     const int raw_last = taiga::computeLastAiredEpisodeForAutoDownload(*item, watched, now_secs);
     const int last_aired = track::toListLastAiredEpisode(*item, raw_last);
     if (last_aired <= watched) continue;
@@ -3272,13 +3274,37 @@ void MainWindow::showLibraryFoldersDialog() {
 }
 
 void MainWindow::applyWatchNextListSideEffects() {
-  if (sync::currentServiceId() != sync::ServiceId::Unknown &&
-      taiga::settings.listSynchronizationEnabled()) {
-    m_post_sync_auto_download_ = true;
-    startListSynchronization();
-  } else {
-    runAutoDownload(true);
+  // Local UI only. Do not full-pull the remote list here: a pending/delayed status push can still
+  // show Planning remotely, and the pull would wipe the new Watching row before auto-download.
+  // Auto-download is scheduled by commitListEntryLocalAndMaybeRemote on Watching transitions.
+  refreshNavigationSidebar();
+  refreshHomeDashboard();
+  if (m_listWidget) m_listWidget->reloadAnimeList();
+  if (m_searchWidget) m_searchWidget->reloadAnimeList();
+  refreshAnnouncedReleasesSurfaces();
+}
+
+void MainWindow::scheduleAutoDownloadAfterWatchingChange() {
+  if (startupBlockingActive()) return;
+  if (!m_watching_change_autodl_timer_) {
+    m_watching_change_autodl_timer_ = new QTimer(this);
+    m_watching_change_autodl_timer_->setSingleShot(true);
+    connect(m_watching_change_autodl_timer_, &QTimer::timeout, this,
+            &MainWindow::beginWatchingChangeAutoDownloadRun);
   }
+  // Restart so bulk "Add all Watching" coalesces to one run after the last commit.
+  m_watching_change_autodl_timer_->start(750);
+}
+
+void MainWindow::beginWatchingChangeAutoDownloadRun() {
+  if (startupBlockingActive()) return;
+  if (!track::libraryScanHasResults()) {
+    m_watching_change_autodl_after_scan_pending_ = true;
+    enqueueStatusMessage(tr("Auto-download: scanning library…"), false);
+    runLibraryScan(true, LibraryScanReason::DelayedAutoDownload);
+    return;
+  }
+  runAutoDownload(true);
 }
 
 void MainWindow::ensureWatchOrderGuideWindow() {

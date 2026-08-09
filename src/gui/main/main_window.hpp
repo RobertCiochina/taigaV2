@@ -157,9 +157,11 @@ public slots:
   void refreshAnnouncedReleasesSurfaces();
   /// Force-refreshes all list anchors + sequel frontier from AniList (Check now).
   void runFullAnnouncedRelatedRefresh();
-  /// Sync + auto-download after the embedded list-page watch-order panel or modeless guide edits
-  /// the list.
+  /// Local UI refresh after watch-order / What to watch next list edits.
+  /// Auto-download is triggered by Watching transitions in list commit.
   void applyWatchNextListSideEffects();
+  /// Coalesced silent auto-download after a local list entry becomes Watching.
+  void scheduleAutoDownloadAfterWatchingChange();
 
 signals:
   void listSyncFinished(bool ok, const QString& message);
@@ -215,6 +217,7 @@ private:
   void scheduleDelayedAutoDownload(int delay_minutes);
   void cancelDelayedAutoDownload(const QString& reason);
   void beginDelayedAutoDownloadRun();
+  void beginWatchingChangeAutoDownloadRun();
   void updateAutoDownloadActionLabel();
   void checkWatchingReleaseEvent();
   void initFeatureToggleActions();
@@ -274,6 +277,7 @@ private:
   QTimer* m_home_countdown_timer_ = nullptr;  // light periodic tick for toolbar label refresh
   QTimer* m_release_event_timer_ = nullptr;   // lightweight release-event detection
   QTimer* m_delayed_autodl_timer_ = nullptr;  // single-shot delayed auto-download
+  QTimer* m_watching_change_autodl_timer_ = nullptr;  // coalesce Watching-transition autodl
   QTimer* m_home_qbit_poll_timer_ = nullptr;
   QTimer* m_announced_related_resume_timer_ = nullptr;  // post-sync delay before refresh
   QTimer* m_announced_related_diff_timer_ = nullptr;    // debounce candidate diff + notify
@@ -307,10 +311,10 @@ private:
   bool m_library_scan_in_progress_ = false;
   bool m_list_sync_in_progress_ = false;
   bool m_list_sync_queued_ = false;
-  bool m_post_sync_auto_download_ = false;
   bool m_startup_auto_download_pending_ = false;
   bool m_delayed_autodl_after_sync_pending_ = false;
   bool m_delayed_autodl_after_scan_pending_ = false;
+  bool m_watching_change_autodl_after_scan_pending_ = false;
   qint64 m_delayed_autodl_scheduled_at_secs_ = 0;
   qint64 m_last_release_event_trigger_secs_ = 0;
   qint64 m_last_announced_related_check_started_secs_ = 0;

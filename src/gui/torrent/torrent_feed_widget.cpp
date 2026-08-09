@@ -928,7 +928,7 @@ TorrentFeedWidget::TorrentFeedWidget(QLineEdit* toolbar_query_edit, QWidget* par
     hdr->setSectionResizeMode(QHeaderView::Interactive);
   };
 
-  const auto init_view = [this, apply_header_policy](QTreeView* v, QAbstractItemModel* model) {
+  const auto init_view = [apply_header_policy](QTreeView* v, QAbstractItemModel* model) {
     if (!v) return;
     v->setFrameShape(QFrame::Shape::NoFrame);
     v->setAlternatingRowColors(true);
@@ -1007,7 +1007,7 @@ TorrentFeedWidget::TorrentFeedWidget(QLineEdit* toolbar_query_edit, QWidget* par
 
   m_hdr_sync_timer_ = new QTimer(this);
   m_hdr_sync_timer_->setSingleShot(true);
-  connect(m_hdr_sync_timer_, &QTimer::timeout, this, [this]() {
+  connect(m_hdr_sync_timer_, &QTimer::timeout, this, []() {
     // Intentionally no-op: we only store the most recent header state in m_hdr_sync_state_.
   });
 
@@ -1123,16 +1123,14 @@ TorrentFeedWidget::TorrentFeedWidget(QLineEdit* toolbar_query_edit, QWidget* par
       const auto sent = std::make_shared<int>(0);
       for (const auto& it : items) {
         const QString save_path = resolvedTorrentDownloadDirForSavedTorrent(it.folder);
-        addTorrentViaQBitApi(it.url, save_path,
-                             [this, it, sent, total](bool ok, const QString& err) {
-                               if (!err.isEmpty())
-                                 taiga::userFeedback(QStringLiteral("qBit: ") + err, true);
-                               if (ok && ++(*sent) == total) {
-                                 if (auto* mw = mainWindow())
-                                   mw->statusBar()->showMessage(
-                                       tr("Sent %1 torrent(s) to qBittorrent.").arg(total), 6000);
-                               }
-                             });
+        addTorrentViaQBitApi(it.url, save_path, [sent, total](bool ok, const QString& err) {
+          if (!err.isEmpty()) taiga::userFeedback(QStringLiteral("qBit: ") + err, true);
+          if (ok && ++(*sent) == total) {
+            if (auto* mw = mainWindow())
+              mw->statusBar()->showMessage(tr("Sent %1 torrent(s) to qBittorrent.").arg(total),
+                                           6000);
+          }
+        });
       }
       return;
     }
@@ -1263,7 +1261,7 @@ TorrentFeedWidget::TorrentFeedWidget(QLineEdit* toolbar_query_edit, QWidget* par
       const auto sent = std::make_shared<int>(0);
       for (const auto& t : targets) {
         const QString save_path = resolvedTorrentDownloadDirForSavedTorrent(t.folder);
-        addTorrentViaQBitApi(t.url, save_path, [this, t, sent, total](bool ok, const QString& err) {
+        addTorrentViaQBitApi(t.url, save_path, [t, sent, total](bool ok, const QString& err) {
           if (!err.isEmpty()) taiga::userFeedback(QStringLiteral("qBit: ") + err, true);
           if (ok) {
             ++(*sent);
@@ -1326,8 +1324,8 @@ TorrentFeedWidget::TorrentFeedWidget(QLineEdit* toolbar_query_edit, QWidget* par
   const auto wire_view = [this](QTreeView* view) {
     if (!view) return;
 
-    connect(view, &QAbstractItemView::doubleClicked, this, [this](const QModelIndex& idx) {
-      const QString primary = primaryUrlForIndex(idx);
+    connect(view, &QAbstractItemView::doubleClicked, this, [](const QModelIndex& idx) {
+      const QString primary = TorrentFeedWidget::primaryUrlForIndex(idx);
       if (!primary.isEmpty()) openPrimaryTorrentUrl(primary);
     });
 
@@ -1447,7 +1445,7 @@ TorrentFeedWidget::TorrentFeedWidget(QLineEdit* toolbar_query_edit, QWidget* par
           if (!link_for_client.isEmpty()) {
             menu->addAction(
                 tr("Launch configured torrent client with this link"), this,
-                [this, exe, link_for_client]() {
+                [exe, link_for_client]() {
                   if (!QProcess::startDetached(exe, QStringList{link_for_client})) {
                     taiga::userFeedback(
                         tr("Could not start the torrent client executable. Check the path in "
@@ -1493,8 +1491,80 @@ TorrentFeedWidget::TorrentFeedWidget(QLineEdit* toolbar_query_edit, QWidget* par
 void TorrentFeedWidget::addTorrentViaQBitApi(const QString& torrent_url, const QString& save_path,
                                              std::function<void(bool ok, QString error)> on_done,
                                              const bool interactive) {
+  // Serial queue: parallel adds overload Qt's per-host connection limit and hit the global
+  // transfer timeout, so later episodes fail until the next auto-download retry.
+  PendingQBitAdd job;
+  job.torrent_url = torrent_url;
+  job.save_path = save_path;
+  job.on_done = std::move(on_done);
+  job.interactive = interactive;
+  m_qbit_add_queue_.enqueue(std::move(job));
+  updateQBitCancelButton();
+  startNextQBitAdd();
+}
+
+void TorrentFeedWidget::updateQBitCancelButton() {
+  if (!m_btn_cancel_downloads_) return;
+  const bool busy = m_qbit_add_active_ || !m_qbit_add_queue_.isEmpty() || m_save_reply_ ||
+                    !m_save_queue_.isEmpty();
+  m_btn_cancel_downloads_->setEnabled(busy);
+}
+
+void TorrentFeedWidget::startNextQBitAdd() {
+  if (m_qbit_add_active_) return;
+  if (m_qbit_add_queue_.isEmpty()) {
+    updateQBitCancelButton();
+    return;
+  }
+  m_qbit_add_active_ = true;
+  updateQBitCancelButton();
+  const PendingQBitAdd job = m_qbit_add_queue_.dequeue();
+  performQBitAdd(job, m_qbit_add_generation_);
+}
+
+void TorrentFeedWidget::cancelPendingQBitAdds() {
+  ++m_qbit_add_generation_;
+  m_qbit_add_active_ = false;
+  QQueue<PendingQBitAdd> pending = std::move(m_qbit_add_queue_);
+  m_qbit_add_queue_.clear();
+  while (!pending.isEmpty()) {
+    const PendingQBitAdd job = pending.dequeue();
+    if (job.on_done) job.on_done(false, tr("Cancelled."));
+  }
+  updateQBitCancelButton();
+}
+
+void TorrentFeedWidget::performQBitAdd(PendingQBitAdd job, const quint64 generation) {
+  const QString torrent_url = job.torrent_url;
+  const QString save_path = job.save_path;
+  const bool interactive = job.interactive;
+  // Move callback into a shared_ptr so cancel/finish can hand it off once.
+  const auto on_done = std::make_shared<std::function<void(bool, QString)>>(std::move(job.on_done));
+  const auto finished = std::make_shared<bool>(false);
+
+  const auto finish = [this, generation, on_done, finished](const bool ok, const QString& err) {
+    if (*finished) return;
+    *finished = true;
+    if (generation != m_qbit_add_generation_) {
+      // Superseded by cancel: report failure for the in-flight job only.
+      if (*on_done) (*on_done)(false, tr("Cancelled."));
+      return;
+    }
+    m_qbit_add_active_ = false;
+    if (*on_done) (*on_done)(ok, err);
+    // Brief pause so qBittorrent can accept the next add after it starts resolving a magnet;
+    // otherwise later /torrents/add calls hit the global 10s transfer timeout once qBit is busy.
+    QTimer::singleShot(400, this, [this, generation]() {
+      if (generation != m_qbit_add_generation_) return;
+      startNextQBitAdd();
+    });
+  };
+
   const QString base_url =
       QString::fromStdString(taiga::settings.torrentQBitApiUrl()).trimmed().trimmed();
+
+  // qBit may take well over the NAM's default 10s while resolving magnets / under load.
+  constexpr int kQBitTransferTimeoutMs = 120000;
 
   // Keep attempt/retry alive across async network replies (no stack `[&]` captures).
   // Use weak_ptr in the body so the shared_ptr does not form a retain cycle with itself.
@@ -1502,16 +1572,21 @@ void TorrentFeedWidget::addTorrentViaQBitApi(const QString& torrent_url, const Q
   const auto attempt = std::make_shared<AttemptFn>();
   const std::weak_ptr<AttemptFn> attempt_weak = attempt;
 
-  *attempt = [this, torrent_url, save_path, base_url, on_done, interactive, attempt_weak](
-                 const QString& user, const QString& pass, const bool allow_retry) {
-    // Strong ref for the duration of this attempt's in-flight network work.
-    const auto keep_alive = attempt_weak.lock();
-    if (!keep_alive) {
-      if (on_done) on_done(false, tr("qBittorrent request was cancelled."));
+  *attempt = [this, torrent_url, save_path, base_url, interactive, attempt_weak, finish,
+              generation](const QString& user, const QString& pass, const bool allow_retry) {
+    if (generation != m_qbit_add_generation_) {
+      finish(false, tr("Cancelled."));
       return;
     }
 
-    const auto fail = [this, on_done, interactive](const QString& err, const bool offer_guidance) {
+    // Strong ref for the duration of this attempt's in-flight network work.
+    const auto keep_alive = attempt_weak.lock();
+    if (!keep_alive) {
+      finish(false, tr("qBittorrent request was cancelled."));
+      return;
+    }
+
+    const auto fail = [this, interactive, finish](const QString& err, const bool offer_guidance) {
       if (interactive && offer_guidance) {
         QMessageBox::warning(
             this, tr("Taiga"),
@@ -1522,7 +1597,7 @@ void TorrentFeedWidget::addTorrentViaQBitApi(const QString& torrent_url, const Q
                "localhost”.")
                 .arg(err.toHtmlEscaped()));
       }
-      if (on_done) on_done(false, err);
+      finish(false, err);
     };
 
     const auto maybeRetry = [this, attempt_weak, allow_retry, interactive,
@@ -1543,11 +1618,17 @@ void TorrentFeedWidget::addTorrentViaQBitApi(const QString& torrent_url, const Q
       return true;  // handled (failed after cancel)
     };
 
-    const auto do_add = [this, torrent_url, save_path, base_url, on_done, maybeRetry, fail,
-                         keep_alive](const QString& cookie) {
+    const auto do_add = [this, torrent_url, save_path, base_url, maybeRetry, fail, keep_alive,
+                         finish, generation](const QString& cookie) {
+      if (generation != m_qbit_add_generation_) {
+        finish(false, tr("Cancelled."));
+        return;
+      }
+
       QNetworkRequest req(QUrl(base_url + QStringLiteral("/api/v2/torrents/add")));
       req.setHeader(QNetworkRequest::ContentTypeHeader,
                     QStringLiteral("application/x-www-form-urlencoded"));
+      req.setTransferTimeout(kQBitTransferTimeoutMs);
       if (!cookie.isEmpty()) req.setRawHeader("Cookie", cookie.toUtf8());
 
       QByteArray body = QByteArrayLiteral("urls=") + QUrl::toPercentEncoding(torrent_url);
@@ -1560,6 +1641,10 @@ void TorrentFeedWidget::addTorrentViaQBitApi(const QString& torrent_url, const Q
       connect(reply, &QNetworkReply::finished, this, [=]() mutable {
         (void)keep_alive;
         reply->deleteLater();
+        if (generation != m_qbit_add_generation_) {
+          finish(false, tr("Cancelled."));
+          return;
+        }
         if (reply->error() != QNetworkReply::NoError) {
           const QString err = reply->errorString();
           if (maybeRetry(err)) return;
@@ -1590,7 +1675,7 @@ void TorrentFeedWidget::addTorrentViaQBitApi(const QString& torrent_url, const Q
           return;
         }
 
-        if (on_done) on_done(true, {});
+        finish(true, {});
       });
     };
 
@@ -1603,14 +1688,18 @@ void TorrentFeedWidget::addTorrentViaQBitApi(const QString& torrent_url, const Q
     QNetworkRequest login_req(QUrl(base_url + QStringLiteral("/api/v2/auth/login")));
     login_req.setHeader(QNetworkRequest::ContentTypeHeader,
                         QStringLiteral("application/x-www-form-urlencoded"));
+    login_req.setTransferTimeout(kQBitTransferTimeoutMs);
     const QByteArray login_body = QByteArrayLiteral("username=") + user.toUtf8() +
                                   QByteArrayLiteral("&password=") + pass.toUtf8();
 
-    // Local reply pointer — parallel adds must not share a single member slot.
     auto* login_reply = taiga::network()->post(login_req, login_body);
     connect(login_reply, &QNetworkReply::finished, this, [=]() mutable {
       (void)keep_alive;
       login_reply->deleteLater();
+      if (generation != m_qbit_add_generation_) {
+        finish(false, tr("Cancelled."));
+        return;
+      }
       if (login_reply->error() != QNetworkReply::NoError) {
         const QString err = login_reply->errorString();
         if (maybeRetry(err)) return;
@@ -1723,7 +1812,7 @@ void TorrentFeedWidget::downloadBestMatchWithFallbacks(const QString& english_ti
     ++(*state);
     const QString title = variants[idx];
     downloadBestMatchForTitle(title, folder_name,
-                              [this, title, anime_id_cache, on_done, step_fn](bool found) {
+                              [title, anime_id_cache, on_done, step_fn](bool found) {
                                 if (found) {
                                   if (anime_id_cache > 0)
                                     if (!track::recognition::isFranchiseOnlySearchTitle(title)) {
@@ -2197,6 +2286,7 @@ void TorrentFeedWidget::cancelPending() {
 }
 
 void TorrentFeedWidget::cancelSaveTorrent() {
+  cancelPendingQBitAdds();
   if (m_save_reply_) {
     m_save_reply_->disconnect();
     m_save_reply_->abort();
@@ -2216,7 +2306,7 @@ void TorrentFeedWidget::cancelSaveTorrent() {
   m_save_queue_total_ = 0;
   m_save_queue_dir_.clear();
   if (m_btn_download_selected_) m_btn_download_selected_->setEnabled(true);
-  if (m_btn_cancel_downloads_) m_btn_cancel_downloads_->setEnabled(false);
+  updateQBitCancelButton();
 }
 
 void TorrentFeedWidget::enqueueSaveTorrent(const QUrl& url, const QString& title_hint) {
@@ -2248,7 +2338,7 @@ void TorrentFeedWidget::startNextQueuedSave() {
   if (m_save_reply_) return;
   if (m_save_queue_.isEmpty()) {
     if (m_btn_download_selected_) m_btn_download_selected_->setEnabled(true);
-    if (m_btn_cancel_downloads_) m_btn_cancel_downloads_->setEnabled(false);
+    updateQBitCancelButton();
     if (m_save_queue_total_ > 0) {
       if (auto* mw = mainWindow()) {
         mw->statusBar()->showMessage(tr("Torrent download queue finished."), 4000);
@@ -2262,7 +2352,7 @@ void TorrentFeedWidget::startNextQueuedSave() {
     m_save_queue_total_ = m_save_queue_.size();
   }
   if (m_btn_download_selected_) m_btn_download_selected_->setEnabled(false);
-  if (m_btn_cancel_downloads_) m_btn_cancel_downloads_->setEnabled(true);
+  updateQBitCancelButton();
   const PendingTorrentSave next = m_save_queue_.dequeue();
   if (next.ui_row >= 0) setQueueRowStatus(next.ui_row, QStringLiteral("downloading"), false);
   if (auto* mw = mainWindow()) {
@@ -2300,7 +2390,13 @@ void TorrentFeedWidget::beginSaveTorrent(const QUrl& url, const QString& title_h
   }
   if (full_path.isEmpty()) return;
 
-  cancelSaveTorrent();
+  // Abort only an in-flight .torrent GET — do not clear the remaining save / qBit queues.
+  if (m_save_reply_) {
+    m_save_reply_->disconnect();
+    m_save_reply_->abort();
+    m_save_reply_->deleteLater();
+    m_save_reply_ = nullptr;
+  }
   if (auto* mw = mainWindow()) {
     mw->statusBar()->showMessage(tr("Downloading .torrent file…"));
   }
@@ -2640,7 +2736,7 @@ void TorrentFeedWidget::runSearch() {
     QNetworkRequest req{url};
     taiga::applyCommonHeaders(req);
     m_pending_ = taiga::network()->get(req);
-    connect(m_pending_, &QNetworkReply::finished, this, [this, st, step, seq, cur, qv, finish]() {
+    connect(m_pending_, &QNetworkReply::finished, this, [this, st, step, seq, finish]() {
       QNetworkReply* reply = m_pending_;
       m_pending_ = nullptr;
       if (seq != m_manual_search_seq_) {
