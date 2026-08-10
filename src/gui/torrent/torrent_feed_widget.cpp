@@ -353,8 +353,11 @@ bool rssItemBelongsToAnimeContext(const rss::Item& it, const int context_anime_i
     }
   }
 
-  // TV/ONA/etc. context: reject movie/special packaging (old franchise BDs, etc.).
-  if (item->type != anime::Type::Movie && isMovieOrSpecial(ep, title_full)) return false;
+  // Cour-like context: reject movie/special packaging (old franchise BDs, etc.).
+  // Movie/Special/OVA/Music entries must keep S00 / "Special"-tagged releases.
+  const bool cour_like = item->type == anime::Type::Tv || item->type == anime::Type::Ona ||
+                         item->type == anime::Type::Unknown;
+  if (cour_like && isMovieOrSpecial(ep, title_full)) return false;
 
   if (const auto year = yearTokenInTitle(title_full)) {
     const int start_y = static_cast<int>(item->date_started.year());
@@ -379,7 +382,8 @@ std::optional<qint64> contextAnimeStartMs(const anime::Details& item) {
   if (d <= 0) d = 1;
   const QDate date(y, m, d);
   if (!date.isValid()) return std::nullopt;
-  return QDateTime(date, QTime(0, 0), QTimeZone::utc()).toMSecsSinceEpoch();
+  // 1-day grace: fansubs often land the UTC day before AniList's calendar start (JST air).
+  return QDateTime(date.addDays(-1), QTime(0, 0), QTimeZone::utc()).toMSecsSinceEpoch();
 }
 
 std::optional<qint64> rssItemPublishedMs(const rss::Item& it) {
@@ -2568,7 +2572,8 @@ std::optional<qint64> animeStartLowerBoundMs(const Anime& item) {
   if (d <= 0) d = 1;
   const QDate date(y, m, d);
   if (!date.isValid()) return std::nullopt;
-  return QDateTime(date, QTime(0, 0), QTimeZone::utc()).toMSecsSinceEpoch();
+  // Match contextAnimeStartMs: allow pubs from the UTC day before listed start.
+  return QDateTime(date.addDays(-1), QTime(0, 0), QTimeZone::utc()).toMSecsSinceEpoch();
 }
 
 std::optional<qint64> publishedMsForRssItem(const rss::Item& it) {
