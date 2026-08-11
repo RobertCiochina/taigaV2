@@ -205,8 +205,8 @@ public:
   bool torrentFeedHideWatchedEpisodes() const;
   /// Legacy default filter: discard items already available locally.
   bool torrentFeedHideAvailableEpisodes() const;
-  /// Legacy preset: prefer new versions (v2+). When enabled, older versions of the same episode are
-  /// hidden if a newer version exists in the current RSS view.
+  /// Legacy preset: prefer new versions (v2+). When enabled, older versions of the same episode
+  /// from the same fansub group are hidden if a newer version exists in the current RSS view.
   bool torrentFeedHideOlderVersionsWhenNewerExists() const;
   /// Manual RSS enhancement: when enabled (and when an anime context is known), hide RSS items
   /// whose published date is older than the anime's start date. Disabled by default.

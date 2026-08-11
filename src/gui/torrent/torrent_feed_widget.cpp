@@ -236,6 +236,29 @@ int seedersForItem(const rss::Item& it) {
   return readNamespaceInt(it, u"seeders").value_or(0);
 }
 
+/// Composite key for release-version comparisons: versions only compete within the same fansub.
+QString olderVersionScopeKey(const int anime_id, const int ep_no, const QString& release_group) {
+  return QStringLiteral("%1\x1f%2\x1f%3")
+      .arg(anime_id)
+      .arg(ep_no)
+      .arg(release_group.trimmed().toLower());
+}
+
+/// True when `candidate` is a better auto-pick than `incumbent` (nullptr = no incumbent yet).
+/// Prefers any seeded torrent over 0-seed, then higher seeders, then higher downloads, then title.
+bool isBetterTorrentPick(const rss::Item* candidate, const rss::Item* incumbent) {
+  if (!candidate) return false;
+  if (!incumbent) return true;
+  const int c_seeds = std::max(0, seedersForItem(*candidate));
+  const int i_seeds = std::max(0, seedersForItem(*incumbent));
+  if ((c_seeds > 0) != (i_seeds > 0)) return c_seeds > 0;
+  if (c_seeds != i_seeds) return c_seeds > i_seeds;
+  const int c_dl = std::max(0, downloadsForItem(*candidate));
+  const int i_dl = std::max(0, downloadsForItem(*incumbent));
+  if (c_dl != i_dl) return c_dl > i_dl;
+  return QString::fromStdString(candidate->title) < QString::fromStdString(incumbent->title);
+}
+
 QString fingerprintForItem(const rss::Item& it) {
   if (!it.guid.value.empty()) {
     return QString::fromStdString(it.guid.value);
@@ -422,8 +445,8 @@ QList<const rss::Item*> filterRssItemsBySettings(const rss::Feed& feed,
   }();
 
   // Prefer new versions: within the current RSS view, hide older versions of the same episode
-  // when a newer version exists.
-  QHash<qulonglong, int> max_version_for_key;
+  // from the same release group when a newer version exists (Judas v2 must not hide Erai v1).
+  QHash<QString, int> max_version_for_key;
   if (hide_older_versions) {
     max_version_for_key.reserve(static_cast<int>(feed.items.size()));
     for (const rss::Item& it : feed.items) {
@@ -435,8 +458,8 @@ QList<const rss::Item*> filterRssItemsBySettings(const rss::Feed& feed,
           1,
           QString::fromStdString(ep.element(anitomy::ElementKind::ReleaseVersion, std::string{"1"}))
               .toInt());
-      const qulonglong key =
-          (static_cast<qulonglong>(anime_id) << 32) | static_cast<qulonglong>(ep_no);
+      const QString group = QString::fromStdString(ep.element(anitomy::ElementKind::ReleaseGroup));
+      const QString key = olderVersionScopeKey(anime_id, ep_no, group);
       const int cur = max_version_for_key.value(key, 1);
       if (ver > cur) max_version_for_key.insert(key, ver);
     }
@@ -512,8 +535,9 @@ QList<const rss::Item*> filterRssItemsBySettings(const rss::Feed& feed,
         if (hide_watched && entry && ep_no <= entry->watched_episodes) continue;
         if (hide_available && track::libraryHasLocalEpisode(id, ep_no)) continue;
         if (hide_older_versions && !max_version_for_key.isEmpty()) {
-          const qulonglong key =
-              (static_cast<qulonglong>(id) << 32) | static_cast<qulonglong>(ep_no);
+          const QString group =
+              QString::fromStdString(ep.element(anitomy::ElementKind::ReleaseGroup));
+          const QString key = olderVersionScopeKey(id, ep_no, group);
           const int maxv = max_version_for_key.value(key, 1);
           const int v =
               std::max(1, QString::fromStdString(
@@ -1737,7 +1761,7 @@ void TorrentFeedWidget::saveSessionState() {
 }
 
 /// Generates RSS search title variants for manual search and auto-download (same list).
-/// Order: season-qualified forms first (`… S01` / `… S02`), then bare English/romaji.
+/// Order: natural / bare titles first (`… 2nd Season`), then compact season-qualified (`… S02`).
 /// Callers may prepend a per-anime cache hit before this list.
 static QStringList buildTitleVariants(const QString& english, const QString& romaji) {
   QStringList season_qualified;
@@ -1775,8 +1799,9 @@ static QStringList buildTitleVariants(const QString& english, const QString& rom
 
   QStringList result;
   result.reserve(season_qualified.size() + bare.size());
-  for (const QString& s : season_qualified) addIfNew(result, s);
+  // Prefer natural season wording so Nyaa hits Erai-style "2nd Season" before compact SNN.
   for (const QString& s : bare) addIfNew(result, s);
+  for (const QString& s : season_qualified) addIfNew(result, s);
   return result;
 }
 
@@ -1833,12 +1858,12 @@ void TorrentFeedWidget::downloadBestMatchWithFallbacks(const QString& english_ti
   (*step_fn)();
 }
 
-/// Returns the best-downloaded RSS item per unique episode number found in `filtered`.
+/// Returns the best RSS item per unique episode number found in `filtered`.
 /// Key = episode number (1-based). Key = -1 means a batch/range item.
 /// Key = 0 means the episode could not be parsed (rare; stored separately).
+/// Ranking: seeders (any >0 preferred), then downloads, then title.
 static QMap<int, const rss::Item*> selectBestPerEpisode(const QList<const rss::Item*>& filtered) {
   QMap<int, const rss::Item*> best;
-  QMap<int, int> downloads_for;
   for (const rss::Item* it : filtered) {
     track::Episode ep = track::recognition::parse(it->title);
     const QString ep_str = QString::fromStdString(ep.element(anitomy::ElementKind::Episode));
@@ -1857,12 +1882,8 @@ static QMap<int, const rss::Item*> selectBestPerEpisode(const QList<const rss::I
     // Nyaa season packs often omit an episode token; anitomy leaves Episode empty while the
     // title still says "(Batch)" — treat those as a single multi-episode item (key -1).
     if (ep_no == 0 && isBatchLikeTitle(title_full)) ep_no = -1;
-    const int downloads = downloadsForItem(*it);
-    const auto existing = downloads_for.find(ep_no);
-    if (existing == downloads_for.end() || downloads > existing.value()) {
-      downloads_for[ep_no] = downloads;
-      best[ep_no] = it;
-    }
+    const rss::Item* incumbent = best.value(ep_no, nullptr);
+    if (isBetterTorrentPick(it, incumbent)) best[ep_no] = it;
   }
   return best;
 }
@@ -2196,13 +2217,8 @@ void TorrentFeedWidget::deliverBestMatchFromFiltered(const QList<const rss::Item
   }
 
   const rss::Item* best = nullptr;
-  int best_downloads = -1;
   for (const rss::Item* it : filtered) {
-    const int downloads = downloadsForItem(*it);
-    if (downloads > best_downloads) {
-      best_downloads = downloads;
-      best = it;
-    }
+    if (isBetterTorrentPick(it, best)) best = it;
   }
   if (!best) best = filtered.first();
 
@@ -2523,11 +2539,12 @@ QStringList buildManualSearchTitleVariants(const Anime& item, const QString& pri
     if (!t.isEmpty() && !result.contains(t, Qt::CaseInsensitive)) result.append(t);
   };
 
-  // Season-qualified primary first: Nyaa RSS bare titles are flooded by newer seasons.
+  // Toolbar / Open-in-browser string first so the initial RSS fetch matches the browser page.
+  addIfNew(primary_query);
+  // Compact SNN form next (covers Judas/EMBER-style naming on Nyaa).
   if (const QString sq = nyaaSeasonQualifiedTitle(primary_query); !sq.isEmpty()) {
     addIfNew(sq);
   }
-  addIfNew(primary_query);
 
   // Saved per-anime effective title (if any) — often already season-qualified after autodl.
   if (item.id > 0) {
@@ -2539,13 +2556,13 @@ QStringList buildManualSearchTitleVariants(const Anime& item, const QString& pri
   const QString romaji = QString::fromStdString(item.titles.romaji);
   const QString native = QString::fromStdString(item.titles.japanese);
 
-  // Shared list (season-qualified first, then bare english/romaji) — same as auto-download.
+  // Shared list (natural titles first, then SNN) — same as auto-download.
   for (const auto& v : buildTitleVariants(en, romaji)) addIfNew(v);
 
   // Native title can help for some indexers / releases.
   if (!native.isEmpty()) {
-    if (const QString sq = nyaaSeasonQualifiedTitle(native); !sq.isEmpty()) addIfNew(sq);
     addIfNew(native);
+    if (const QString sq = nyaaSeasonQualifiedTitle(native); !sq.isEmpty()) addIfNew(sq);
     const QString stripped = stripTitleSubtitle(native);
     if (stripped.compare(native, Qt::CaseInsensitive) != 0) addIfNew(stripped);
   }
@@ -2554,8 +2571,8 @@ QStringList buildManualSearchTitleVariants(const Anime& item, const QString& pri
   int syn_added = 0;
   for (const std::string& s : item.titles.synonyms) {
     const QString syn = QString::fromStdString(s);
-    if (const QString sq = nyaaSeasonQualifiedTitle(syn); !sq.isEmpty()) addIfNew(sq);
     addIfNew(syn);
+    if (const QString sq = nyaaSeasonQualifiedTitle(syn); !sq.isEmpty()) addIfNew(sq);
     if (++syn_added >= kManualSearchSynonymCap) break;
   }
 

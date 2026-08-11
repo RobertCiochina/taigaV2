@@ -147,7 +147,8 @@ TorrentFiltersDialog::TorrentFiltersDialog(QWidget* parent) : QDialog(parent) {
     hideOlderVersions->setObjectName(u"chkHideOlderVersions"_s);
     hideOlderVersions->setChecked(taiga::settings.torrentFeedHideOlderVersionsWhenNewerExists());
     hideOlderVersions->setToolTip(
-        tr("When both v1 and v2+ releases exist for the same episode, hide the older one."));
+        tr("When both v1 and v2+ releases exist for the same episode from the same fansub group, "
+           "hide the older one. Other groups are left visible."));
 
     auto* hideBeforeStart =
         new QCheckBox(tr("Hide releases published before the anime start date"), grp);
@@ -211,7 +212,7 @@ TorrentFiltersDialog::TorrentFiltersDialog(QWidget* parent) : QDialog(parent) {
   });
 
   // Delete key removes selected items
-  const auto makeDeleteShortcut = [this](QListWidget* lw) {
+  const auto makeDeleteShortcut = [](QListWidget* lw) {
     auto* sc = new QShortcut(QKeySequence{Qt::Key_Delete}, lw);
     sc->setContext(Qt::WidgetShortcut);
     connect(sc, &QShortcut::activated, lw, [lw]() {
