@@ -1,6 +1,8 @@
 #include <QDateTime>
 #include <QTest>
 #include <chrono>
+#include <optional>
+#include <vector>
 
 #include "base/chrono.hpp"
 #include "media/anime.hpp"
@@ -112,6 +114,108 @@ private slots:
                                                   anime::kRedundantMediaFetchTtlSeconds - 10);
     item.relations.push_back({1, anime::RelationType::Sequel});
     QVERIFY(!anime::shouldSkipRedundantMediaFetch(item));
+  }
+
+  void just_aired_window_includes_boundary() {
+    QVERIFY(taiga::isJustAiredRelease(1000, 1000, 300));
+    QVERIFY(taiga::isJustAiredRelease(1300, 1000, 300));
+    QVERIFY(!taiga::isJustAiredRelease(1301, 1000, 300));
+    QVERIFY(!taiga::isJustAiredRelease(999, 1000, 300));
+  }
+
+  void detect_just_aired_uses_current_when_still_pointing_at_aired_ep() {
+    const auto air = taiga::detectJustAiredAt(1100, 1000, 1000, 300);
+    QVERIFY(air.has_value());
+    QCOMPARE(*air, 1000);
+  }
+
+  void detect_just_aired_uses_previous_when_schedule_already_advanced() {
+    const std::int64_t a_air = 1000;
+    const std::int64_t b_air = 1000 + 7 * 24 * 3600;
+    const auto air = taiga::detectJustAiredAt(1100, b_air, a_air, 300);
+    QVERIFY(air.has_value());
+    QCOMPARE(*air, a_air);
+  }
+
+  void detect_just_aired_none_when_only_future_schedule() {
+    QVERIFY(!taiga::detectJustAiredAt(1000, 2000, 2000, 300).has_value());
+    QVERIFY(!taiga::detectJustAiredAt(1000, 2000, 0, 300).has_value());
+  }
+
+  void infer_just_aired_uses_last_aired_plus_one() {
+    QCOMPARE(taiga::inferJustAiredEpisode(12, 10), 13);
+  }
+
+  void infer_just_aired_falls_back_to_watched_plus_one() {
+    QCOMPARE(taiga::inferJustAiredEpisode(0, 5), 6);
+  }
+
+  void due_at_is_air_plus_delay_not_clustered() {
+    const std::int64_t a = 1000;
+    const std::int64_t delay = 3600;
+    const std::int64_t b = a + delay;
+    QCOMPARE(taiga::delayedAutoDownloadDueAt(a, delay), a + delay);
+    QCOMPARE(taiga::delayedAutoDownloadDueAt(b, delay), b + delay);
+    QVERIFY(taiga::delayedAutoDownloadDueAt(a, delay) < taiga::delayedAutoDownloadDueAt(b, delay));
+  }
+
+  void bump_last_aired_does_not_pass_recorded_episode() {
+    QCOMPARE(taiga::lastAiredForDelayedAutoDownload(5, 6), 6);
+    QCOMPARE(taiga::lastAiredForDelayedAutoDownload(6, 6), 6);
+    QCOMPARE(taiga::lastAiredForDelayedAutoDownload(7, 6), 7);
+  }
+
+  void fifo_queue_airs_twenty_thirty_forty_keep_separate_dues() {
+    const std::int64_t delay = 3600;
+    const std::int64_t hour = 0;
+    const std::int64_t a_air = hour + 20 * 60;
+    const std::int64_t b_air = hour + 30 * 60;
+    const std::int64_t c_air = hour + 40 * 60;
+    std::vector<taiga::DelayedAutoDownloadJob> q;
+    taiga::insertDelayedAutoDownloadJob(q, {1, taiga::delayedAutoDownloadDueAt(a_air, delay), 2});
+    taiga::insertDelayedAutoDownloadJob(q, {2, taiga::delayedAutoDownloadDueAt(b_air, delay), 2});
+    taiga::insertDelayedAutoDownloadJob(q, {3, taiga::delayedAutoDownloadDueAt(c_air, delay), 2});
+    QCOMPARE(taiga::soonestDelayedAutoDownloadDue(q), a_air + delay);
+
+    auto first = taiga::takeNextDelayedAutoDownloadJobs(q, a_air + delay);
+    QCOMPARE(int(first.size()), 1);
+    QCOMPARE(first.front().anime_id, 1);
+    QCOMPARE(int(q.size()), 2);
+
+    auto second = taiga::takeNextDelayedAutoDownloadJobs(q, a_air + delay);
+    QVERIFY(second.empty());
+
+    second = taiga::takeNextDelayedAutoDownloadJobs(q, b_air + delay);
+    QCOMPARE(int(second.size()), 1);
+    QCOMPARE(second.front().anime_id, 2);
+
+    auto third = taiga::takeNextDelayedAutoDownloadJobs(q, c_air + delay);
+    QCOMPARE(int(third.size()), 1);
+    QCOMPARE(third.front().anime_id, 3);
+    QVERIFY(q.empty());
+  }
+
+  void fifo_same_due_time_taken_together() {
+    std::vector<taiga::DelayedAutoDownloadJob> q;
+    taiga::insertDelayedAutoDownloadJob(q, {2, 5000, 1});
+    taiga::insertDelayedAutoDownloadJob(q, {1, 5000, 1});
+    taiga::insertDelayedAutoDownloadJob(q, {3, 6000, 1});
+    auto taken = taiga::takeNextDelayedAutoDownloadJobs(q, 5000);
+    QCOMPARE(int(taken.size()), 2);
+    QCOMPARE(taken[0].anime_id, 1);
+    QCOMPARE(taken[1].anime_id, 2);
+    QCOMPARE(int(q.size()), 1);
+    QCOMPARE(q.front().anime_id, 3);
+  }
+
+  void fifo_does_not_pop_later_overdue_jobs_in_same_take() {
+    std::vector<taiga::DelayedAutoDownloadJob> q;
+    taiga::insertDelayedAutoDownloadJob(q, {1, 1000, 1});
+    taiga::insertDelayedAutoDownloadJob(q, {2, 2000, 1});
+    auto taken = taiga::takeNextDelayedAutoDownloadJobs(q, 2500);
+    QCOMPARE(int(taken.size()), 1);
+    QCOMPARE(taken.front().anime_id, 1);
+    QCOMPARE(q.front().anime_id, 2);
   }
 };
 

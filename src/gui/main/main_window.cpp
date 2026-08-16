@@ -289,7 +289,7 @@ void MainWindow::runStartupPreSyncScan() {
   auto* svc = sync::anilist::Service::instance();
   auto remaining = std::make_shared<int>(ids.size());
 
-  const auto tryFinish = [this, remaining, startPreSyncScan]() {
+  const auto tryFinish = [remaining, startPreSyncScan]() {
     if (*remaining <= 0) startPreSyncScan();
   };
 
@@ -329,12 +329,6 @@ void MainWindow::initUi(const bool startup_blocking) {
                                 Q_ARG(bool, err));
     }
   });
-
-  m_status_message_timer_ = new QTimer(this);
-  m_status_message_timer_->setSingleShot(true);
-  m_status_message_timer_->setTimerType(Qt::CoarseTimer);
-  connect(m_status_message_timer_, &QTimer::timeout, this,
-          &MainWindow::showNextQueuedStatusMessage);
 
   // Load last-known library availability index as early as possible so Home "Up next" and startup
   // auto-download can use it even before a scan runs (or when scan-on-startup is disabled).
@@ -1286,6 +1280,10 @@ void MainWindow::initToolbar() {
       m_delayed_autodl_timer_->setSingleShot(true);
       connect(m_delayed_autodl_timer_, &QTimer::timeout, this,
               &MainWindow::beginDelayedAutoDownloadRun);
+      connect(this, &MainWindow::autoDownloadFinished, this, [this](int, int) {
+        m_auto_download_running_ = false;
+        armDelayedAutoDownloadTimer();
+      });
     }
     if (!m_release_event_timer_) {
       m_release_event_timer_ = new QTimer(this);
@@ -1925,6 +1923,7 @@ void MainWindow::finalizeListSyncSession() {
     return;
   }
   scheduleAnnouncedRelatedResumeAfterSync();
+  armDelayedAutoDownloadTimer();
 }
 
 void MainWindow::showUserFeedback(QString message, bool error) {
@@ -1932,20 +1931,10 @@ void MainWindow::showUserFeedback(QString message, bool error) {
   if (error && !startupBlockingActive()) QMessageBox::warning(this, tr("Taiga"), message);
 }
 
-void MainWindow::enqueueStatusMessage(QString message, const bool error) {
+void MainWindow::enqueueStatusMessage(QString message, const bool) {
   if (message.trimmed().isEmpty()) return;
-  m_status_message_queue_.enqueue(StatusMessage{.text = std::move(message), .error = error});
-  if (m_status_message_timer_ && !m_status_message_timer_->isActive()) {
-    showNextQueuedStatusMessage();
-  }
-}
-
-void MainWindow::showNextQueuedStatusMessage() {
   if (!statusBar()) return;
-  if (m_status_message_queue_.isEmpty()) return;
-  const StatusMessage m = m_status_message_queue_.dequeue();
-  statusBar()->showMessage(m.text, 4000);
-  if (m_status_message_timer_) m_status_message_timer_->start(4000);
+  statusBar()->showMessage(message, 4000);
 }
 
 void MainWindow::updateToolbarSearchPlaceholder() {
@@ -2007,7 +1996,6 @@ void MainWindow::checkForUpdatesManually() {
 
 void MainWindow::runLibraryScan(const bool startup_silent, const LibraryScanReason reason) {
   if (m_library_scan_in_progress_) return;
-  constexpr int kMaxEntries = 50'000;
   const auto reasonLabel = [reason]() -> QString {
     switch (reason) {
       case LibraryScanReason::StartupPreSync:
@@ -2106,8 +2094,10 @@ void MainWindow::runLibraryScan(const bool startup_silent, const LibraryScanReas
             }
             if (w->m_delayed_autodl_after_scan_pending_) {
               w->m_delayed_autodl_after_scan_pending_ = false;
-              QTimer::singleShot(0, w.data(), [w]() {
-                if (w) w->runAutoDownload(true);
+              const QHash<int, int> bumps = w->m_delayed_autodl_bump_episodes_;
+              w->m_delayed_autodl_bump_episodes_.clear();
+              QTimer::singleShot(0, w.data(), [w, bumps]() {
+                if (w) w->runAutoDownload(true, bumps);
               });
             }
             if (w->m_watching_change_autodl_after_scan_pending_) {
@@ -2116,6 +2106,7 @@ void MainWindow::runLibraryScan(const bool startup_silent, const LibraryScanReas
                 if (w) w->runAutoDownload(true);
               });
             }
+            w->armDelayedAutoDownloadTimer();
           },
           Qt::QueuedConnection);
     }
@@ -2327,7 +2318,9 @@ void MainWindow::refreshHomeQBitPlayButtons() {
   }
 }
 
-void MainWindow::runAutoDownload(const bool silent) {
+void MainWindow::runAutoDownload(const bool silent,
+                                 const QHash<int, int>& restrict_aired_episodes) {
+  m_auto_download_running_ = true;
   if (!m_torrentFeedWidget) {
     // Auto-download relies on the TorrentFeedWidget backend; initialize it on-demand so the
     // toolbar countdown action works even if the Torrents page has never been opened.
@@ -2382,8 +2375,15 @@ void MainWindow::runAutoDownload(const bool silent) {
     // season catch-up (watched_episodes reset), which would incorrectly skip all downloads.
     // Disk presence is checked separately via libraryHasLocalEpisode below.
     const int watched = entry.watched_episodes;
+    if (!restrict_aired_episodes.isEmpty() && !restrict_aired_episodes.contains(anime_id)) {
+      continue;
+    }
     const int raw_last = taiga::computeLastAiredEpisodeForAutoDownload(*item, watched, now_secs);
-    const int last_aired = track::toListLastAiredEpisode(*item, raw_last);
+    const int bumped_last = restrict_aired_episodes.contains(anime_id)
+                                ? taiga::lastAiredForDelayedAutoDownload(
+                                      raw_last, restrict_aired_episodes.value(anime_id))
+                                : raw_last;
+    const int last_aired = track::toListLastAiredEpisode(*item, bumped_last);
     if (last_aired <= watched) continue;
     // Skip only if every episode in [watched+1 .. last_aired] is already on disk.
     // This correctly handles "episodes downloaded but not yet watched" —
@@ -3058,8 +3058,10 @@ void MainWindow::updateAutoDownloadCountdownLabel() {
 
 void MainWindow::updateAutoDownloadActionLabel() {
   if (!m_autoDownloadAction) return;
-  if (m_delayed_autodl_timer_ && m_delayed_autodl_timer_->isActive()) {
-    const int secs = std::max(0, m_delayed_autodl_timer_->remainingTime() / 1000);
+  const qint64 soonest = taiga::soonestDelayedAutoDownloadDue(m_delayed_autodl_queue_);
+  if (soonest > 0) {
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+    const int secs = static_cast<int>(std::max<qint64>(0, soonest - now));
     const int min = (secs + 59) / 60;
     const QString text =
         (min <= 0) ? tr("Auto-download (scheduled…)") : tr("Auto-download (in %1m)").arg(min);
@@ -3069,30 +3071,31 @@ void MainWindow::updateAutoDownloadActionLabel() {
   m_autoDownloadAction->setText(tr("Auto-download"));
 }
 
-void MainWindow::scheduleDelayedAutoDownload(const int delay_minutes) {
+void MainWindow::armDelayedAutoDownloadTimer() {
   if (!m_delayed_autodl_timer_) return;
-  const int clamped_min = std::max(1, delay_minutes);
-  // If already scheduled, keep the earliest fire time.
-  if (m_delayed_autodl_timer_->isActive()) {
-    const int remaining_ms = m_delayed_autodl_timer_->remainingTime();
-    const int requested_ms = clamped_min * 60 * 1000;
-    if (remaining_ms > 0 && remaining_ms <= requested_ms) {
-      updateAutoDownloadActionLabel();
-      return;
-    }
-    m_delayed_autodl_timer_->stop();
+  const qint64 soonest = taiga::soonestDelayedAutoDownloadDue(m_delayed_autodl_queue_);
+  if (soonest <= 0) {
+    if (m_delayed_autodl_timer_->isActive()) m_delayed_autodl_timer_->stop();
+    updateAutoDownloadActionLabel();
+    return;
   }
-  m_delayed_autodl_scheduled_at_secs_ = QDateTime::currentSecsSinceEpoch();
-  m_delayed_autodl_timer_->start(clamped_min * 60 * 1000);
+
+  const qint64 now = QDateTime::currentSecsSinceEpoch();
+  const qint64 wait_ms = std::min<qint64>(std::max<qint64>(1, (soonest - now) * 1000),
+                                          std::numeric_limits<int>::max());
+  m_delayed_autodl_timer_->start(static_cast<int>(wait_ms));
   updateAutoDownloadActionLabel();
-  enqueueStatusMessage(tr("Auto-download scheduled."), false);
 }
 
 void MainWindow::cancelDelayedAutoDownload(const QString& reason) {
-  if (!m_delayed_autodl_timer_) return;
-  if (!m_delayed_autodl_timer_->isActive()) return;
-  m_delayed_autodl_timer_->stop();
-  m_delayed_autodl_scheduled_at_secs_ = 0;
+  const bool timer_active = m_delayed_autodl_timer_ && m_delayed_autodl_timer_->isActive();
+  if (!timer_active && m_delayed_autodl_queue_.empty()) return;
+  if (m_delayed_autodl_timer_) m_delayed_autodl_timer_->stop();
+  m_delayed_autodl_queue_.clear();
+  m_delayed_autodl_seen_air_at_.clear();
+  m_delayed_autodl_bump_episodes_.clear();
+  m_delayed_autodl_after_scan_pending_ = false;
+  m_delayed_autodl_after_sync_pending_ = false;
   updateAutoDownloadActionLabel();
   if (!reason.isEmpty()) {
     enqueueStatusMessage(tr("Canceled scheduled auto-download (%1).").arg(reason), false);
@@ -3102,52 +3105,83 @@ void MainWindow::cancelDelayedAutoDownload(const QString& reason) {
 }
 
 void MainWindow::beginDelayedAutoDownloadRun() {
-  m_delayed_autodl_scheduled_at_secs_ = 0;
-  updateAutoDownloadActionLabel();
+  if (m_auto_download_running_ || m_library_scan_in_progress_ || m_list_sync_in_progress_) return;
 
-  // Ordering: sync (if configured) → scan → auto-download.
-  const bool can_sync = taiga::settings.listSynchronizationEnabled() &&
-                        sync::currentServiceId() != sync::ServiceId::Unknown &&
-                        sync::remoteListAccessConfigured();
-  if (can_sync) {
-    m_delayed_autodl_after_sync_pending_ = true;
-    enqueueStatusMessage(tr("Auto-download: synchronizing…"), false);
-    startListSynchronization(/*queue_if_busy=*/false);
+  const qint64 now = QDateTime::currentSecsSinceEpoch();
+  const auto due_jobs = taiga::takeNextDelayedAutoDownloadJobs(m_delayed_autodl_queue_, now);
+  if (due_jobs.empty()) {
+    armDelayedAutoDownloadTimer();
     return;
   }
+
+  QHash<int, int> due_bumps;
+  for (const auto& job : due_jobs) due_bumps.insert(job.anime_id, job.aired_episode);
+  m_delayed_autodl_bump_episodes_ = std::move(due_bumps);
+  updateAutoDownloadActionLabel();
+
+  if (taiga::settings.libraryFolders().empty()) {
+    const QHash<int, int> bumps = m_delayed_autodl_bump_episodes_;
+    m_delayed_autodl_bump_episodes_.clear();
+    runAutoDownload(true, bumps);
+    return;
+  }
+
+  // RSS-only: no list sync. Scan so the episode index matches disk.
   m_delayed_autodl_after_scan_pending_ = true;
   enqueueStatusMessage(tr("Auto-download: scanning library…"), false);
   runLibraryScan(true, LibraryScanReason::DelayedAutoDownload);
 }
 
 void MainWindow::checkWatchingReleaseEvent() {
-  // Watch only: detect if the soonest upcoming episode just crossed "now".
-  // Debounced so it fires at most once per minute.
+  // Watch only: enqueue each title whose next episode just crossed "now".
+  // Debounced so it runs at most once per minute.
   const qint64 now = QDateTime::currentSecsSinceEpoch();
+  const auto snapshotNextTimes = [this]() {
+    for (const auto& entry : anime::db.entries()) {
+      if (entry.status != anime::list::Status::Watching) continue;
+      const Anime* item = anime::db.item(entry.anime_id);
+      if (!item || item->next_episode_time <= 0) continue;
+      m_delayed_autodl_last_next_time_.insert(entry.anime_id,
+                                              static_cast<qint64>(item->next_episode_time));
+    }
+  };
   if (m_last_release_event_trigger_secs_ == 0) {
     m_last_release_event_trigger_secs_ = now;
+    snapshotNextTimes();
     return;
   }
   if (now - m_last_release_event_trigger_secs_ < 60) return;
   m_last_release_event_trigger_secs_ = now;
 
-  if (m_delayed_autodl_timer_ && m_delayed_autodl_timer_->isActive()) return;
-  if (m_list_sync_in_progress_ || m_library_scan_in_progress_) return;
-
-  qint64 soonest = 0;
+  const qint64 delay_secs = static_cast<qint64>(std::max(
+                                1, taiga::settings.torrentAutoDownloadReleaseEventDelayMinutes())) *
+                            60;
+  bool added = false;
   for (const auto& entry : anime::db.entries()) {
     if (entry.status != anime::list::Status::Watching) continue;
     const Anime* item = anime::db.item(entry.anime_id);
     if (!item) continue;
-    if (item->next_episode_time <= 0) continue;
-    const qint64 t = static_cast<qint64>(item->next_episode_time);
-    if (soonest == 0 || t < soonest) soonest = t;
+    const qint64 current_next = static_cast<qint64>(item->next_episode_time);
+    const qint64 previous_next = m_delayed_autodl_last_next_time_.value(entry.anime_id);
+    if (current_next > 0) m_delayed_autodl_last_next_time_.insert(entry.anime_id, current_next);
+
+    const auto aired_at = taiga::detectJustAiredAt(now, current_next, previous_next);
+    if (!aired_at) continue;
+    if (m_delayed_autodl_seen_air_at_.value(entry.anime_id) == *aired_at) continue;
+
+    m_delayed_autodl_seen_air_at_.insert(entry.anime_id, *aired_at);
+    taiga::insertDelayedAutoDownloadJob(
+        m_delayed_autodl_queue_,
+        taiga::DelayedAutoDownloadJob{
+            .anime_id = entry.anime_id,
+            .due_at_secs = taiga::delayedAutoDownloadDueAt(*aired_at, delay_secs),
+            .aired_episode =
+                taiga::inferJustAiredEpisode(item->last_aired_episode, entry.watched_episodes)});
+    added = true;
   }
 
-  // If "soonest" is in the recent past (within 5 minutes), treat as a release event.
-  if (soonest > 0 && now >= soonest && now - soonest <= 5 * 60) {
-    scheduleDelayedAutoDownload(taiga::settings.torrentAutoDownloadReleaseEventDelayMinutes());
-  }
+  if (added) enqueueStatusMessage(tr("Auto-download scheduled."), false);
+  armDelayedAutoDownloadTimer();
 }
 
 void MainWindow::restoreViewChromeFromSession() {

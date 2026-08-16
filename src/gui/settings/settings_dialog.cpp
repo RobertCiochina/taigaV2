@@ -115,7 +115,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
     return item;
   };
 
-  const auto add_child = [this](QTreeWidgetItem* parent, const QString& text) {
+  const auto add_child = [](QTreeWidgetItem* parent, const QString& text) {
     auto* c = new QTreeWidgetItem(parent, QStringList(text));
     c->setData(0, kStackRole, kStackPlaceholder);
     return c;
@@ -847,7 +847,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent), ui_(new Ui::S
   }
 
   {
-    const auto fill_row_actions = [this](QComboBox* box) {
+    const auto fill_row_actions = [](QComboBox* box) {
       box->clear();
       box->addItem(tr("Do nothing"), static_cast<int>(taiga::ListRowAction::Nothing));
       box->addItem(editListEntryActionLabel(),
@@ -1391,8 +1391,9 @@ void SettingsDialog::buildDownloadsPage() {
     m_dl_autodl_release_delay_mins_->setValue(
         taiga::settings.torrentAutoDownloadReleaseEventDelayMinutes());
     m_dl_autodl_release_delay_mins_->setToolTip(
-        tr("When a new episode is detected as released for Watching titles, Taiga waits this long "
-           "before running sync → scan → auto-download."));
+        tr("When a new episode is detected as released for a Watching title, that airing is queued "
+           "and Taiga waits this long before scanning and RSS-searching it. Later airings wait in "
+           "line with their own delay; they are not searched during an earlier title’s run."));
     row->addWidget(m_dl_autodl_release_delay_mins_);
     row->addStretch();
     layout->addLayout(row);

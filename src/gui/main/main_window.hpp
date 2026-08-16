@@ -22,7 +22,6 @@
 #include <QHash>
 #include <QMainWindow>
 #include <QPointer>
-#include <QQueue>
 #include <QSet>
 #include <QVector>
 #include <functional>
@@ -30,6 +29,7 @@
 #include <vector>
 
 #include "media/anime_list.hpp"
+#include "taiga/auto_download_rules.hpp"
 
 class QLabel;
 class QLineEdit;
@@ -143,7 +143,7 @@ public slots:
   void resortTorrentRssTableFromSettings();
   /// Kick off the auto-download run (checks all watching anime for new episodes and downloads best
   /// match).
-  void runAutoDownload(bool silent = false);
+  void runAutoDownload(bool silent = false, const QHash<int, int>& restrict_aired_episodes = {});
   void refreshHomeDashboard();
   /// Refreshes the Announced releases sidebar page after the active list service changes (Home
   /// banner is handled by `refreshHomeDashboard` when needed).
@@ -186,11 +186,6 @@ protected:
   void showEvent(QShowEvent* event) override;
 
 private:
-  struct StatusMessage {
-    QString text;
-    bool error = false;
-  };
-
   void initActions();
   void initIcons();
   void initNavigation();
@@ -201,7 +196,6 @@ private:
   void initToolbar();
   void initTrayIcon();
   void enqueueStatusMessage(QString message, bool error = false);
-  void showNextQueuedStatusMessage();
   void maybeShowWelcomeSetup();
   void trySyncAfterFocusReturn();
   void updateToolbarSearchPlaceholder();
@@ -214,7 +208,7 @@ private:
     Manual
   };
   void runLibraryScan(bool startup_silent, LibraryScanReason reason);
-  void scheduleDelayedAutoDownload(int delay_minutes);
+  void armDelayedAutoDownloadTimer();
   void cancelDelayedAutoDownload(const QString& reason);
   void beginDelayedAutoDownloadRun();
   void beginWatchingChangeAutoDownloadRun();
@@ -283,7 +277,6 @@ private:
   QTimer* m_announced_related_diff_timer_ = nullptr;    // debounce candidate diff + notify
   QTimer* m_announced_related_due_timer_ = nullptr;     // fires when a title's 30-day cache expires
   bool m_announced_related_paused_ = false;
-  QTimer* m_status_message_timer_ = nullptr;
   QFrame* m_sequel_offer_banner_ = nullptr;
   QLabel* m_sequel_offer_label_ = nullptr;
   std::function<void()> m_sequel_offer_change_status_;
@@ -315,13 +308,15 @@ private:
   bool m_delayed_autodl_after_sync_pending_ = false;
   bool m_delayed_autodl_after_scan_pending_ = false;
   bool m_watching_change_autodl_after_scan_pending_ = false;
-  qint64 m_delayed_autodl_scheduled_at_secs_ = 0;
+  bool m_auto_download_running_ = false;
+  std::vector<taiga::DelayedAutoDownloadJob> m_delayed_autodl_queue_;
+  QHash<int, qint64> m_delayed_autodl_seen_air_at_;
+  QHash<int, qint64> m_delayed_autodl_last_next_time_;
+  QHash<int, int> m_delayed_autodl_bump_episodes_;
   qint64 m_last_release_event_trigger_secs_ = 0;
   qint64 m_last_announced_related_check_started_secs_ = 0;
   int m_last_announced_related_fetch_count_ = 0;
   QSet<int> m_announced_related_pending_ids_;  // ids queued by the current sweep (for diag logging)
-
-  QQueue<StatusMessage> m_status_message_queue_;
 
   QDate m_auto_download_fail_day_;
   QHash<int, int> m_auto_download_fail_streak_today_;
