@@ -21,15 +21,19 @@ int computeLastAiredEpisodeForAutoDownload(const anime::Details& item, int watch
 bool isJustAiredRelease(std::int64_t now_secs, std::int64_t air_at_secs,
                         std::int64_t window_secs = kReleaseEventJustAiredWindowSeconds);
 
-/// Air timestamp to enqueue: current next_episode_time if it just aired, or the previous
-/// next_episode_time if AniList already advanced to the following episode.
+/// Air timestamp to enqueue.
+/// `last_poll_secs` is the previous release-check time (0 on first poll); used to catch airings
+/// that crossed from future to past while the app was asleep.
 std::optional<std::int64_t> detectJustAiredAt(
     std::int64_t now_secs, std::int64_t current_next_episode_time,
-    std::int64_t previous_next_episode_time,
+    std::int64_t previous_next_episode_time, std::int64_t last_poll_secs = 0,
     std::int64_t window_secs = kReleaseEventJustAiredWindowSeconds);
 
 /// Episode number that just aired, from metadata at detection time.
-int inferJustAiredEpisode(int last_aired_episode, int watched_episodes);
+/// When the service already advanced `next_episode_time`, `last_aired_episode` is usually the
+/// episode that aired — do not add one.
+int inferJustAiredEpisode(int last_aired_episode, int watched_episodes,
+                          bool schedule_already_advanced = false);
 
 std::int64_t delayedAutoDownloadDueAt(std::int64_t air_at_secs, std::int64_t delay_secs);
 
@@ -50,6 +54,9 @@ void insertDelayedAutoDownloadJob(std::vector<DelayedAutoDownloadJob>& queue,
 /// Later jobs that are also overdue stay queued (true FIFO, one airing-time group per run).
 std::vector<DelayedAutoDownloadJob> takeNextDelayedAutoDownloadJobs(
     std::vector<DelayedAutoDownloadJob>& queue, std::int64_t now_secs);
+
+std::vector<DelayedAutoDownloadJob> peekNextDelayedAutoDownloadJobs(
+    const std::vector<DelayedAutoDownloadJob>& queue, std::int64_t now_secs);
 
 std::int64_t soonestDelayedAutoDownloadDue(const std::vector<DelayedAutoDownloadJob>& queue);
 

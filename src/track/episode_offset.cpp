@@ -32,9 +32,8 @@ int clampNonNegative(const int v) {
 }  // namespace
 
 int inferredEpisodeOffset(const anime::Details& item) {
-  // Only trust the absolute signal when the cour is finished: then last_aired is the absolute
-  // final episode and offset = last_aired - episode_count (e.g. 54 - 14 = 40).
-  if (item.status != anime::Status::FinishedAiring) return 0;
+  // Absolute last_aired above this cour's episode_count implies a multi-cour offset
+  // (e.g. 54 - 14 = 40), whether the cour is still airing or already finished.
   if (item.episode_count < 1) return 0;
   if (item.last_aired_episode <= item.episode_count) return 0;
   return item.last_aired_episode - item.episode_count;

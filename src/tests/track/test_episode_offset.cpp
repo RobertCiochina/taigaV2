@@ -23,12 +23,13 @@ private slots:
     QCOMPARE(track::toListLastAiredEpisode(item, 54), 14);
   }
 
-  void infer_zero_while_airing() {
+  void infer_offset_while_airing_when_last_aired_absolute() {
     anime::Details item;
     item.status = anime::Status::Airing;
     item.episode_count = 14;
     item.last_aired_episode = 41;
-    QCOMPARE(track::inferredEpisodeOffset(item), 0);
+    QCOMPARE(track::inferredEpisodeOffset(item), 27);
+    QCOMPARE(track::toListLastAiredEpisode(item, 41), 14);
   }
 
   void synthetic_strips_no_marker() {

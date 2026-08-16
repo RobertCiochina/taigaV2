@@ -305,14 +305,17 @@ private:
   bool m_list_sync_in_progress_ = false;
   bool m_list_sync_queued_ = false;
   bool m_startup_auto_download_pending_ = false;
-  bool m_delayed_autodl_after_sync_pending_ = false;
   bool m_delayed_autodl_after_scan_pending_ = false;
   bool m_watching_change_autodl_after_scan_pending_ = false;
   bool m_auto_download_running_ = false;
+  struct PendingAutoDownloadRun {
+    bool silent = true;
+    QHash<int, int> restrict_aired_episodes;
+  };
+  std::optional<PendingAutoDownloadRun> m_queued_autodl_;
   std::vector<taiga::DelayedAutoDownloadJob> m_delayed_autodl_queue_;
   QHash<int, qint64> m_delayed_autodl_seen_air_at_;
   QHash<int, qint64> m_delayed_autodl_last_next_time_;
-  QHash<int, int> m_delayed_autodl_bump_episodes_;
   qint64 m_last_release_event_trigger_secs_ = 0;
   qint64 m_last_announced_related_check_started_secs_ = 0;
   int m_last_announced_related_fetch_count_ = 0;

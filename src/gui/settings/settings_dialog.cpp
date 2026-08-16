@@ -1483,15 +1483,15 @@ void SettingsDialog::saveDownloadsPage() {
     taiga::settings.setTorrentAutoDownloadReleaseEventDelayMinutes(
         m_dl_autodl_release_delay_mins_->value());
   }
-  if (m_dl_autodl_cleanup_unrecognized_) {
-    taiga::settings.setTorrentAutoCleanupUnrecognizedDownloads(
-        taiga::settings.torrentDownloadCreateSubfolder() &&
-        m_dl_autodl_cleanup_unrecognized_->isChecked());
-  }
   taiga::settings.setTorrentDownloadUseAnimeFolder(m_dl_use_anime_folder_->isChecked());
   taiga::settings.setTorrentDownloadFallbackOnClientPath(m_dl_fallback_client_->isChecked());
-  taiga::settings.setTorrentDownloadCreateSubfolder(m_dl_fallback_client_->isChecked() &&
-                                                    m_dl_create_subfolder_->isChecked());
+  const bool create_subfolder =
+      m_dl_fallback_client_->isChecked() && m_dl_create_subfolder_->isChecked();
+  taiga::settings.setTorrentDownloadCreateSubfolder(create_subfolder);
+  if (m_dl_autodl_cleanup_unrecognized_) {
+    taiga::settings.setTorrentAutoCleanupUnrecognizedDownloads(
+        create_subfolder && m_dl_autodl_cleanup_unrecognized_->isChecked());
+  }
   taiga::settings.setTorrentAppOpen(m_dl_app_open_->isChecked());
   taiga::settings.setTorrentAppMode(m_dl_app_custom_->isChecked() ? 2 : 1);
   taiga::settings.setTorrentAppExecutablePath(m_dl_app_exe_->text().trimmed().toStdString());

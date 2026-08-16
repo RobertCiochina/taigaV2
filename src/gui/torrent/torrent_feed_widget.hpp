@@ -78,7 +78,8 @@ public:
   /// `on_done(downloaded_count)` called when all queued; downloaded_count = items sent.
   void downloadAllEpisodesForAnime(int anime_id, const QString& english_title,
                                    const QString& romaji_title, const QString& folder_name,
-                                   std::function<void(int downloaded)> on_done);
+                                   std::function<void(int downloaded)> on_done,
+                                   int min_last_aired = 0);
 
 private:
   enum class FetchKind { None, SearchRss, CatalogManual, CatalogAutocheck };
@@ -105,8 +106,9 @@ private:
   };
 
   void cancelPending();
-  /// Aborts `m_bg_fetch_reply_` and fails any queued best-match waiters (superseded fetches).
-  void abortBackgroundRss();
+  /// Aborts `m_bg_fetch_reply_`. When `notify_aborted` is true, fail best-match waiters and any
+  /// in-flight batch autodl `on_done`. Variant retries pass false so the batch chain continues.
+  void abortBackgroundRss(bool notify_aborted = true);
   void deliverBestMatchFromFiltered(const QList<const rss::Item*>& filtered,
                                     const QString& folder_name,
                                     std::function<void(bool found)> on_done);
@@ -130,6 +132,7 @@ private:
   BgRssOp m_bg_rss_op_ = BgRssOp::None;
   QString m_bg_best_match_key_;
   QVector<BestMatchWaiter> m_bg_best_match_waiters_;
+  std::function<void(int downloaded)> m_bg_batch_on_done_;
 
   /// qBittorrent Web API: enqueue a magnet/torrent URL add (processed one at a time).
   /// Authenticates first if username/password are set, then POSTs to /api/v2/torrents/add.

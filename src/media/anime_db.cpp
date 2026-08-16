@@ -392,7 +392,7 @@ Anime Database::itemFromQuery(const QSqlQuery& q) const {
       .studios = splitToVector(q.value("studios")),
       .tags = splitToVector(q.value("tags")),
       .last_aired_episode = q.value("last_aired_episode").toInt(),
-      .next_episode_time = q.value("next_episode_time").toInt(),
+      .next_episode_time = static_cast<std::time_t>(q.value("next_episode_time").toLongLong()),
   };
   const QString rel = q.value("relations_json").toString().trimmed();
   if (rel == QStringLiteral("[]")) {

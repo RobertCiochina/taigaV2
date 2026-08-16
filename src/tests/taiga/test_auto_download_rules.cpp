@@ -124,7 +124,7 @@ private slots:
   }
 
   void detect_just_aired_uses_current_when_still_pointing_at_aired_ep() {
-    const auto air = taiga::detectJustAiredAt(1100, 1000, 1000, 300);
+    const auto air = taiga::detectJustAiredAt(1100, 1000, 1000, 0, 300);
     QVERIFY(air.has_value());
     QCOMPARE(*air, 1000);
   }
@@ -132,22 +132,36 @@ private slots:
   void detect_just_aired_uses_previous_when_schedule_already_advanced() {
     const std::int64_t a_air = 1000;
     const std::int64_t b_air = 1000 + 7 * 24 * 3600;
-    const auto air = taiga::detectJustAiredAt(1100, b_air, a_air, 300);
+    const auto air = taiga::detectJustAiredAt(1100, b_air, a_air, 0, 300);
     QVERIFY(air.has_value());
     QCOMPARE(*air, a_air);
   }
 
   void detect_just_aired_none_when_only_future_schedule() {
-    QVERIFY(!taiga::detectJustAiredAt(1000, 2000, 2000, 300).has_value());
-    QVERIFY(!taiga::detectJustAiredAt(1000, 2000, 0, 300).has_value());
+    QVERIFY(!taiga::detectJustAiredAt(1000, 2000, 2000, 0, 300).has_value());
+    QVERIFY(!taiga::detectJustAiredAt(1000, 2000, 0, 0, 300).has_value());
+  }
+
+  void detect_just_aired_after_sleep_when_previous_crossed_since_last_poll() {
+    const std::int64_t last_poll = 1000;
+    const std::int64_t a_air = 1300;
+    const std::int64_t now = 1000 + 8 * 3600;
+    const std::int64_t b_air = a_air + 7 * 24 * 3600;
+    const auto air = taiga::detectJustAiredAt(now, b_air, a_air, last_poll, 300);
+    QVERIFY(air.has_value());
+    QCOMPARE(*air, a_air);
   }
 
   void infer_just_aired_uses_last_aired_plus_one() {
-    QCOMPARE(taiga::inferJustAiredEpisode(12, 10), 13);
+    QCOMPARE(taiga::inferJustAiredEpisode(12, 10, false), 13);
   }
 
   void infer_just_aired_falls_back_to_watched_plus_one() {
-    QCOMPARE(taiga::inferJustAiredEpisode(0, 5), 6);
+    QCOMPARE(taiga::inferJustAiredEpisode(0, 5, false), 6);
+  }
+
+  void infer_just_aired_keeps_last_aired_when_schedule_already_advanced() {
+    QCOMPARE(taiga::inferJustAiredEpisode(12, 10, true), 12);
   }
 
   void due_at_is_air_plus_delay_not_clustered() {

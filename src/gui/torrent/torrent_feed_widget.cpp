@@ -60,6 +60,7 @@
 #include "gui/utils/table_view_defaults.hpp"
 #include "media/anime.hpp"
 #include "media/anime_db.hpp"
+#include "taiga/auto_download_rules.hpp"
 #include "taiga/network.hpp"
 #include "taiga/session.hpp"
 #include "taiga/settings.hpp"
@@ -1903,7 +1904,8 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
                                                     const QString& english_title,
                                                     const QString& romaji_title,
                                                     const QString& folder_name,
-                                                    std::function<void(int downloaded)> on_done) {
+                                                    std::function<void(int downloaded)> on_done,
+                                                    const int min_last_aired) {
   // Build variant list (cache first, then generated).
   QStringList variants;
   if (anime_id > 0) {
@@ -1923,7 +1925,8 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
   const auto variantIdx = std::make_shared<int>(0);
   const auto try_fn = std::make_shared<std::function<void()>>();
 
-  *try_fn = [this, variants, folder_name, on_done, variantIdx, try_fn, anime_id]() {
+  *try_fn = [this, variants, folder_name, on_done, variantIdx, try_fn, anime_id,
+             min_last_aired]() {
     const int idx = *variantIdx;
     if (idx >= variants.size()) {
       if (on_done) on_done(0);
@@ -1932,7 +1935,7 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
     ++(*variantIdx);
     const QString title = variants[idx];
 
-    abortBackgroundRss();
+    abortBackgroundRss(/*notify_aborted=*/false);
     const QString tmpl = QString::fromStdString(taiga::settings.torrentDiscoverySearchUrl());
     const QUrl url = taiga::torrentDiscoveryFeedFetchUrl(tmpl, title);
     if (!url.isValid()) {
@@ -1943,13 +1946,15 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
     QNetworkRequest req(url);
     taiga::applyCommonHeaders(req);
     m_bg_rss_op_ = BgRssOp::BatchEpisodes;
+    m_bg_batch_on_done_ = on_done;
     m_bg_fetch_reply_ = taiga::network()->get(req);
 
     connect(m_bg_fetch_reply_, &QNetworkReply::finished, this,
-            [this, title, folder_name, on_done, try_fn, anime_id]() {
+            [this, title, folder_name, on_done, try_fn, anime_id, min_last_aired]() {
               auto* reply = m_bg_fetch_reply_;
               m_bg_fetch_reply_ = nullptr;
               m_bg_rss_op_ = BgRssOp::None;
+              m_bg_batch_on_done_ = {};
               if (!reply) {
                 if (on_done) on_done(0);
                 return;
@@ -1973,9 +1978,13 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
               const auto* entry_db = anime::db.entry(anime_id);
               QList<int> missing;
               if (item_db && entry_db) {
-                // Use episode_count as fallback when last_aired_episode is not populated.
-                const int raw_last = item_db->last_aired_episode > 0 ? item_db->last_aired_episode
-                                                                     : item_db->episode_count;
+                const qint64 now_secs = QDateTime::currentSecsSinceEpoch();
+                int raw_last = taiga::computeLastAiredEpisodeForAutoDownload(
+                    *item_db, entry_db->watched_episodes, now_secs);
+                if (min_last_aired > 0) {
+                  raw_last =
+                      taiga::lastAiredForDelayedAutoDownload(raw_last, min_last_aired);
+                }
                 const int last_aired = track::toListLastAiredEpisode(*item_db, raw_last);
                 const int watched = entry_db->watched_episodes;
                 for (int ep = watched + 1; ep <= last_aired; ++ep) {
@@ -1990,11 +1999,17 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
               // Build best-per-episode map from filtered feed (keys are release/file episode nos).
               const QMap<int, const rss::Item*> best_ep = selectBestPerEpisode(filtered);
 
-              const int effective_last = item_db ? track::toListLastAiredEpisode(
-                                                       *item_db, item_db->last_aired_episode > 0
-                                                                     ? item_db->last_aired_episode
-                                                                     : item_db->episode_count)
-                                                 : 0;
+              const int effective_last = [&]() {
+                if (!item_db || !entry_db) return 0;
+                const qint64 now_secs = QDateTime::currentSecsSinceEpoch();
+                int raw_last = taiga::computeLastAiredEpisodeForAutoDownload(
+                    *item_db, entry_db->watched_episodes, now_secs);
+                if (min_last_aired > 0) {
+                  raw_last =
+                      taiga::lastAiredForDelayedAutoDownload(raw_last, min_last_aired);
+                }
+                return track::toListLastAiredEpisode(*item_db, raw_last);
+              }();
 
               // Cache only after we actually queue a download (below).
 
@@ -2193,19 +2208,26 @@ void TorrentFeedWidget::downloadBestMatchForTitle(const QString& search_title,
   });
 }
 
-void TorrentFeedWidget::abortBackgroundRss() {
+void TorrentFeedWidget::abortBackgroundRss(const bool notify_aborted) {
   if (m_bg_fetch_reply_) {
     m_bg_fetch_reply_->disconnect();
     m_bg_fetch_reply_->abort();
     m_bg_fetch_reply_->deleteLater();
     m_bg_fetch_reply_ = nullptr;
   }
+  m_bg_rss_op_ = BgRssOp::None;
+  m_bg_best_match_key_.clear();
+  if (!notify_aborted) return;
+
   for (const BestMatchWaiter& w : m_bg_best_match_waiters_) {
     if (w.on_done) w.on_done(false);
   }
   m_bg_best_match_waiters_.clear();
-  m_bg_best_match_key_.clear();
-  m_bg_rss_op_ = BgRssOp::None;
+  if (m_bg_batch_on_done_) {
+    const auto cb = std::move(m_bg_batch_on_done_);
+    m_bg_batch_on_done_ = {};
+    cb(0);
+  }
 }
 
 void TorrentFeedWidget::deliverBestMatchFromFiltered(const QList<const rss::Item*>& filtered,
