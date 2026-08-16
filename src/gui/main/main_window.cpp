@@ -1431,7 +1431,7 @@ void MainWindow::openTorrentSearchInApp(const QString& title, const QString& fal
     // Register fallback before search so onFetchFinished can auto-retry.
     const QString fb = fallback.trimmed();
     m_torrentFeedWidget->setSearchFallback(fb.isEmpty() ? QString{} : stripSubtitle(fb));
-    m_torrentFeedWidget->runSearch();
+    m_torrentFeedWidget->runContextualSearch();
   }
   // Persist the torrent query so it's restored when switching back to this page.
   m_pageSearchTexts_[static_cast<int>(MainWindowPage::Torrents)] =

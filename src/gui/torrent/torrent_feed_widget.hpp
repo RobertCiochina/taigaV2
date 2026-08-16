@@ -12,8 +12,11 @@
 #include <QVector>
 #include <QWidget>
 #include <functional>
+#include <optional>
+#include <string>
 
 #include "base/rss.hpp"
+#include "media/anime.hpp"
 
 class QLineEdit;
 class QModelIndex;
@@ -30,6 +33,29 @@ namespace gui {
 class TorrentRssModel;
 class TorrentRssProxyModel;
 
+/// Compact Nyaa `SNN` form for RSS queries. Bare season-1 titles get ` S01` so the ~75-hit RSS
+/// window is not flooded by later cours. Titles that already have a `: ` subtitle are left
+/// unchanged (Nyaa returns 0 hits for `Reikenzan: Eichi e no Shikaku S01`).
+QString nyaaSeasonQualifiedTitle(const QString& title);
+
+/// Title queries used by list/media “Search torrents” (toolbar string, SNN, cache, official
+/// titles, native, synonyms). Auto-download appends any extras from this list after its fast path.
+QStringList buildManualSearchTitleVariants(const Anime& item, const QString& primary_query);
+
+/// Season number from release/list title text (`S03`, `3rd Season`, `Season 3`, `Part 2`).
+std::optional<int> seasonNumberFromTitleText(const QString& s);
+
+/// Expected Nyaa/anitomy season for a list entry. Unmarked titles → season 1 (AniList S1 style).
+int expectedTorrentSeasonForAnime(const anime::Details& item);
+
+/// True when a release/parsed title shares a long normalized key with `item`'s official titles.
+bool rssReleaseTitleOverlapsAnime(const std::string& release_or_parsed_title,
+                                  const anime::Details& item);
+
+/// Anime-context RSS filter with an injected `identify()` result (for tests). `identified_id` is
+/// `anime::kUnknownId` when recognition did not match.
+bool rssItemBelongsToAnime(const rss::Item& it, const anime::Details& item, int identified_id);
+
 /// In-app RSS torrent discovery (fetch search/catalog URLs, show items; open links on demand).
 class TorrentFeedWidget final : public QWidget {
   Q_OBJECT
@@ -39,6 +65,9 @@ public:
   explicit TorrentFeedWidget(QLineEdit* toolbar_query_edit, QWidget* parent = nullptr);
 
   void runSearch();
+  /// Same as `runSearch()`, but keeps the anime id set via `setManualSearchAnimeContext`.
+  /// Used when Search torrents is launched from the list/media menu.
+  void runContextualSearch();
   /// Set an alternative search title to retry automatically if the primary search returns 0
   /// results.
   void setSearchFallback(const QString& fallback);
@@ -114,6 +143,7 @@ private:
                                     std::function<void(bool found)> on_done);
   void startFetch(const QUrl& url, const QString& status_message, FetchKind kind);
   void onFetchFinished(QNetworkReply* reply);
+  void runSearchInternal();
   void populateTable(const rss::Feed& feed, int context_anime_id = 0);
   void applyCatalogFingerprintState(const rss::Feed& feed, bool notify_if_new);
   void applyRssTableSortFromSettings();

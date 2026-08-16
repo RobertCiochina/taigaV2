@@ -10,3 +10,22 @@ Diagnostics:
   # macros/templates to their header, producing false "unused include" warnings across
   # the codebase. Disable that unreliable heuristic instead of per-file IWYU pragmas.
   UnusedIncludes: None
+
+# Ninja Multi-Config lists Debug first in compile_commands.json. Qt AUTOMOC writes
+# `foo.moc` under include_<Config>/; after a RelWithDebInfo-only build the Debug
+# path is empty and clangd reports pp_file_not_found on `#include "….moc"`.
+# PathMatch must not require `/` — Windows paths use `\`.
+---
+If:
+  PathMatch: .*test_nyaa_season_qualified_title\.cpp
+CompileFlags:
+  Add:
+    - -Ibuild/msvc-x64/src/tests/taiga.tests.nyaa_season_qualified_title_autogen/include_RelWithDebInfo
+    - -Ibuild/msvc-x64/src/tests/taiga.tests.nyaa_season_qualified_title_autogen/include_Debug
+---
+If:
+  PathMatch: .*test_recognition_parse_file\.cpp
+CompileFlags:
+  Add:
+    - -Ibuild/msvc-x64/src/tests/taiga.tests.recognition_parse_file_autogen/include_RelWithDebInfo
+    - -Ibuild/msvc-x64/src/tests/taiga.tests.recognition_parse_file_autogen/include_Debug

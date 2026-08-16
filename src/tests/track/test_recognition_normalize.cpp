@@ -58,6 +58,14 @@ private slots:
     QCOMPARE(s, QStringLiteral("HelloWorld"));
   }
 
+  void colon_subtitle_matches_spaced_fansub_folder() {
+    const auto official = normalize("Reikenzan: Eichi e no Shikaku");
+    QCOMPARE(official, std::string("reikenzaneichihenoshikaku"));
+    QCOMPARE(normalize("Reikenzan Eichi E No Shikaku"), official);
+    const auto pack = normalize("[Techmod] Reikenzan Eichi E No Shikaku (1080p)");
+    QVERIFY(pack.find(official) != std::string::npos);
+  }
+
   void normalize_unicode_casefolds_ascii() {
     QString s = QStringLiteral("UPPERCASE");
     normalizeUnicode(s);

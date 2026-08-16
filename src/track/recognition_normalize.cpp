@@ -38,6 +38,12 @@ std::string normalize(std::string title) {
 
   normalizeUnicode(str);  // title is lower case after this point, due to UTF8PROC_CASEFOLD
 
+  // Hepburn particles must run on case-folded text. Fansub folders often use "E No"
+  // for へ の; applying this before casefold left "E" unmatched vs AniList "e".
+  replaceWholeWord(str, "wa", "ha");
+  replaceWholeWord(str, "e", "he");
+  replaceWholeWord(str, "o", "wo");
+
   normalizeOrdinalNumbers(str);
   normalizeSeasonNumbers(str);
 
@@ -188,11 +194,6 @@ void transliterate(QString& str) {
     }
     // clang-format on
   }
-
-  // Romanizations (Hepburn to Wapuro)
-  replaceWholeWord(str, "wa", "ha");
-  replaceWholeWord(str, "e", "he");
-  replaceWholeWord(str, "o", "wo");
 }
 
 }  // namespace track::recognition

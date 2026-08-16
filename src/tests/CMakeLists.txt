@@ -69,6 +69,9 @@ target_sources(taiga.tests.streaming_sites PRIVATE track/test_streaming_sites.cp
 taiga_add_qttest_core(taiga.tests.recognition_normalize)
 target_sources(taiga.tests.recognition_normalize PRIVATE track/test_recognition_normalize.cpp)
 
+taiga_add_qttest(taiga.tests.recognition_parse_file)
+target_sources(taiga.tests.recognition_parse_file PRIVATE track/test_recognition_parse_file.cpp)
+
 taiga_add_qttest(taiga.tests.episode_offset)
 target_sources(taiga.tests.episode_offset PRIVATE track/test_episode_offset.cpp)
 
@@ -96,6 +99,9 @@ target_sources(taiga.tests.version PRIVATE taiga/test_version.cpp)
 taiga_add_qttest_core(taiga.tests.ui_strings)
 target_sources(taiga.tests.ui_strings PRIVATE gui/test_ui_strings.cpp)
 
+taiga_add_qttest(taiga.tests.nyaa_season_qualified_title)
+target_sources(taiga.tests.nyaa_season_qualified_title PRIVATE gui/test_nyaa_season_qualified_title.cpp)
+
 add_custom_target(taiga_all_tests)
 add_dependencies(
   taiga_all_tests
@@ -113,6 +119,7 @@ add_dependencies(
   taiga.tests.search_year_combo_popup
   taiga.tests.streaming_sites
   taiga.tests.recognition_normalize
+  taiga.tests.recognition_parse_file
   taiga.tests.episode_offset
   taiga.tests.episode
   taiga.tests.anime_season
@@ -121,4 +128,5 @@ add_dependencies(
   taiga.tests.anime_list_utils
   taiga.tests.announced_related_refresh
   taiga.tests.version
-  taiga.tests.ui_strings)
+  taiga.tests.ui_strings
+  taiga.tests.nyaa_season_qualified_title)

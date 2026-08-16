@@ -19,6 +19,10 @@ bool tagEq(const QStringView n, const QStringView s) {
   return n.sliced(i + 1).compare(s, Qt::CaseInsensitive) == 0;
 }
 
+bool unprefixedTag(const QStringView n, const QStringView s) {
+  return n.compare(s, Qt::CaseInsensitive) == 0;
+}
+
 void skipCurrentElement(QXmlStreamReader& xml) {
   if (!xml.isStartElement()) return;
   int depth = 1;
@@ -55,8 +59,8 @@ rss::Item parseRssItem(QXmlStreamReader& xml) {
       item.enclosure.type = xml.attributes().value(u"type").toString().toStdString();
       item.enclosure.length = xml.attributes().value(u"length").toString().toStdString();
       xml.skipCurrentElement();
-    } else if (tagEq(n, u"seeders") || tagEq(n, u"leechers") ||
-               tagEq(n, u"downloads") || tagEq(n, u"size") || tagEq(n, u"infoHash")) {
+    } else if (tagEq(n, u"seeders") || tagEq(n, u"leechers") || tagEq(n, u"downloads") ||
+               tagEq(n, u"size") || tagEq(n, u"infoHash")) {
       // Capture extended namespace elements (e.g. nyaa:seeders, nyaa:size).
       const std::string key = n.toString().toStdString();
       item.namespace_elements[key] = xml.readElementText().toStdString();
@@ -70,6 +74,7 @@ rss::Item parseRssItem(QXmlStreamReader& xml) {
 std::optional<rss::Feed> parseRss2Feed(const QByteArray& xml_utf8, QString* error_message,
                                        const int max_items) {
   QXmlStreamReader xml(xml_utf8);
+  xml.setNamespaceProcessing(false);
   if (xml.hasError()) {
     if (error_message) *error_message = xml.errorString();
     return std::nullopt;
@@ -98,13 +103,13 @@ std::optional<rss::Feed> parseRss2Feed(const QByteArray& xml_utf8, QString* erro
 
   while (xml.readNextStartElement()) {
     const QStringView n = xml.name();
-    if (tagEq(n, u"title")) {
+    if (unprefixedTag(n, u"title")) {
       feed.channel.title = xml.readElementText().toStdString();
-    } else if (tagEq(n, u"link")) {
+    } else if (unprefixedTag(n, u"link")) {
       feed.channel.link = xml.readElementText().toStdString();
-    } else if (tagEq(n, u"description")) {
+    } else if (unprefixedTag(n, u"description")) {
       feed.channel.description = xml.readElementText().toStdString();
-    } else if (tagEq(n, u"item")) {
+    } else if (unprefixedTag(n, u"item")) {
       if (static_cast<int>(feed.items.size()) < max_items) {
         feed.items.push_back(parseRssItem(xml));
       } else {
@@ -116,6 +121,7 @@ std::optional<rss::Feed> parseRss2Feed(const QByteArray& xml_utf8, QString* erro
   }
 
   if (xml.hasError()) {
+    if (!feed.items.empty()) return feed;
     if (error_message) *error_message = xml.errorString();
     return std::nullopt;
   }
@@ -124,8 +130,9 @@ std::optional<rss::Feed> parseRss2Feed(const QByteArray& xml_utf8, QString* erro
 }
 
 std::optional<rss::Feed> parseRdfRss1Feed(const QByteArray& xml_utf8, QString* error_message,
-                                           const int max_items) {
+                                          const int max_items) {
   QXmlStreamReader xml(xml_utf8);
+  xml.setNamespaceProcessing(false);
   rss::Feed feed;
 
   while (!xml.atEnd()) {
@@ -203,6 +210,7 @@ rss::Item parseAtomEntry(QXmlStreamReader& xml) {
 std::optional<rss::Feed> parseAtomFeed(const QByteArray& xml_utf8, QString* error_message,
                                        const int max_items) {
   QXmlStreamReader xml(xml_utf8);
+  xml.setNamespaceProcessing(false);
   rss::Feed feed;
 
   while (!xml.atEnd()) {
@@ -244,8 +252,8 @@ std::optional<rss::Feed> parseAtomFeed(const QByteArray& xml_utf8, QString* erro
 }
 
 void normalizeTorrentFeed(rss::Feed& feed) {
-  static const QRegularExpression magnetHref(
-      QStringLiteral("href\\s*=\\s*\"(magnet:[^\"]+)\""), QRegularExpression::CaseInsensitiveOption);
+  static const QRegularExpression magnetHref(QStringLiteral("href\\s*=\\s*\"(magnet:[^\"]+)\""),
+                                             QRegularExpression::CaseInsensitiveOption);
 
   for (auto& it : feed.items) {
     const QString desc = QString::fromStdString(it.description);

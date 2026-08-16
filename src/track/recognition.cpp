@@ -58,9 +58,8 @@ void stripIgnoredSubstrings(std::string& s) {
 }
 
 /// True when the folder name looks like a release pack (codec/resolution/group) rather than the
-/// anime library folder — in that case a grandparent directory is a better title hint for S00
-/// files. Do not use path length alone: long official English titles are common and would
-/// false-positive.
+/// anime library folder — in that case a grandparent directory is a better title hint.
+/// Do not use path length alone: long official English titles are common and would false-positive.
 bool directoryLooksLikeTorrentReleasePack(const QString& name) {
   const QString lower = name.toLower();
   static const QStringList kMarkers{
@@ -79,6 +78,21 @@ bool directoryLooksLikeTorrentReleasePack(const QString& name) {
     if (lower.contains(m)) return true;
   }
   return false;
+}
+
+/// Library layout is often `Show / [Group] Show (1080p) / file.mkv`. Prefer the show folder when
+/// the immediate parent is a torrent pack name.
+QString folderTitleHint(const QFileInfo& info) {
+  QDir immediate = info.dir();
+  QString folderTitle = immediate.dirName();
+  QDir parentOfRelease = immediate;
+  if (parentOfRelease.cdUp()) {
+    const QString grand = parentOfRelease.dirName();
+    if (!grand.isEmpty() && directoryLooksLikeTorrentReleasePack(folderTitle)) {
+      folderTitle = grand;
+    }
+  }
+  return folderTitle;
 }
 
 /// Some filenames only get season 0 from a literal `S00E##` token; ensure Season is set so folder
@@ -137,41 +151,22 @@ Episode parseFileInfo(const QFileInfo& info, const anitomy::Options options,
     const auto season_str = episode.element(anitomy::ElementKind::Season);
     const bool isSeason0 = !season_str.empty() && (season_str == "0" || season_str == "00");
 
-    if (!episode.contains(anitomy::ElementKind::Title) || isSeason0) {
-      std::string dirName;
-      if (isSeason0) {
-        QDir immediate = info.dir();
-        QString folderTitle = immediate.dirName();
-        QDir parentOfRelease = immediate;
-        if (parentOfRelease.cdUp()) {
-          const QString grand = parentOfRelease.dirName();
-          if (!grand.isEmpty() && directoryLooksLikeTorrentReleasePack(folderTitle)) {
-            folderTitle = grand;
-          }
-        }
-        dirName = folderTitle.toStdString();
-      } else {
-        dirName = info.dir().dirName().toStdString();
-      }
-      stripIgnoredSubstrings(dirName);
-      if (!dirName.empty()) {
-        if (isSeason0) {
-          // Override the scene abbreviation title with the folder name.
-          episode.setElement(anitomy::ElementKind::Title, dirName);
-        } else {
-          episode.addElement(anitomy::ElementKind::Title, dirName);
-        }
-      }
-    } else if (!season_str.empty()) {
-      // The filename already has a title and a season number (e.g. S04E05).
-      // Fansub releases often use the base series title ("Honzuki no Gekokujou")
-      // even for later seasons, which makes the base season the strongest cache hit.
-      // Adding the parent folder name as a secondary Title element lets identify()
-      // disambiguate via the folder — e.g. "Ascendance of a Bookworm_ Adopted
-      // Daughter of an Archduke" uniquely identifies the S4 entry.
-      std::string dirName = info.dir().dirName().toStdString();
-      stripIgnoredSubstrings(dirName);
-      if (!dirName.empty()) {
+    std::string dirName = folderTitleHint(info).toStdString();
+    stripIgnoredSubstrings(dirName);
+    if (dirName.empty()) {
+      // keep filename-only parse
+    } else if (isSeason0) {
+      // Override the scene abbreviation title with the folder name.
+      episode.setElement(anitomy::ElementKind::Title, dirName);
+    } else if (!episode.contains(anitomy::ElementKind::Title)) {
+      episode.addElement(anitomy::ElementKind::Title, dirName);
+    } else {
+      // Filename already has a title. Still add the library folder as a secondary Title so
+      // sequels whose fansub name is `Franchise - Subtitle - 01` (anitomy Title = franchise)
+      // identify via `Show / [Group] Show (1080p) / file.mkv`. Previously this only ran when
+      // the filename also carried a season token (S04E05).
+      const auto primary = episode.element(anitomy::ElementKind::Title);
+      if (normalize(dirName) != normalize(primary)) {
         episode.addElement(anitomy::ElementKind::Title, dirName);
       }
     }
@@ -192,9 +187,37 @@ int identify(Episode& episode) {
 
   std::vector<Cache::Data::Match> matches;
 
+  const auto mergeMatch = [&](int id, float weight) {
+    const auto it =
+        std::ranges::find_if(matches, [id](const Cache::Data::Match& m) { return m.id == id; });
+    if (it == matches.end()) {
+      matches.push_back({.id = id, .weight = weight});
+    } else if (it->weight < weight) {
+      it->weight = weight;
+    }
+  };
+
   // Primary lookup by title alone.
   if (const auto data = cache()->find(normalizedTitle)) {
     matches.append_range(data->matches | std::views::values | std::ranges::to<std::vector>());
+  }
+
+  // Fansubs split sequel subtitles after " - " (`Reikenzan - Eichi e no Shikaku - 01` or
+  // `Reikenzan Eichi E No Shikaku - 01`). Anitomy's Title is then only the franchise, which
+  // misses the AniList key. Retry Title + EpisodeTitle as a more specific lookup.
+  {
+    const auto episode_title = episode.element(anitomy::ElementKind::EpisodeTitle);
+    if (!title.empty() && !episode_title.empty()) {
+      const auto gluedNorm = normalize(title + " " + episode_title);
+      if (!gluedNorm.empty() && gluedNorm != normalizedTitle) {
+        if (const auto data = cache()->find(gluedNorm)) {
+          constexpr float kGluedBoost = 0.45f;
+          for (const auto& [id, match] : data->matches) {
+            mergeMatch(id, match.weight + kGluedBoost);
+          }
+        }
+      }
+    }
   }
 
   // Season-noise fallback: "Boku no Hero Academia Final Season - More" → same key as
@@ -247,15 +270,6 @@ int identify(Episode& episode) {
   // but the season boost lifts the correct season-specific entry above the base series.
   {
     constexpr float kFolderTitleBaseWeight = 0.9f;
-    const auto mergeMatch = [&](int id, float weight) {
-      const auto it =
-          std::ranges::find_if(matches, [id](const Cache::Data::Match& m) { return m.id == id; });
-      if (it == matches.end()) {
-        matches.push_back({.id = id, .weight = weight});
-      } else if (it->weight < weight) {
-        it->weight = weight;
-      }
-    };
 
     for (const auto& secondary :
          episode.allElements(anitomy::ElementKind::Title) | std::views::drop(1)) {
@@ -264,7 +278,14 @@ int identify(Episode& episode) {
 
       if (const auto data = cache()->find(normSecondary)) {
         for (const auto& [id, match] : data->matches) {
-          mergeMatch(id, match.weight * kFolderTitleBaseWeight);
+          float w = match.weight * kFolderTitleBaseWeight;
+          // Longer library-folder keys (sequel subtitle) must beat a short franchise Title
+          // that otherwise identifies season 1 (`Reikenzan` vs `Reikenzan Eichi E No Shikaku`).
+          if (normSecondary.size() > normalizedTitle.size()) {
+            constexpr float kSpecificFolderBoost = 0.45f;
+            w = match.weight + kSpecificFolderBoost;
+          }
+          mergeMatch(id, w);
         }
       }
 

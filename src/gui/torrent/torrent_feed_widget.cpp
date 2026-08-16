@@ -141,61 +141,6 @@ QString toNyaaSeasonCodeTitle(const QString& s) {
   return {};
 }
 
-/// Nyaa RSS only returns the newest ~75 hits. Bare franchise titles are flooded by the airing
-/// season; older cours only show up when the query includes `SNN`. Convert "Season N" → `SNN`,
-/// or append `S01` when the official title has no season marker (typical for season 1).
-QString nyaaSeasonQualifiedTitle(const QString& title) {
-  const QString t = title.trimmed();
-  if (t.isEmpty()) return {};
-  if (const QString coded = toNyaaSeasonCodeTitle(t); !coded.isEmpty()) return coded;
-  if (titleHasNyaaSeasonToken(t)) return {};
-  return t + QStringLiteral(" S01");
-}
-
-/// Season number from release/list title text (`S03`, `3rd Season`, `Season 3`, `Part 2`).
-std::optional<int> seasonNumberFromTitleText(const QString& s) {
-  const QString t = s.trimmed();
-  if (t.isEmpty()) return std::nullopt;
-  static const QRegularExpression re_compact(QStringLiteral(R"(\bS(\d{1,2})\b)"),
-                                             QRegularExpression::CaseInsensitiveOption);
-  if (const auto m = re_compact.match(t); m.hasMatch()) {
-    const int n = m.captured(1).toInt();
-    if (n > 0) return n;
-  }
-  static const QRegularExpression re_nth(QStringLiteral(R"(\b(\d+)(?:st|nd|rd|th)\s+[Ss]eason\b)"),
-                                         QRegularExpression::CaseInsensitiveOption);
-  if (const auto m = re_nth.match(t); m.hasMatch()) {
-    const int n = m.captured(1).toInt();
-    if (n > 0) return n;
-  }
-  static const QRegularExpression re_s(QStringLiteral(R"(\b[Ss]eason\s+(\d+)\b)"),
-                                       QRegularExpression::CaseInsensitiveOption);
-  if (const auto m = re_s.match(t); m.hasMatch()) {
-    const int n = m.captured(1).toInt();
-    if (n > 0) return n;
-  }
-  static const QRegularExpression re_p(QStringLiteral(R"(\bPart\s+(\d+)\b)"),
-                                       QRegularExpression::CaseInsensitiveOption);
-  if (const auto m = re_p.match(t); m.hasMatch()) {
-    const int n = m.captured(1).toInt();
-    if (n > 0) return n;
-  }
-  return std::nullopt;
-}
-
-/// Expected Nyaa/anitomy season for a list entry. Unmarked titles → season 1 (AniList S1 style).
-int expectedTorrentSeasonForAnime(const anime::Details& item) {
-  for (const QString& t :
-       {QString::fromStdString(item.titles.english), QString::fromStdString(item.titles.romaji),
-        QString::fromStdString(item.titles.japanese)}) {
-    if (const auto n = seasonNumberFromTitleText(t)) return *n;
-  }
-  for (const auto& syn : item.titles.synonyms) {
-    if (const auto n = seasonNumberFromTitleText(QString::fromStdString(syn))) return *n;
-  }
-  return 1;
-}
-
 bool isBatchLikeTitle(const QString& title_full) {
   static const QRegularExpression kBatchLike(
       QStringLiteral(R"((\bBatch\b|\bComplete\s+Collection\b|\bBD\s*Batch\b))"),
@@ -314,28 +259,6 @@ bool normalizedTitlesOverlap(const std::string& a, const std::string& b) {
   return false;
 }
 
-bool parsedTitleOverlapsAnime(const std::string& parsed_title, const anime::Details& item) {
-  const std::string key = track::recognition::normalize(parsed_title);
-  if (key.empty()) return false;
-  if (normalizedTitlesOverlap(key, track::recognition::normalize(item.titles.romaji))) return true;
-  if (normalizedTitlesOverlap(key, track::recognition::normalize(item.titles.english))) return true;
-  if (normalizedTitlesOverlap(key, track::recognition::normalize(item.titles.japanese)))
-    return true;
-  for (const auto& syn : item.titles.synonyms) {
-    if (normalizedTitlesOverlap(key, track::recognition::normalize(syn))) return true;
-  }
-  for (const auto& syn : track::recognition::syntheticTitleSynonyms(item)) {
-    if (normalizedTitlesOverlap(key, track::recognition::normalize(syn))) return true;
-  }
-  if (item.id > 0) {
-    for (const QString& alias : taiga::settings.animeRecognitionTitles(item.id)) {
-      if (normalizedTitlesOverlap(key, track::recognition::normalize(alias.toStdString())))
-        return true;
-    }
-  }
-  return false;
-}
-
 std::optional<int> yearTokenInTitle(const QString& title) {
   static const QRegularExpression kYear(QStringLiteral(R"(\b((?:19|20)\d{2})\b)"));
   const auto m = kYear.match(title);
@@ -356,44 +279,29 @@ bool rssItemBelongsToAnimeContext(const rss::Item& it, const int context_anime_i
   if (!item) return true;
 
   track::Episode ep = track::recognition::parse(it.title);
-  const QString title_full = QString::fromStdString(it.title);
-  const int id = track::recognition::identify(ep);
+  int id = track::recognition::identify(ep);
 
-  if (id != anime::kUnknownId && id != context_anime_id) return false;
-
-  // Fansub titles often reuse the franchise base name; identify() can map S03E## to the S1 id.
-  // Always honor an explicit season token in the release name vs the list entry's season.
-  {
-    int release_season = 0;
-    const auto season_str = ep.element(anitomy::ElementKind::Season);
-    if (!season_str.empty()) {
-      release_season = QString::fromStdString(season_str).toInt();
-    }
-    if (release_season <= 0) {
-      if (const auto n = seasonNumberFromTitleText(title_full)) release_season = *n;
-    }
-    if (release_season > 0 && release_season != expectedTorrentSeasonForAnime(*item)) {
-      return false;
+  // Fansubs often split a sequel subtitle after " - " (`Reikenzan - Eichi e no Shikaku - 09`),
+  // so anitomy's Title is only the franchise and identify() hits season 1. Retry with the
+  // episode-title fragment glued on.
+  if (id != context_anime_id) {
+    const std::string episode_title = ep.element(anitomy::ElementKind::EpisodeTitle);
+    if (!episode_title.empty()) {
+      const std::string series = ep.element(anitomy::ElementKind::Title);
+      if (!series.empty()) {
+        track::Episode glued = ep;
+        glued.setElement(anitomy::ElementKind::Title, series + " " + episode_title);
+        const int glued_id = track::recognition::identify(glued);
+        if (glued_id == context_anime_id) {
+          id = glued_id;
+        } else if (id == anime::kUnknownId && glued_id != anime::kUnknownId) {
+          id = glued_id;
+        }
+      }
     }
   }
 
-  // Cour-like context: reject movie/special packaging (old franchise BDs, etc.).
-  // Movie/Special/OVA/Music entries must keep S00 / "Special"-tagged releases.
-  const bool cour_like = item->type == anime::Type::Tv || item->type == anime::Type::Ona ||
-                         item->type == anime::Type::Unknown;
-  if (cour_like && isMovieOrSpecial(ep, title_full)) return false;
-
-  if (const auto year = yearTokenInTitle(title_full)) {
-    const int start_y = static_cast<int>(item->date_started.year());
-    if (start_y > 0 && std::abs(*year - start_y) > 1) return false;
-  }
-
-  if (id == anime::kUnknownId) {
-    const std::string parsed = ep.element(anitomy::ElementKind::Title);
-    if (parsed.empty()) return false;
-    return parsedTitleOverlapsAnime(parsed, *item);
-  }
-  return true;
+  return rssItemBelongsToAnime(it, *item, id);
 }
 
 std::optional<qint64> contextAnimeStartMs(const anime::Details& item) {
@@ -411,8 +319,10 @@ std::optional<qint64> contextAnimeStartMs(const anime::Details& item) {
 }
 
 std::optional<qint64> rssItemPublishedMs(const rss::Item& it) {
-  const QString s = QString::fromStdString(it.pub_date).trimmed();
+  QString s = QString::fromStdString(it.pub_date).trimmed();
   if (s.isEmpty()) return std::nullopt;
+  // Nyaa emits `-0000`; Qt's RFC2822 parser often rejects that offset.
+  s.replace(QLatin1String(" -0000"), QLatin1String(" +0000"));
   {
     const QDateTime dt = QDateTime::fromString(s, Qt::RFC2822Date);
     if (dt.isValid()) return dt.toMSecsSinceEpoch();
@@ -512,13 +422,16 @@ QList<const rss::Item*> filterRssItemsBySettings(const rss::Feed& feed,
 
     if (hide_dropped || hide_not_in_list || hide_watched || hide_available || hide_older_versions) {
       track::Episode ep = track::recognition::parse(it.title);
-      const int id = track::recognition::identify(ep);
+      int id = track::recognition::identify(ep);
+      // Context search already restricted the row to this list entry (including sequels whose
+      // filenames identify as the franchise parent). Apply list filters to *that* entry, not the
+      // mis-identified id — otherwise "hide not on my list" drops every S2 row mapped to S1.
+      if (context_anime_id > 0) id = context_anime_id;
       const ListEntry* entry = (id != anime::kUnknownId) ? anime::db.entry(id) : nullptr;
       const auto st = entry ? entry->status : anime::list::Status::NotInList;
-      // Only apply "not in list" when the anime was positively identified.
-      // Unrecognized items (id == kUnknownId) have no list membership data —
-      // hiding them would silently discard Specials/OVAs that merely failed recognition.
-      if (hide_not_in_list && id != anime::kUnknownId && st == anime::list::Status::NotInList)
+      // Free-text/catalog only: context search is launched from a list/media item.
+      if (hide_not_in_list && context_anime_id <= 0 && id != anime::kUnknownId &&
+          st == anime::list::Status::NotInList)
         continue;
       if (hide_dropped && st == anime::list::Status::Dropped) continue;
 
@@ -826,6 +739,165 @@ void openPrimaryTorrentUrl(const QString& url) {
   }
 }
 }  // namespace
+
+QString nyaaSeasonQualifiedTitle(const QString& title) {
+  const QString t = title.trimmed();
+  if (t.isEmpty()) return {};
+  if (const QString coded = toNyaaSeasonCodeTitle(t); !coded.isEmpty()) return coded;
+  if (titleHasNyaaSeasonToken(t)) return {};
+  // Distinctive `: ` subtitles already disambiguate sequels; `… S01` makes Nyaa return 0 hits.
+  if (t.contains(QStringLiteral(": "))) return {};
+  return t + QStringLiteral(" S01");
+}
+
+std::optional<int> seasonNumberFromTitleText(const QString& s) {
+  const QString t = s.trimmed();
+  if (t.isEmpty()) return std::nullopt;
+  static const QRegularExpression re_compact(QStringLiteral(R"(\bS(\d{1,2})\b)"),
+                                             QRegularExpression::CaseInsensitiveOption);
+  if (const auto m = re_compact.match(t); m.hasMatch()) {
+    const int n = m.captured(1).toInt();
+    if (n > 0) return n;
+  }
+  static const QRegularExpression re_nth(QStringLiteral(R"(\b(\d+)(?:st|nd|rd|th)\s+[Ss]eason\b)"),
+                                         QRegularExpression::CaseInsensitiveOption);
+  if (const auto m = re_nth.match(t); m.hasMatch()) {
+    const int n = m.captured(1).toInt();
+    if (n > 0) return n;
+  }
+  static const QRegularExpression re_s(QStringLiteral(R"(\b[Ss]eason\s+(\d+)\b)"),
+                                       QRegularExpression::CaseInsensitiveOption);
+  if (const auto m = re_s.match(t); m.hasMatch()) {
+    const int n = m.captured(1).toInt();
+    if (n > 0) return n;
+  }
+  static const QRegularExpression re_p(QStringLiteral(R"(\bPart\s+(\d+)\b)"),
+                                       QRegularExpression::CaseInsensitiveOption);
+  if (const auto m = re_p.match(t); m.hasMatch()) {
+    const int n = m.captured(1).toInt();
+    if (n > 0) return n;
+  }
+  return std::nullopt;
+}
+
+int expectedTorrentSeasonForAnime(const anime::Details& item) {
+  for (const QString& t :
+       {QString::fromStdString(item.titles.english), QString::fromStdString(item.titles.romaji),
+        QString::fromStdString(item.titles.japanese)}) {
+    if (const auto n = seasonNumberFromTitleText(t)) return *n;
+  }
+  for (const auto& syn : item.titles.synonyms) {
+    if (const auto n = seasonNumberFromTitleText(QString::fromStdString(syn))) return *n;
+  }
+  return 1;
+}
+
+bool rssReleaseTitleOverlapsAnime(const std::string& release_or_parsed_title,
+                                  const anime::Details& item) {
+  const std::string key = track::recognition::normalize(release_or_parsed_title);
+  if (key.empty()) return false;
+  if (normalizedTitlesOverlap(key, track::recognition::normalize(item.titles.romaji))) return true;
+  if (normalizedTitlesOverlap(key, track::recognition::normalize(item.titles.english))) return true;
+  if (normalizedTitlesOverlap(key, track::recognition::normalize(item.titles.japanese)))
+    return true;
+  for (const auto& syn : item.titles.synonyms) {
+    if (normalizedTitlesOverlap(key, track::recognition::normalize(syn))) return true;
+  }
+  for (const auto& syn : track::recognition::syntheticTitleSynonyms(item)) {
+    if (normalizedTitlesOverlap(key, track::recognition::normalize(syn))) return true;
+  }
+  if (item.id > 0) {
+    for (const QString& alias : taiga::settings.animeRecognitionTitles(item.id)) {
+      if (normalizedTitlesOverlap(key, track::recognition::normalize(alias.toStdString())))
+        return true;
+    }
+  }
+  return false;
+}
+
+bool rssFragmentCoversAnimeTitle(const std::string& fragment, const anime::Details& item) {
+  const std::string key = track::recognition::normalize(fragment);
+  if (key.empty()) return false;
+  const auto covers = [&](const std::string& official) {
+    const std::string off = track::recognition::normalize(official);
+    if (off.empty()) return false;
+    if (key == off) return true;
+    // One-way: the list entry's title must appear in the release fragment. The reverse would
+    // treat "Boku no Hero Academia" as a match for "… 2nd Season" and leak S1 rows into S2.
+    constexpr size_t kMin = 12;
+    return off.size() >= kMin && key.find(off) != std::string::npos;
+  };
+  if (covers(item.titles.romaji) || covers(item.titles.english) || covers(item.titles.japanese))
+    return true;
+  for (const auto& syn : item.titles.synonyms) {
+    if (covers(syn)) return true;
+  }
+  for (const auto& syn : track::recognition::syntheticTitleSynonyms(item)) {
+    if (covers(syn)) return true;
+  }
+  if (item.id > 0) {
+    for (const QString& alias : taiga::settings.animeRecognitionTitles(item.id)) {
+      if (covers(alias.toStdString())) return true;
+    }
+  }
+  return false;
+}
+
+bool rssItemBelongsToAnime(const rss::Item& it, const anime::Details& item,
+                           const int identified_id) {
+  track::Episode ep = track::recognition::parse(it.title);
+  const QString title_full = QString::fromStdString(it.title);
+  const int id = identified_id;
+
+  // On a positive match to a *different* id, keep only if anitomy's series (+ episode title)
+  // covers this entry — not the raw filename, which often contains the S1 name plus `2nd Season`.
+  if (id != anime::kUnknownId && id != item.id) {
+    const std::string series = ep.element(anitomy::ElementKind::Title);
+    const std::string episode_title = ep.element(anitomy::ElementKind::EpisodeTitle);
+    const std::string glued = episode_title.empty() ? series : series + " " + episode_title;
+    const bool overlap =
+        rssFragmentCoversAnimeTitle(glued, item) ||
+        (!episode_title.empty() && rssFragmentCoversAnimeTitle(episode_title, item)) ||
+        rssFragmentCoversAnimeTitle(it.title, item);
+    if (!overlap) return false;
+  }
+
+  {
+    int release_season = 0;
+    const auto season_str = ep.element(anitomy::ElementKind::Season);
+    if (!season_str.empty()) {
+      release_season = QString::fromStdString(season_str).toInt();
+    }
+    if (release_season <= 0) {
+      if (const auto n = seasonNumberFromTitleText(title_full)) release_season = *n;
+    }
+    if (release_season > 0 && release_season != expectedTorrentSeasonForAnime(item)) {
+      return false;
+    }
+  }
+
+  const bool cour_like = item.type == anime::Type::Tv || item.type == anime::Type::Ona ||
+                         item.type == anime::Type::Unknown;
+  if (cour_like && isMovieOrSpecial(ep, title_full)) return false;
+
+  if (const auto year = yearTokenInTitle(title_full)) {
+    const int start_y = static_cast<int>(item.date_started.year());
+    if (start_y > 0 && std::abs(*year - start_y) > 1) return false;
+  }
+
+  if (id == anime::kUnknownId) {
+    const std::string parsed = ep.element(anitomy::ElementKind::Title);
+    const std::string episode_title = ep.element(anitomy::ElementKind::EpisodeTitle);
+    if (!parsed.empty() && !episode_title.empty() &&
+        rssFragmentCoversAnimeTitle(parsed + " " + episode_title, item)) {
+      return true;
+    }
+    if (rssFragmentCoversAnimeTitle(it.title, item)) return true;
+    if (parsed.empty()) return false;
+    return rssFragmentCoversAnimeTitle(parsed, item);
+  }
+  return true;
+}
 
 QTreeView* TorrentFeedWidget::activeView() const {
   if (!m_tabs_) return nullptr;
@@ -1761,9 +1833,10 @@ void TorrentFeedWidget::saveSessionState() {
   taiga::session.setTorrentRssTableHeaderState(m_view_eps_->header()->saveState());
 }
 
-/// Generates RSS search title variants for manual search and auto-download (same list).
-/// Order: natural / bare titles first (`… 2nd Season`), then compact season-qualified (`… S02`).
-/// Callers may prepend a per-anime cache hit before this list.
+/// Generates RSS search title variants for auto-download's fast path (cache is prepended by the
+/// caller). Order: natural / bare titles first (`… 2nd Season`), then compact season-qualified
+/// (`… S02`). List/media Search torrents then appends native + synonyms via
+/// `buildManualSearchTitleVariants`.
 static QStringList buildTitleVariants(const QString& english, const QString& romaji) {
   QStringList season_qualified;
   QStringList bare;
@@ -1806,6 +1879,20 @@ static QStringList buildTitleVariants(const QString& english, const QString& rom
   return result;
 }
 
+QStringList buildManualSearchTitleVariants(const Anime& item, const QString& primary_query);
+
+/// Append list/media “Search torrents” queries that the fast autodl path does not already try
+/// (native title, synonyms, extra SNN forms). Keep them last so cache + official titles stay first.
+void appendContextualSearchTitleVariants(QStringList& variants, const Anime& item,
+                                         const QString& english_title,
+                                         const QString& romaji_title) {
+  const QString primary =
+      !english_title.trimmed().isEmpty() ? english_title.trimmed() : romaji_title.trimmed();
+  for (const QString& v : buildManualSearchTitleVariants(item, primary)) {
+    if (!variants.contains(v, Qt::CaseInsensitive)) variants.append(v);
+  }
+}
+
 void TorrentFeedWidget::downloadBestMatchWithFallbacks(const QString& english_title,
                                                        const QString& romaji_title,
                                                        const QString& folder_name,
@@ -1823,6 +1910,11 @@ void TorrentFeedWidget::downloadBestMatchWithFallbacks(const QString& english_ti
 
   for (const auto& v : buildTitleVariants(english_title, romaji_title)) {
     if (!variants.contains(v, Qt::CaseInsensitive)) variants.append(v);
+  }
+  if (anime_id_cache > 0) {
+    if (const auto* item = anime::db.item(anime_id_cache)) {
+      appendContextualSearchTitleVariants(variants, *item, english_title, romaji_title);
+    }
   }
 
   if (variants.isEmpty()) {
@@ -1917,6 +2009,9 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
   for (const auto& v : buildTitleVariants(english_title, romaji_title)) {
     if (!variants.contains(v, Qt::CaseInsensitive)) variants.append(v);
   }
+  if (const auto* item = anime::db.item(anime_id)) {
+    appendContextualSearchTitleVariants(variants, *item, english_title, romaji_title);
+  }
   if (variants.isEmpty()) {
     if (on_done) on_done(0);
     return;
@@ -1925,8 +2020,7 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
   const auto variantIdx = std::make_shared<int>(0);
   const auto try_fn = std::make_shared<std::function<void()>>();
 
-  *try_fn = [this, variants, folder_name, on_done, variantIdx, try_fn, anime_id,
-             min_last_aired]() {
+  *try_fn = [this, variants, folder_name, on_done, variantIdx, try_fn, anime_id, min_last_aired]() {
     const int idx = *variantIdx;
     if (idx >= variants.size()) {
       if (on_done) on_done(0);
@@ -1982,8 +2076,7 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
                 int raw_last = taiga::computeLastAiredEpisodeForAutoDownload(
                     *item_db, entry_db->watched_episodes, now_secs);
                 if (min_last_aired > 0) {
-                  raw_last =
-                      taiga::lastAiredForDelayedAutoDownload(raw_last, min_last_aired);
+                  raw_last = taiga::lastAiredForDelayedAutoDownload(raw_last, min_last_aired);
                 }
                 const int last_aired = track::toListLastAiredEpisode(*item_db, raw_last);
                 const int watched = entry_db->watched_episodes;
@@ -2005,8 +2098,7 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
                 int raw_last = taiga::computeLastAiredEpisodeForAutoDownload(
                     *item_db, entry_db->watched_episodes, now_secs);
                 if (min_last_aired > 0) {
-                  raw_last =
-                      taiga::lastAiredForDelayedAutoDownload(raw_last, min_last_aired);
+                  raw_last = taiga::lastAiredForDelayedAutoDownload(raw_last, min_last_aired);
                 }
                 return track::toListLastAiredEpisode(*item_db, raw_last);
               }();
@@ -2578,7 +2670,7 @@ QStringList buildManualSearchTitleVariants(const Anime& item, const QString& pri
   const QString romaji = QString::fromStdString(item.titles.romaji);
   const QString native = QString::fromStdString(item.titles.japanese);
 
-  // Shared list (natural titles first, then SNN) — same as auto-download.
+  // Official English/romaji variants (natural titles first, then SNN). Native + synonyms follow.
   for (const auto& v : buildTitleVariants(en, romaji)) addIfNew(v);
 
   // Native title can help for some indexers / releases.
@@ -2616,22 +2708,11 @@ std::optional<qint64> animeStartLowerBoundMs(const Anime& item) {
 }
 
 std::optional<qint64> publishedMsForRssItem(const rss::Item& it) {
+  if (const auto ms = rssItemPublishedMs(it)) return ms;
   const QString s = QString::fromStdString(it.pub_date).trimmed();
   if (s.isEmpty()) return std::nullopt;
-  // Most RSS feeds (Nyaa, Tokyo Tosho) use RFC2822.
-  {
-    const QDateTime dt = QDateTime::fromString(s, Qt::RFC2822Date);
-    if (dt.isValid()) return dt.toMSecsSinceEpoch();
-  }
-  // Some feeds may return ISO8601 (Atom-style) or date-only strings.
-  {
-    const QDateTime dt = QDateTime::fromString(s, Qt::ISODate);
-    if (dt.isValid()) return dt.toMSecsSinceEpoch();
-  }
-  {
-    const QDate d = QDate::fromString(s, Qt::ISODate);
-    if (d.isValid()) return QDateTime(d, QTime(0, 0), QTimeZone::utc()).toMSecsSinceEpoch();
-  }
+  const QDate d = QDate::fromString(s, Qt::ISODate);
+  if (d.isValid()) return QDateTime(d, QTime(0, 0), QTimeZone::utc()).toMSecsSinceEpoch();
   return std::nullopt;
 }
 
@@ -2659,6 +2740,18 @@ void TorrentFeedWidget::setManualSearchAnimeContext(const int anime_id) {
 }
 
 void TorrentFeedWidget::runSearch() {
+  // Fetch / Enter / F5 is a free-text RSS query of the box — same title as Open in browser.
+  // A leftover list/media anime id would otherwise apply sequel-matching filters to a plain search.
+  m_manual_search_anime_id_ = 0;
+  m_search_fallback_title_.clear();
+  runSearchInternal();
+}
+
+void TorrentFeedWidget::runContextualSearch() {
+  runSearchInternal();
+}
+
+void TorrentFeedWidget::runSearchInternal() {
   if (!m_query_edit_) return;
   const QString q = m_query_edit_->text().trimmed();
   if (q.isEmpty()) {
@@ -2750,7 +2843,24 @@ void TorrentFeedWidget::runSearch() {
     // to that entry — prevents wrong-season releases (e.g. S1 Part 2) from showing for a S3 search.
     populateTable(out, m_manual_search_anime_id_);
     if (auto* mw = mainWindow()) {
-      mw->statusBar()->clearMessage();
+      const int total = static_cast<int>(out.items.size());
+      const int shown = (m_proxy_eps_ ? m_proxy_eps_->rowCount() : 0) +
+                        (m_proxy_batches_ ? m_proxy_batches_->rowCount() : 0);
+      if (shown == 0 && total == 0) {
+        mw->statusBar()->showMessage(
+            tr("Feed contained no items. Tip: try a shorter title — e.g. remove the subtitle after "
+               "':' or ' — '."),
+            8000);
+      } else if (shown == 0 && total > 0) {
+        mw->statusBar()->showMessage(
+            tr("All %1 result(s) were hidden by filters (anime matching, list filters, regex, or "
+               "archive limit). Disable list/regex filters in Settings → Library → Torrents → "
+               "Filters.")
+                .arg(total),
+            8000);
+      } else {
+        mw->statusBar()->clearMessage();
+      }
     }
   };
 
@@ -2970,8 +3080,9 @@ void TorrentFeedWidget::onFetchFinished(QNetworkReply* reply) {
       QString msg = tr("Loaded %1 item(s).").arg(shown);
       if (shown == 0 && total > 0) {
         // Feed returned items but all were hidden by active filters.
-        msg = tr("All %1 result(s) were hidden by active filters (list filters, regex, or archive "
-                 "limit). Disable some filters in Settings → Library → Torrents → Filters.")
+        msg = tr("All %1 result(s) were hidden by filters (anime matching, list filters, regex, or "
+                 "archive limit). Disable list/regex filters in Settings → Library → Torrents → "
+                 "Filters.")
                   .arg(total);
         if (kind == FetchKind::SearchRss) {
           msg += u" " + tr("Tip: try a shorter search title too.");
