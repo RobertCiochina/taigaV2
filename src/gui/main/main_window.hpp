@@ -143,7 +143,7 @@ public slots:
   void resortTorrentRssTableFromSettings();
   /// Kick off the auto-download run (checks all watching anime for new episodes and downloads best
   /// match).
-  void runAutoDownload(bool silent = false, const QHash<int, int>& restrict_aired_episodes = {});
+  void runAutoDownload(bool silent = false, const QHash<int, int>& bump_aired_episodes = {});
   void refreshHomeDashboard();
   /// Refreshes the Announced releases sidebar page after the active list service changes (Home
   /// banner is handled by `refreshHomeDashboard` when needed).
@@ -211,6 +211,7 @@ private:
   void armDelayedAutoDownloadTimer();
   void cancelDelayedAutoDownload(const QString& reason);
   void beginDelayedAutoDownloadRun();
+  void continueDelayedAutoDownloadAfterSync();
   void beginWatchingChangeAutoDownloadRun();
   void updateAutoDownloadActionLabel();
   void checkWatchingReleaseEvent();
@@ -305,12 +306,13 @@ private:
   bool m_list_sync_in_progress_ = false;
   bool m_list_sync_queued_ = false;
   bool m_startup_auto_download_pending_ = false;
+  bool m_delayed_autodl_after_sync_pending_ = false;
   bool m_delayed_autodl_after_scan_pending_ = false;
   bool m_watching_change_autodl_after_scan_pending_ = false;
   bool m_auto_download_running_ = false;
   struct PendingAutoDownloadRun {
     bool silent = true;
-    QHash<int, int> restrict_aired_episodes;
+    QHash<int, int> bump_aired_episodes;
   };
   std::optional<PendingAutoDownloadRun> m_queued_autodl_;
   std::vector<taiga::DelayedAutoDownloadJob> m_delayed_autodl_queue_;
