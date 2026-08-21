@@ -237,6 +237,9 @@ private:
   void ensureWatchOrderGuideWindow();
   void refreshHomeQBitPlayButtons();
   void updateHomeAnnouncedBanner();
+  void tickHomeUpcomingCountdowns();
+  void armHomeUpcomingCountdownTimer();
+  QString formatHomeUpcomingWhen(qint64 secs_until) const;
   void initNoStartupSyncBanner();
   void setStartupBlockingActive(bool on);
   void scheduleWelcomeSetupPrompt();
@@ -274,6 +277,7 @@ private:
   QTimer* m_delayed_autodl_timer_ = nullptr;  // single-shot delayed auto-download
   QTimer* m_watching_change_autodl_timer_ = nullptr;  // coalesce Watching-transition autodl
   QTimer* m_home_qbit_poll_timer_ = nullptr;
+  QTimer* m_home_upcoming_timer_ = nullptr;  // live Upcoming This Week countdown / expiry
   QTimer* m_announced_related_resume_timer_ = nullptr;  // post-sync delay before refresh
   QTimer* m_announced_related_diff_timer_ = nullptr;    // debounce candidate diff + notify
   QTimer* m_announced_related_due_timer_ = nullptr;     // fires when a title's 30-day cache expires
@@ -298,6 +302,12 @@ private:
     int anime_id = 0;
   };
   QList<HomeUpNextButton> m_home_upnext_play_buttons_;
+
+  struct HomeUpcomingCountdown {
+    QPointer<QLabel> label;
+    qint64 air_time = 0;
+  };
+  QList<HomeUpcomingCountdown> m_home_upcoming_countdowns_;
 
   MainWindowPage m_activePage = MainWindowPage::Home;
   bool m_startup_sync_done_ = false;  // true after the first sync on this run

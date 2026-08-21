@@ -1490,6 +1490,8 @@ void MainWindow::applyMainPage(const MainWindowPage page) {
   routeToolbarSearchToActivePage();
   if (page == MainWindowPage::Home) {
     refreshHomeDashboard();
+  } else if (m_home_upcoming_timer_) {
+    m_home_upcoming_timer_->stop();
   }
   if (page == MainWindowPage::AnnouncedReleases && m_announcedReleasesWidget) {
     m_announcedReleasesWidget->refresh();
@@ -2770,6 +2772,7 @@ void MainWindow::refreshHomeDashboard() {
 
   // ── "Upcoming & recently aired" section ─────────────────────────────────
   if (m_homeRecentContainer) {
+    m_home_upcoming_countdowns_.clear();
     clearContainer(m_homeRecentContainer);
     auto* vl = qobject_cast<QVBoxLayout*>(m_homeRecentContainer->layout());
 
@@ -2822,24 +2825,7 @@ void MainWindow::refreshHomeDashboard() {
       for (int i = 0; i < upcoming.size(); ++i) {
         const auto& ue = upcoming[i];
         const qint64 secs_until = ue.air_time - now_secs;
-        const int days = static_cast<int>(secs_until / 86400);
-        const int hours = static_cast<int>((secs_until % 86400) / 3600);
-        const int minutes = static_cast<int>((secs_until % 3600) / 60);
-        QString when;
-        if (days == 0) {
-          if (secs_until < 60) {
-            when = tr("soon");
-          } else if (hours <= 0) {
-            when = tr("in %1 min").arg(std::max(1, minutes));
-          } else if (minutes > 0) {
-            when = tr("in %1 h %2 min").arg(hours).arg(minutes);
-          } else {
-            when = tr("in %1 h").arg(hours);
-          }
-        } else if (days == 1)
-          when = tr("tomorrow");
-        else
-          when = tr("in %1 d").arg(days);
+        const QString when = formatHomeUpcomingWhen(secs_until);
 
         auto* row = new QWidget(m_homeRecentContainer);
         auto* rl = new QHBoxLayout(row);
@@ -2878,6 +2864,8 @@ void MainWindow::refreshHomeDashboard() {
         rl->addWidget(whenLbl);
         vl->addWidget(row);
         if (i != upcoming.size() - 1) addHomeDivider(vl, m_homeRecentContainer);
+
+        m_home_upcoming_countdowns_.push_back({whenLbl, ue.air_time});
       }
     };
 
@@ -3019,7 +3007,58 @@ void MainWindow::refreshHomeDashboard() {
     if (m_homeRecentContainer) m_homeRecentContainer->setVisible(anyContent);
   }
 
+  armHomeUpcomingCountdownTimer();
   updateHomeAnnouncedBanner();
+}
+
+QString MainWindow::formatHomeUpcomingWhen(const qint64 secs_until) const {
+  if (secs_until < 60) return tr("soon");
+  const int days = static_cast<int>(secs_until / 86400);
+  const int hours = static_cast<int>((secs_until % 86400) / 3600);
+  const int minutes = static_cast<int>((secs_until % 3600) / 60);
+  if (days == 0) {
+    if (hours <= 0) return tr("in %1 min").arg(std::max(1, minutes));
+    if (minutes > 0) return tr("in %1 h %2 min").arg(hours).arg(minutes);
+    return tr("in %1 h").arg(hours);
+  }
+  if (days == 1) return tr("tomorrow");
+  return tr("in %1 d").arg(days);
+}
+
+void MainWindow::armHomeUpcomingCountdownTimer() {
+  if (!m_home_upcoming_timer_) {
+    m_home_upcoming_timer_ = new QTimer(this);
+    m_home_upcoming_timer_->setTimerType(Qt::PreciseTimer);
+    m_home_upcoming_timer_->setInterval(1000);
+    connect(m_home_upcoming_timer_, &QTimer::timeout, this,
+            &MainWindow::tickHomeUpcomingCountdowns);
+  }
+  const bool run = m_activePage == MainWindowPage::Home && !m_home_upcoming_countdowns_.isEmpty();
+  if (run) {
+    if (!m_home_upcoming_timer_->isActive()) m_home_upcoming_timer_->start();
+  } else {
+    m_home_upcoming_timer_->stop();
+  }
+}
+
+void MainWindow::tickHomeUpcomingCountdowns() {
+  if (m_activePage != MainWindowPage::Home) {
+    if (m_home_upcoming_timer_) m_home_upcoming_timer_->stop();
+    return;
+  }
+  const qint64 now_secs = QDateTime::currentSecsSinceEpoch();
+  for (const auto& row : m_home_upcoming_countdowns_) {
+    if (row.air_time <= now_secs) {
+      refreshHomeDashboard();
+      return;
+    }
+  }
+  for (const auto& row : m_home_upcoming_countdowns_) {
+    if (!row.label) continue;
+    const QString html = u"<span style=\"color:#888;font-size:medium\">%1</span>"_s.arg(
+        formatHomeUpcomingWhen(row.air_time - now_secs).toHtmlEscaped());
+    if (row.label->text() != html) row.label->setText(html);
+  }
 }
 
 void MainWindow::refreshAnnouncedReleasesPageAfterServiceChange() {
