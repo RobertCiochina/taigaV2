@@ -212,6 +212,7 @@ private:
   void cancelDelayedAutoDownload(const QString& reason);
   void beginDelayedAutoDownloadRun();
   void continueDelayedAutoDownloadAfterSync();
+  void startDelayedAutoDownloadRss();
   void beginWatchingChangeAutoDownloadRun();
   void updateAutoDownloadActionLabel();
   void checkWatchingReleaseEvent();
@@ -329,6 +330,8 @@ private:
   QHash<int, qint64> m_delayed_autodl_seen_air_at_;
   QHash<int, qint64> m_delayed_autodl_last_next_time_;
   qint64 m_last_release_event_trigger_secs_ = 0;
+  qint64 m_last_delayed_autodl_sync_secs_ = 0;
+  qint64 m_last_delayed_autodl_scan_secs_ = 0;
   qint64 m_last_announced_related_check_started_secs_ = 0;
   int m_last_announced_related_fetch_count_ = 0;
   QSet<int> m_announced_related_pending_ids_;  // ids queued by the current sweep (for diag logging)

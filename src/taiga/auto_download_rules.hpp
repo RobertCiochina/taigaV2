@@ -11,6 +11,7 @@ struct Details;
 namespace taiga {
 
 inline constexpr std::int64_t kReleaseEventJustAiredWindowSeconds = 5 * 60;
+inline constexpr std::int64_t kDelayedAutoDownloadMetadataReuseSeconds = 10 * 60;
 
 /// Best-effort upper bound for "episodes that have aired" for auto-download.
 /// Conservative by design: avoids guessing that future episodes aired when schedule metadata is
@@ -20,6 +21,11 @@ int computeLastAiredEpisodeForAutoDownload(const anime::Details& item, int watch
 
 bool isJustAiredRelease(std::int64_t now_secs, std::int64_t air_at_secs,
                         std::int64_t window_secs = kReleaseEventJustAiredWindowSeconds);
+
+/// Value to store as the next remembered air time.
+/// If the service jumps to a later future episode, keep the previous timestamp until it is past.
+std::int64_t rememberNextEpisodeTime(std::int64_t now_secs, std::int64_t current_next_episode_time,
+                                     std::int64_t previous_next_episode_time);
 
 /// Air timestamp to enqueue.
 /// `last_poll_secs` is the previous release-check time (0 on first poll); used to catch airings
@@ -57,6 +63,10 @@ std::vector<DelayedAutoDownloadJob> takeNextDelayedAutoDownloadJobs(
 
 std::vector<DelayedAutoDownloadJob> peekNextDelayedAutoDownloadJobs(
     const std::vector<DelayedAutoDownloadJob>& queue, std::int64_t now_secs);
+
+/// Pops every job with `due_at_secs <= now` (catch-up when several staggered dues have elapsed).
+std::vector<DelayedAutoDownloadJob> takeDueDelayedAutoDownloadJobs(
+    std::vector<DelayedAutoDownloadJob>& queue, std::int64_t now_secs);
 
 std::int64_t soonestDelayedAutoDownloadDue(const std::vector<DelayedAutoDownloadJob>& queue);
 

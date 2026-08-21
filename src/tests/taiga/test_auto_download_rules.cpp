@@ -152,6 +152,50 @@ private slots:
     QCOMPARE(*air, a_air);
   }
 
+  void detect_just_aired_current_crossed_since_last_poll_outside_window() {
+    const std::int64_t last_poll = 900;
+    const std::int64_t a_air = 1000;
+    const std::int64_t now = 1400;
+    const auto air = taiga::detectJustAiredAt(now, a_air, a_air, last_poll, 300);
+    QVERIFY(air.has_value());
+    QCOMPARE(*air, a_air);
+  }
+
+  void detect_just_aired_schedule_advanced_outside_window_if_last_poll_before_air() {
+    const std::int64_t last_poll = 900;
+    const std::int64_t a_air = 1000;
+    const std::int64_t now = 1000 + 400;
+    const std::int64_t b_air = a_air + 7 * 24 * 3600;
+    const auto air = taiga::detectJustAiredAt(now, b_air, a_air, last_poll, 300);
+    QVERIFY(air.has_value());
+    QCOMPARE(*air, a_air);
+  }
+
+  void detect_just_aired_stale_already_past_at_last_poll_ignored_outside_window() {
+    const std::int64_t last_poll = 2000;
+    const std::int64_t stale_air = 1000;
+    const std::int64_t now = 2100;
+    QVERIFY(!taiga::detectJustAiredAt(now, stale_air, stale_air, last_poll, 300).has_value());
+  }
+
+  void remember_keeps_previous_when_current_jumps_to_later_future() {
+    const std::int64_t now = 900;
+    const std::int64_t a_air = 1000;
+    const std::int64_t b_air = a_air + 7 * 24 * 3600;
+    QCOMPARE(taiga::rememberNextEpisodeTime(now, b_air, a_air), a_air);
+  }
+
+  void remember_uses_current_once_previous_is_past() {
+    const std::int64_t now = 1100;
+    const std::int64_t a_air = 1000;
+    const std::int64_t b_air = a_air + 7 * 24 * 3600;
+    QCOMPARE(taiga::rememberNextEpisodeTime(now, b_air, a_air), b_air);
+  }
+
+  void remember_keeps_previous_when_current_cleared_while_still_upcoming() {
+    QCOMPARE(taiga::rememberNextEpisodeTime(900, 0, 1000), 1000);
+  }
+
   void infer_just_aired_uses_last_aired_plus_one() {
     QCOMPARE(taiga::inferJustAiredEpisode(12, 10, false), 13);
   }
@@ -230,6 +274,39 @@ private slots:
     QCOMPARE(int(taken.size()), 1);
     QCOMPARE(taken.front().anime_id, 1);
     QCOMPARE(q.front().anime_id, 2);
+  }
+
+  void take_due_catches_up_all_overdue_jobs() {
+    std::vector<taiga::DelayedAutoDownloadJob> q;
+    taiga::insertDelayedAutoDownloadJob(q, {1, 1000, 1});
+    taiga::insertDelayedAutoDownloadJob(q, {2, 2000, 1});
+    taiga::insertDelayedAutoDownloadJob(q, {3, 4000, 1});
+    auto taken = taiga::takeDueDelayedAutoDownloadJobs(q, 2500);
+    QCOMPARE(int(taken.size()), 2);
+    QCOMPARE(taken[0].anime_id, 1);
+    QCOMPARE(taken[1].anime_id, 2);
+    QCOMPARE(int(q.size()), 1);
+    QCOMPARE(q.front().anime_id, 3);
+  }
+
+  void take_due_scales_to_fifty_staggered_dues_in_one_hour() {
+    std::vector<taiga::DelayedAutoDownloadJob> q;
+    const std::int64_t start = 10'000;
+    const int n = 50;
+    for (int i = 0; i < n; ++i) {
+      taiga::insertDelayedAutoDownloadJob(q, {i + 1, start + i * 60, 2});
+    }
+    auto first_half = taiga::takeDueDelayedAutoDownloadJobs(q, start + 24 * 60);
+    QCOMPARE(int(first_half.size()), 25);
+    QCOMPARE(first_half.front().anime_id, 1);
+    QCOMPARE(first_half.back().anime_id, 25);
+    QCOMPARE(int(q.size()), 25);
+
+    auto rest = taiga::takeDueDelayedAutoDownloadJobs(q, start + 49 * 60);
+    QCOMPARE(int(rest.size()), 25);
+    QCOMPARE(rest.front().anime_id, 26);
+    QCOMPARE(rest.back().anime_id, 50);
+    QVERIFY(q.empty());
   }
 };
 

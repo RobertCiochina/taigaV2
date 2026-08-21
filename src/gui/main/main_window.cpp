@@ -2103,19 +2103,10 @@ void MainWindow::runLibraryScan(const bool startup_silent, const LibraryScanReas
             bool arm_delayed_after_scan = true;
             if (w->m_delayed_autodl_after_scan_pending_) {
               w->m_delayed_autodl_after_scan_pending_ = false;
-              const qint64 now = QDateTime::currentSecsSinceEpoch();
-              const auto jobs =
-                  taiga::takeNextDelayedAutoDownloadJobs(w->m_delayed_autodl_queue_, now);
-              QHash<int, int> bumps;
-              for (const auto& job : jobs) bumps.insert(job.anime_id, job.aired_episode);
-              if (jobs.empty()) {
-                w->armDelayedAutoDownloadTimer();
-              } else {
-                arm_delayed_after_scan = false;
-                QTimer::singleShot(0, w.data(), [w, bumps]() {
-                  if (w) w->runAutoDownload(true, bumps);
-                });
-              }
+              arm_delayed_after_scan = false;
+              QTimer::singleShot(0, w.data(), [w]() {
+                if (w) w->startDelayedAutoDownloadRss();
+              });
             }
             if (w->m_watching_change_autodl_after_scan_pending_) {
               w->m_watching_change_autodl_after_scan_pending_ = false;
@@ -2399,6 +2390,7 @@ void MainWindow::runAutoDownload(const bool silent, const QHash<int, int>& bump_
     if (!item) continue;
     // Movies are excluded from auto-download RSS (manual torrent search only).
     if (item->type == anime::Type::Movie) continue;
+    if (!bump_aired_episodes.isEmpty() && !bump_aired_episodes.contains(anime_id)) continue;
     const qint64 now_secs = QDateTime::currentSecsSinceEpoch();
     // Use list progress only. History can still show the previous watch-through after a rewatch /
     // season catch-up (watched_episodes reset), which would incorrectly skip all downloads.
@@ -2439,7 +2431,9 @@ void MainWindow::runAutoDownload(const bool silent, const QHash<int, int>& bump_
                 .arg(static_cast<int>(item->status))
                 .arg(folder.left(120)));
       }
-      if (skip_failed) {
+      const bool due_title =
+          bump_aired_episodes.isEmpty() || bump_aired_episodes.contains(anime_id);
+      if (skip_failed && due_title) {
         const int streak = m_auto_download_fail_streak_today_.value(anime_id, 0);
         if (streak >= 2) {
           skipped_twice_today_labels.push_back(en.isEmpty() ? romaji : en);
@@ -2508,7 +2502,7 @@ void MainWindow::runAutoDownload(const bool silent, const QHash<int, int>& bump_
   state->total = candidates.size();
 
   auto step_fn = std::make_shared<std::function<void()>>();
-  *step_fn = [this, state, step_fn]() {
+  *step_fn = [this, state, step_fn, bump_aired_episodes]() {
     if (state->queue.isEmpty()) {
       const QString summary =
           tr("Auto-download: %1 torrent(s) sent for %2 anime.").arg(state->found).arg(state->total);
@@ -2528,9 +2522,11 @@ void MainWindow::runAutoDownload(const bool silent, const QHash<int, int>& bump_
     // Download ALL missing episodes for this anime (not just the newest).
     m_torrentFeedWidget->downloadAllEpisodesForAnime(
         c.anime_id, c.english_title, c.romaji_title, c.folder_name,
-        [this, state, step_fn, label, anime_id = c.anime_id](int count) {
+        [this, state, step_fn, label, anime_id = c.anime_id, bump_aired_episodes](int count) {
           state->found += count;
-          if (taiga::settings.torrentAutoDownloadSkipAfterTwoFailuresToday()) {
+          const bool due_title =
+              bump_aired_episodes.isEmpty() || bump_aired_episodes.contains(anime_id);
+          if (due_title && taiga::settings.torrentAutoDownloadSkipAfterTwoFailuresToday()) {
             const QDate cur = QDate::currentDate();
             if (!m_auto_download_fail_day_.isValid() || m_auto_download_fail_day_ != cur) {
               m_auto_download_fail_day_ = cur;
@@ -3170,11 +3166,16 @@ void MainWindow::cancelDelayedAutoDownload(const QString& reason) {
 }
 
 void MainWindow::beginDelayedAutoDownloadRun() {
-  if (m_auto_download_running_ || m_library_scan_in_progress_) return;
+  if (m_auto_download_running_ || m_library_scan_in_progress_) {
+    const qint64 soonest = taiga::soonestDelayedAutoDownloadDue(m_delayed_autodl_queue_);
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+    if (soonest > now) armDelayedAutoDownloadTimer();
+    return;
+  }
 
   const qint64 now = QDateTime::currentSecsSinceEpoch();
-  const auto due_jobs = taiga::peekNextDelayedAutoDownloadJobs(m_delayed_autodl_queue_, now);
-  if (due_jobs.empty()) {
+  const qint64 soonest = taiga::soonestDelayedAutoDownloadDue(m_delayed_autodl_queue_);
+  if (soonest <= 0 || soonest > now) {
     armDelayedAutoDownloadTimer();
     return;
   }
@@ -3186,7 +3187,11 @@ void MainWindow::beginDelayedAutoDownloadRun() {
 
   const bool can_sync = sync::currentServiceId() != sync::ServiceId::Unknown &&
                         taiga::settings.listSynchronizationEnabled();
-  if (can_sync) {
+  const bool sync_fresh =
+      m_last_delayed_autodl_sync_secs_ > 0 &&
+      now - m_last_delayed_autodl_sync_secs_ < taiga::kDelayedAutoDownloadMetadataReuseSeconds;
+  if (can_sync && !sync_fresh) {
+    m_last_delayed_autodl_sync_secs_ = now;
     m_delayed_autodl_after_sync_pending_ = true;
     enqueueStatusMessage(tr("Auto-download: synchronizing…"), false);
     startListSynchronization(true);
@@ -3204,24 +3209,44 @@ void MainWindow::continueDelayedAutoDownloadAfterSync() {
   }
 
   const qint64 now = QDateTime::currentSecsSinceEpoch();
-  const auto due_jobs = taiga::peekNextDelayedAutoDownloadJobs(m_delayed_autodl_queue_, now);
-  if (due_jobs.empty()) {
+  const qint64 soonest = taiga::soonestDelayedAutoDownloadDue(m_delayed_autodl_queue_);
+  if (soonest <= 0 || soonest > now) {
     armDelayedAutoDownloadTimer();
     return;
   }
 
   if (taiga::settings.libraryFolders().empty()) {
-    const auto jobs = taiga::takeNextDelayedAutoDownloadJobs(m_delayed_autodl_queue_, now);
-    QHash<int, int> bumps;
-    for (const auto& job : jobs) bumps.insert(job.anime_id, job.aired_episode);
-    runAutoDownload(true, bumps);
+    startDelayedAutoDownloadRss();
+    return;
+  }
+
+  const bool scan_fresh =
+      m_last_delayed_autodl_scan_secs_ > 0 &&
+      now - m_last_delayed_autodl_scan_secs_ < taiga::kDelayedAutoDownloadMetadataReuseSeconds;
+  if (track::libraryScanHasResults() && scan_fresh) {
+    startDelayedAutoDownloadRss();
     return;
   }
 
   // Jobs stay queued until the scan callback so cancel does not drop them.
+  m_last_delayed_autodl_scan_secs_ = now;
   m_delayed_autodl_after_scan_pending_ = true;
   enqueueStatusMessage(tr("Auto-download: scanning library…"), false);
   runLibraryScan(true, LibraryScanReason::DelayedAutoDownload);
+}
+
+void MainWindow::startDelayedAutoDownloadRss() {
+  const qint64 now = QDateTime::currentSecsSinceEpoch();
+  const auto jobs = taiga::takeDueDelayedAutoDownloadJobs(m_delayed_autodl_queue_, now);
+  QHash<int, int> bumps;
+  for (const auto& job : jobs) {
+    bumps.insert(job.anime_id, std::max(bumps.value(job.anime_id, 0), job.aired_episode));
+  }
+  if (jobs.empty()) {
+    armDelayedAutoDownloadTimer();
+    return;
+  }
+  runAutoDownload(true, bumps);
 }
 
 void MainWindow::checkWatchingReleaseEvent() {
@@ -3256,7 +3281,8 @@ void MainWindow::checkWatchingReleaseEvent() {
     if (!item) continue;
     const qint64 current_next = static_cast<qint64>(item->next_episode_time);
     const qint64 previous_next = m_delayed_autodl_last_next_time_.value(entry.anime_id);
-    if (current_next > 0) m_delayed_autodl_last_next_time_.insert(entry.anime_id, current_next);
+    const qint64 remembered = taiga::rememberNextEpisodeTime(now, current_next, previous_next);
+    if (remembered > 0) m_delayed_autodl_last_next_time_.insert(entry.anime_id, remembered);
 
     const auto aired_at = taiga::detectJustAiredAt(now, current_next, previous_next, last_poll);
     if (!aired_at) continue;

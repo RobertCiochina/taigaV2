@@ -36,21 +36,34 @@ bool isJustAiredRelease(const std::int64_t now_secs, const std::int64_t air_at_s
   return now_secs - air_at_secs <= window_secs;
 }
 
+std::int64_t rememberNextEpisodeTime(const std::int64_t now_secs,
+                                     const std::int64_t current_next_episode_time,
+                                     const std::int64_t previous_next_episode_time) {
+  if (previous_next_episode_time > now_secs &&
+      (current_next_episode_time <= 0 || current_next_episode_time > previous_next_episode_time)) {
+    return previous_next_episode_time;
+  }
+  if (current_next_episode_time > 0) return current_next_episode_time;
+  return previous_next_episode_time;
+}
+
 std::optional<std::int64_t> detectJustAiredAt(const std::int64_t now_secs,
                                               const std::int64_t current_next_episode_time,
                                               const std::int64_t previous_next_episode_time,
                                               const std::int64_t last_poll_secs,
                                               const std::int64_t window_secs) {
+  const auto crossedSinceLastPoll = [now_secs, last_poll_secs](const std::int64_t air_at) {
+    return last_poll_secs > 0 && air_at > last_poll_secs && air_at <= now_secs;
+  };
+  if (crossedSinceLastPoll(current_next_episode_time)) return current_next_episode_time;
+  if (crossedSinceLastPoll(previous_next_episode_time)) return previous_next_episode_time;
+
+  // Stale timestamps that were already in the past at last poll: only the short window.
   if (isJustAiredRelease(now_secs, current_next_episode_time, window_secs)) {
     return current_next_episode_time;
   }
   if (previous_next_episode_time > 0 && previous_next_episode_time != current_next_episode_time &&
       isJustAiredRelease(now_secs, previous_next_episode_time, window_secs)) {
-    return previous_next_episode_time;
-  }
-  // Crossed from still-upcoming at last poll to already aired (sleep / long gap).
-  if (last_poll_secs > 0 && previous_next_episode_time > last_poll_secs &&
-      previous_next_episode_time <= now_secs) {
     return previous_next_episode_time;
   }
   return std::nullopt;
@@ -108,6 +121,16 @@ std::vector<DelayedAutoDownloadJob> peekNextDelayedAutoDownloadJobs(
   for (const auto& job : queue) {
     if (job.due_at_secs != due) break;
     taken.push_back(job);
+  }
+  return taken;
+}
+
+std::vector<DelayedAutoDownloadJob> takeDueDelayedAutoDownloadJobs(
+    std::vector<DelayedAutoDownloadJob>& queue, const std::int64_t now_secs) {
+  std::vector<DelayedAutoDownloadJob> taken;
+  while (!queue.empty() && queue.front().due_at_secs <= now_secs) {
+    taken.push_back(queue.front());
+    queue.erase(queue.begin());
   }
   return taken;
 }
