@@ -215,7 +215,7 @@ private:
   void startDelayedAutoDownloadRss();
   void beginWatchingChangeAutoDownloadRun();
   void updateAutoDownloadActionLabel();
-  void checkWatchingReleaseEvent();
+  void checkWatchingReleaseEvent(bool force = false);
   void initFeatureToggleActions();
   void applyMainPage(MainWindowPage page);
   void recordNavHistory(MainWindowPage page);

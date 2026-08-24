@@ -81,6 +81,24 @@ std::int64_t delayedAutoDownloadDueAt(const std::int64_t air_at_secs,
   return air_at_secs + std::max<std::int64_t>(1, delay_secs);
 }
 
+bool allowSeasonPackAutoDownload(const int local_ep_count, const int missing_count,
+                                 const int effective_last, const int episode_count) {
+  if (local_ep_count != 0) return false;
+  if (missing_count < 3) return false;
+  if (episode_count <= 0) return false;
+  return effective_last >= episode_count;
+}
+
+std::optional<std::int64_t> pendingDelayedAutoDownloadDueAt(
+    const std::vector<DelayedAutoDownloadJob>& queue, const int anime_id) {
+  std::optional<std::int64_t> due;
+  for (const auto& job : queue) {
+    if (job.anime_id != anime_id) continue;
+    if (!due || job.due_at_secs < *due) due = job.due_at_secs;
+  }
+  return due;
+}
+
 int lastAiredForDelayedAutoDownload(const int computed_last_aired,
                                     const int recorded_aired_episode) {
   return std::max(computed_last_aired, recorded_aired_episode);

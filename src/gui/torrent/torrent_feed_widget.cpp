@@ -2143,10 +2143,12 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
                 }
               }
 
-              // ── Batch preference: only when this cour has nothing local yet ─────
-              // Otherwise a season pack re-downloads episodes the user already has.
-              if (item_db && item_db->episode_count > 0 && local_ep_count == 0 &&
-                  effective_last >= item_db->episode_count && missing.size() >= 3) {
+              // ── Batch preference: only when catching up a whole cour with nothing local ─
+              // Otherwise a season pack sends episodes the user never asked to download
+              // (e.g. missing only the newly aired ep, feed has a pack but not ep N yet).
+              const int ep_count = item_db ? item_db->episode_count : 0;
+              if (taiga::allowSeasonPackAutoDownload(local_ep_count, missing.size(), effective_last,
+                                                     ep_count)) {
                 if (enqueue_batch(best_ep.value(-1, nullptr))) return;
               }
 
@@ -2164,9 +2166,13 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
                 }
               }
               if (targets.isEmpty()) {
-                // Season packs often have no per-episode rows; only fall back to a batch when
-                // nothing from this cour is on disk yet (avoids re-adding full packs).
-                if (local_ep_count == 0 && enqueue_batch(best_ep.value(-1, nullptr))) return;
+                if (taiga::settings.cacheDiagnosticsEnabled()) {
+                  track::appendLibraryEpisodeIndexCacheDebugLine(
+                      QStringLiteral(
+                          "autodl: no per-episode match, skip batch fallback aid=%1 missing=%2")
+                          .arg(anime_id)
+                          .arg(missing.size()));
+                }
                 (*try_fn)();
                 return;
               }

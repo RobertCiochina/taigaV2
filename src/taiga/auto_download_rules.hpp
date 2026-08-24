@@ -43,6 +43,10 @@ int inferJustAiredEpisode(int last_aired_episode, int watched_episodes,
 
 std::int64_t delayedAutoDownloadDueAt(std::int64_t air_at_secs, std::int64_t delay_secs);
 
+/// Season pack is only for catching up a whole cour with nothing on disk yet.
+bool allowSeasonPackAutoDownload(int local_ep_count, int missing_count, int effective_last,
+                                 int episode_count);
+
 /// last_aired used for a delayed run: never below the episode recorded when the airing was seen.
 int lastAiredForDelayedAutoDownload(int computed_last_aired, int recorded_aired_episode);
 
@@ -52,6 +56,10 @@ struct DelayedAutoDownloadJob {
   std::int64_t due_at_secs = 0;
   int aired_episode = 0;
 };
+
+/// Soonest due time for this anime in the delayed FIFO, if any.
+std::optional<std::int64_t> pendingDelayedAutoDownloadDueAt(
+    const std::vector<DelayedAutoDownloadJob>& queue, int anime_id);
 
 void insertDelayedAutoDownloadJob(std::vector<DelayedAutoDownloadJob>& queue,
                                   DelayedAutoDownloadJob job);

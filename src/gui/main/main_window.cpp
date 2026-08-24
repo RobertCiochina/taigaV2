@@ -1304,7 +1304,7 @@ void MainWindow::initToolbar() {
       m_release_event_timer_->setTimerType(Qt::VeryCoarseTimer);
       m_release_event_timer_->setInterval(20 * 1000);
       connect(m_release_event_timer_, &QTimer::timeout, this,
-              &MainWindow::checkWatchingReleaseEvent);
+              [this]() { checkWatchingReleaseEvent(false); });
       m_release_event_timer_->start();
     }
   }
@@ -2340,6 +2340,7 @@ void MainWindow::runAutoDownload(const bool silent, const QHash<int, int>& bump_
     return;
   }
   m_auto_download_running_ = true;
+  if (silent) checkWatchingReleaseEvent(true);
   if (!m_torrentFeedWidget) {
     // Auto-download relies on the TorrentFeedWidget backend; initialize it on-demand so the
     // toolbar countdown action works even if the Torrents page has never been opened.
@@ -2414,6 +2415,20 @@ void MainWindow::runAutoDownload(const bool silent, const QHash<int, int>& bump_
       }
     }
     if (!has_missing) continue;
+
+    if (silent) {
+      const auto pending_due =
+          taiga::pendingDelayedAutoDownloadDueAt(m_delayed_autodl_queue_, anime_id);
+      if (pending_due && *pending_due > now_secs) {
+        if (taiga::settings.cacheDiagnosticsEnabled()) {
+          track::appendLibraryEpisodeIndexCacheDebugLine(
+              QStringLiteral("autodl: skip aid=%1 until due_at=%2 (delay not elapsed)")
+                  .arg(anime_id)
+                  .arg(*pending_due));
+        }
+        continue;
+      }
+    }
 
     const QString en = QString::fromStdString(item->titles.english);
     const QString romaji = QString::fromStdString(item->titles.romaji);
@@ -3237,7 +3252,7 @@ void MainWindow::continueDelayedAutoDownloadAfterSync() {
 
 void MainWindow::startDelayedAutoDownloadRss() {
   const qint64 now = QDateTime::currentSecsSinceEpoch();
-  const auto jobs = taiga::takeDueDelayedAutoDownloadJobs(m_delayed_autodl_queue_, now);
+  const auto jobs = taiga::takeNextDelayedAutoDownloadJobs(m_delayed_autodl_queue_, now);
   QHash<int, int> bumps;
   for (const auto& job : jobs) {
     bumps.insert(job.anime_id, std::max(bumps.value(job.anime_id, 0), job.aired_episode));
@@ -3249,31 +3264,23 @@ void MainWindow::startDelayedAutoDownloadRss() {
   runAutoDownload(true, bumps);
 }
 
-void MainWindow::checkWatchingReleaseEvent() {
+void MainWindow::checkWatchingReleaseEvent(const bool force) {
   // Watch only: enqueue each title whose next episode just crossed "now".
-  // Debounced so it runs at most once per minute.
+  // Debounced so the timer runs at most once per minute unless `force` (silent autodl).
   const qint64 now = QDateTime::currentSecsSinceEpoch();
-  const auto snapshotNextTimes = [this]() {
-    for (const auto& entry : anime::db.entries()) {
-      if (entry.status != anime::list::Status::Watching) continue;
-      const Anime* item = anime::db.item(entry.anime_id);
-      if (!item || item->next_episode_time <= 0) continue;
-      m_delayed_autodl_last_next_time_.insert(entry.anime_id,
-                                              static_cast<qint64>(item->next_episode_time));
-    }
-  };
-  if (m_last_release_event_trigger_secs_ == 0) {
-    m_last_release_event_trigger_secs_ = now;
-    snapshotNextTimes();
-    return;
-  }
-  if (now - m_last_release_event_trigger_secs_ < 60) return;
-  const qint64 last_poll = m_last_release_event_trigger_secs_;
-  m_last_release_event_trigger_secs_ = now;
-
   const qint64 delay_secs = static_cast<qint64>(std::max(
                                 1, taiga::settings.torrentAutoDownloadReleaseEventDelayMinutes())) *
                             60;
+  if (!force && m_last_release_event_trigger_secs_ > 0 &&
+      now - m_last_release_event_trigger_secs_ < 60)
+    return;
+  qint64 last_poll = m_last_release_event_trigger_secs_;
+  if (last_poll == 0) {
+    last_poll = now - delay_secs;
+    if (last_poll < 1) last_poll = 1;
+  }
+  m_last_release_event_trigger_secs_ = now;
+
   bool added = false;
   for (const auto& entry : anime::db.entries()) {
     if (entry.status != anime::list::Status::Watching) continue;

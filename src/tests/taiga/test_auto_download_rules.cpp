@@ -276,6 +276,33 @@ private slots:
     QCOMPARE(q.front().anime_id, 2);
   }
 
+  void season_pack_only_for_full_cour_catchup() {
+    QVERIFY(!taiga::allowSeasonPackAutoDownload(0, 1, 8, 12));
+    QVERIFY(!taiga::allowSeasonPackAutoDownload(3, 5, 12, 12));
+    QVERIFY(!taiga::allowSeasonPackAutoDownload(0, 5, 8, 12));
+    QVERIFY(!taiga::allowSeasonPackAutoDownload(0, 12, 12, 0));
+    QVERIFY(taiga::allowSeasonPackAutoDownload(0, 12, 12, 12));
+  }
+
+  void pending_due_is_soonest_for_anime() {
+    std::vector<taiga::DelayedAutoDownloadJob> q;
+    taiga::insertDelayedAutoDownloadJob(q, {1, 5000, 8});
+    taiga::insertDelayedAutoDownloadJob(q, {2, 4000, 8});
+    taiga::insertDelayedAutoDownloadJob(q, {1, 9000, 9});
+    QCOMPARE(*taiga::pendingDelayedAutoDownloadDueAt(q, 1), 5000);
+    QCOMPARE(*taiga::pendingDelayedAutoDownloadDueAt(q, 2), 4000);
+    QVERIFY(!taiga::pendingDelayedAutoDownloadDueAt(q, 3).has_value());
+  }
+
+  void detect_first_poll_lookback_catches_air_inside_delay() {
+    const std::int64_t now = 10'000;
+    const std::int64_t delay = 3600;
+    const std::int64_t last_poll = now - delay;
+    const std::int64_t air = now - 1200;
+    QCOMPARE(*taiga::detectJustAiredAt(now, air, 0, last_poll), air);
+    QVERIFY(!taiga::detectJustAiredAt(now, now - 2 * 24 * 3600, 0, last_poll).has_value());
+  }
+
   void take_due_catches_up_all_overdue_jobs() {
     std::vector<taiga::DelayedAutoDownloadJob> q;
     taiga::insertDelayedAutoDownloadJob(q, {1, 1000, 1});
