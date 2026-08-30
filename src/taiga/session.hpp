@@ -80,6 +80,9 @@ public:
   QString torrentPanelResultFilter() const;
   /// Fingerprints of recent catalog RSS items (for auto-check “new entries” detection).
   QStringList torrentCatalogSeenFingerprints() const;
+  /// Scheduled delayed auto-download jobs, as JSON, so a restart resumes the schedule instead of
+  /// losing every pending airing. Each element is `{"id","due","ep"}`.
+  QString delayedAutoDownloadSchedule() const;
   /// `QHeaderView::saveState` for the Torrents RSS table (column widths / order / visibility).
   QByteArray torrentRssTableHeaderState() const;
   /// Dismissed anime ids for the Announced releases tab (stored as JSON in session.json).
@@ -120,6 +123,7 @@ public:
   void setTorrentPanelLastQuery(const QString& query) const;
   void setTorrentPanelResultFilter(const QString& text) const;
   void setTorrentCatalogSeenFingerprints(const QStringList& keys) const;
+  void setDelayedAutoDownloadSchedule(const QString& json) const;
   void setTorrentRssTableHeaderState(const QByteArray& state) const;
   void setAnnouncedReleasesDismissedAnimeIds(const QSet<int>& ids) const;
   void addAnnouncedReleaseDismissedAnimeId(int anime_id) const;

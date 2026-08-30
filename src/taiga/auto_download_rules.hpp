@@ -13,6 +13,14 @@ namespace taiga {
 inline constexpr std::int64_t kReleaseEventJustAiredWindowSeconds = 5 * 60;
 inline constexpr std::int64_t kDelayedAutoDownloadMetadataReuseSeconds = 10 * 60;
 
+/// Minimum spacing between delayed sync+auto-download cycles. Titles airing minutes apart would
+/// otherwise each get their own sync+scan+RSS cycle; jobs that come due inside the gap wait for it.
+inline constexpr std::int64_t kDelayedAutoDownloadMinCycleGapSeconds = 20 * 60;
+
+/// Jobs older than this are dropped when restoring the persisted queue (stale after a long
+/// shutdown; the airing is either long since downloaded or no longer worth chasing).
+inline constexpr std::int64_t kDelayedAutoDownloadMaxRestoreAgeSeconds = 24 * 60 * 60;
+
 /// Best-effort upper bound for "episodes that have aired" for auto-download.
 /// Conservative by design: avoids guessing that future episodes aired when schedule metadata is
 /// missing.
@@ -73,9 +81,22 @@ std::vector<DelayedAutoDownloadJob> peekNextDelayedAutoDownloadJobs(
     const std::vector<DelayedAutoDownloadJob>& queue, std::int64_t now_secs);
 
 /// Pops every job with `due_at_secs <= now` (catch-up when several staggered dues have elapsed).
+/// Safe with respect to the release delay: a job is only ever returned after its own due time.
 std::vector<DelayedAutoDownloadJob> takeDueDelayedAutoDownloadJobs(
     std::vector<DelayedAutoDownloadJob>& queue, std::int64_t now_secs);
 
+/// Same selection as `takeDueDelayedAutoDownloadJobs` without removing anything, so a caller can
+/// check what a cycle would cover before committing to run it.
+std::vector<DelayedAutoDownloadJob> peekDueDelayedAutoDownloadJobs(
+    const std::vector<DelayedAutoDownloadJob>& queue, std::int64_t now_secs);
+
 std::int64_t soonestDelayedAutoDownloadDue(const std::vector<DelayedAutoDownloadJob>& queue);
+
+/// When the next sync+auto-download cycle may start: the soonest due time, pushed out so cycles
+/// stay at least `gap_secs` apart. Returns 0 when the queue is empty.
+/// `last_cycle_start_secs` is 0 when no cycle has run yet, which imposes no gap.
+std::int64_t nextDelayedAutoDownloadCycleAt(
+    const std::vector<DelayedAutoDownloadJob>& queue, std::int64_t last_cycle_start_secs,
+    std::int64_t gap_secs = kDelayedAutoDownloadMinCycleGapSeconds);
 
 }  // namespace taiga

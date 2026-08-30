@@ -153,8 +153,27 @@ std::vector<DelayedAutoDownloadJob> takeDueDelayedAutoDownloadJobs(
   return taken;
 }
 
+std::vector<DelayedAutoDownloadJob> peekDueDelayedAutoDownloadJobs(
+    const std::vector<DelayedAutoDownloadJob>& queue, const std::int64_t now_secs) {
+  std::vector<DelayedAutoDownloadJob> taken;
+  for (const auto& job : queue) {
+    if (job.due_at_secs > now_secs) break;
+    taken.push_back(job);
+  }
+  return taken;
+}
+
 std::int64_t soonestDelayedAutoDownloadDue(const std::vector<DelayedAutoDownloadJob>& queue) {
   return queue.empty() ? 0 : queue.front().due_at_secs;
+}
+
+std::int64_t nextDelayedAutoDownloadCycleAt(const std::vector<DelayedAutoDownloadJob>& queue,
+                                            const std::int64_t last_cycle_start_secs,
+                                            const std::int64_t gap_secs) {
+  const std::int64_t soonest = soonestDelayedAutoDownloadDue(queue);
+  if (soonest <= 0) return 0;
+  if (last_cycle_start_secs <= 0 || gap_secs <= 0) return soonest;
+  return std::max(soonest, last_cycle_start_secs + gap_secs);
 }
 
 }  // namespace taiga

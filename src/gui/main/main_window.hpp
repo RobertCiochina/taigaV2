@@ -209,7 +209,15 @@ private:
   };
   void runLibraryScan(bool startup_silent, LibraryScanReason reason);
   void armDelayedAutoDownloadTimer();
-  void cancelDelayedAutoDownload(const QString& reason);
+  /// Appends one `autodl:` diagnostics line describing `event` plus the current pipeline state.
+  /// Debug-gated; remove these calls once delayed auto-download stops needing investigation.
+  void logAutoDownloadDiag(const QString& event) const;
+  /// Restarts the no-progress watchdog for the running auto-download.
+  void armAutoDownloadWatchdog();
+  void onAutoDownloadWatchdogTimeout();
+  void dispatchQueuedAutoDownload();
+  void saveDelayedAutoDownloadSchedule() const;
+  void restoreDelayedAutoDownloadSchedule();
   void beginDelayedAutoDownloadRun();
   void continueDelayedAutoDownloadAfterSync();
   void startDelayedAutoDownloadRss();
@@ -273,9 +281,10 @@ private:
   AnnouncedReleasesWidget* m_announcedReleasesWidget = nullptr;
   TrayIcon* m_trayIcon = nullptr;
   QTimer* m_catalog_autocheck_timer_ = nullptr;
-  QTimer* m_home_countdown_timer_ = nullptr;  // light periodic tick for toolbar label refresh
-  QTimer* m_release_event_timer_ = nullptr;   // lightweight release-event detection
-  QTimer* m_delayed_autodl_timer_ = nullptr;  // single-shot delayed auto-download
+  QTimer* m_home_countdown_timer_ = nullptr;   // light periodic tick for toolbar label refresh
+  QTimer* m_release_event_timer_ = nullptr;    // lightweight release-event detection
+  QTimer* m_delayed_autodl_timer_ = nullptr;   // single-shot delayed auto-download
+  QTimer* m_autodl_watchdog_timer_ = nullptr;  // clears a stalled run so later jobs still fire
   QTimer* m_watching_change_autodl_timer_ = nullptr;  // coalesce Watching-transition autodl
   QTimer* m_home_qbit_poll_timer_ = nullptr;
   QTimer* m_home_upcoming_timer_ = nullptr;  // live Upcoming This Week countdown / expiry
@@ -332,12 +341,17 @@ private:
   qint64 m_last_release_event_trigger_secs_ = 0;
   qint64 m_last_delayed_autodl_sync_secs_ = 0;
   qint64 m_last_delayed_autodl_scan_secs_ = 0;
+  // Start of the last delayed cycle; keeps cycles kDelayedAutoDownloadMinCycleGapSeconds apart.
+  qint64 m_last_delayed_autodl_cycle_secs_ = 0;
   qint64 m_last_announced_related_check_started_secs_ = 0;
   int m_last_announced_related_fetch_count_ = 0;
   QSet<int> m_announced_related_pending_ids_;  // ids queued by the current sweep (for diag logging)
 
   QDate m_auto_download_fail_day_;
   QHash<int, int> m_auto_download_fail_streak_today_;
+  // When each title last had a failure counted, so a burst of runs minutes apart cannot spend both
+  // strikes on the same slow release.
+  QHash<int, qint64> m_auto_download_fail_last_secs_;
   // Avoid "pop-in" on Home at startup: when scan-on-startup is enabled, we defer the first
   // Home dashboard render until the startup-pre-sync scan finishes.
   bool m_defer_home_refresh_until_startup_scan_ = false;

@@ -335,6 +335,125 @@ private slots:
     QCOMPARE(rest.back().anime_id, 50);
     QVERIFY(q.empty());
   }
+
+  void peek_due_matches_take_due_without_consuming() {
+    std::vector<taiga::DelayedAutoDownloadJob> q;
+    taiga::insertDelayedAutoDownloadJob(q, {1, 1000, 1});
+    taiga::insertDelayedAutoDownloadJob(q, {2, 2000, 1});
+    taiga::insertDelayedAutoDownloadJob(q, {3, 4000, 1});
+
+    const auto peeked = taiga::peekDueDelayedAutoDownloadJobs(q, 2500);
+    QCOMPARE(int(peeked.size()), 2);
+    QCOMPARE(int(q.size()), 3);
+
+    const auto taken = taiga::takeDueDelayedAutoDownloadJobs(q, 2500);
+    QCOMPARE(int(taken.size()), int(peeked.size()));
+    QCOMPARE(taken[0].anime_id, peeked[0].anime_id);
+    QCOMPARE(taken[1].anime_id, peeked[1].anime_id);
+  }
+
+  void peek_due_is_empty_before_first_due() {
+    std::vector<taiga::DelayedAutoDownloadJob> q;
+    taiga::insertDelayedAutoDownloadJob(q, {1, 5000, 1});
+    QVERIFY(taiga::peekDueDelayedAutoDownloadJobs(q, 4999).empty());
+    QCOMPARE(int(taiga::peekDueDelayedAutoDownloadJobs(q, 5000).size()), 1);
+  }
+
+  void cycle_gap_pushes_a_close_following_due_but_never_pulls_one_earlier() {
+    const std::int64_t gap = taiga::kDelayedAutoDownloadMinCycleGapSeconds;
+    std::vector<taiga::DelayedAutoDownloadJob> q;
+    QCOMPARE(taiga::nextDelayedAutoDownloadCycleAt(q, 0, gap), 0);
+
+    // First cycle: no previous cycle, so the job runs at its own due time.
+    taiga::insertDelayedAutoDownloadJob(q, {1, 10'000, 2});
+    QCOMPARE(taiga::nextDelayedAutoDownloadCycleAt(q, 0, gap), 10'000);
+
+    // A due time inside the gap is pushed out to the end of the gap.
+    std::vector<taiga::DelayedAutoDownloadJob> near_q;
+    taiga::insertDelayedAutoDownloadJob(near_q, {2, 10'600, 2});
+    QCOMPARE(taiga::nextDelayedAutoDownloadCycleAt(near_q, 10'000, gap), 10'000 + gap);
+
+    // A due time beyond the gap keeps its own time; the gap never pulls a job in early.
+    std::vector<taiga::DelayedAutoDownloadJob> far_q;
+    const std::int64_t far_due = 10'000 + gap + 500;
+    taiga::insertDelayedAutoDownloadJob(far_q, {3, far_due, 2});
+    QCOMPARE(taiga::nextDelayedAutoDownloadCycleAt(far_q, 10'000, gap), far_due);
+  }
+
+  void cycle_gap_spaces_three_titles_airing_within_the_hour() {
+    // A 18:30, B 18:40, C 19:00 with a 1h release delay: dues are 19:30 / 19:40 / 20:00.
+    // Cycle 1 runs A at 19:30; B is inside the gap so it waits until 19:50; C is then inside the
+    // gap that follows and waits until 20:10. No title ever runs before its own due time.
+    const std::int64_t delay = 3600;
+    const std::int64_t gap = taiga::kDelayedAutoDownloadMinCycleGapSeconds;
+    const std::int64_t a_air = 18 * 3600 + 30 * 60;
+    const std::int64_t b_air = 18 * 3600 + 40 * 60;
+    const std::int64_t c_air = 19 * 3600;
+
+    std::vector<taiga::DelayedAutoDownloadJob> q;
+    taiga::insertDelayedAutoDownloadJob(q, {1, taiga::delayedAutoDownloadDueAt(a_air, delay), 2});
+    taiga::insertDelayedAutoDownloadJob(q, {2, taiga::delayedAutoDownloadDueAt(b_air, delay), 2});
+    taiga::insertDelayedAutoDownloadJob(q, {3, taiga::delayedAutoDownloadDueAt(c_air, delay), 2});
+
+    const std::int64_t cycle1 = taiga::nextDelayedAutoDownloadCycleAt(q, 0, gap);
+    QCOMPARE(cycle1, a_air + delay);
+    auto first = taiga::takeDueDelayedAutoDownloadJobs(q, cycle1);
+    QCOMPARE(int(first.size()), 1);
+    QCOMPARE(first.front().anime_id, 1);
+
+    const std::int64_t cycle2 = taiga::nextDelayedAutoDownloadCycleAt(q, cycle1, gap);
+    QCOMPARE(cycle2, cycle1 + gap);
+    QVERIFY(cycle2 >= b_air + delay);
+    auto second = taiga::takeDueDelayedAutoDownloadJobs(q, cycle2);
+    QCOMPARE(int(second.size()), 1);
+    QCOMPARE(second.front().anime_id, 2);
+
+    const std::int64_t cycle3 = taiga::nextDelayedAutoDownloadCycleAt(q, cycle2, gap);
+    QCOMPARE(cycle3, cycle2 + gap);
+    QVERIFY(cycle3 >= c_air + delay);
+    auto third = taiga::takeDueDelayedAutoDownloadJobs(q, cycle3);
+    QCOMPARE(int(third.size()), 1);
+    QCOMPARE(third.front().anime_id, 3);
+    QVERIFY(q.empty());
+  }
+
+  void cycle_gap_lets_a_far_apart_due_keep_its_own_time() {
+    // A 18:30, B 18:59, C 19:00: B is already past A's gap so it runs on its own due time, and only
+    // C gets pushed. Mirrors the second scheduling example in spec.md.
+    const std::int64_t delay = 3600;
+    const std::int64_t gap = taiga::kDelayedAutoDownloadMinCycleGapSeconds;
+    const std::int64_t a_due = taiga::delayedAutoDownloadDueAt(18 * 3600 + 30 * 60, delay);
+    const std::int64_t b_due = taiga::delayedAutoDownloadDueAt(18 * 3600 + 59 * 60, delay);
+    const std::int64_t c_due = taiga::delayedAutoDownloadDueAt(19 * 3600, delay);
+
+    std::vector<taiga::DelayedAutoDownloadJob> q;
+    taiga::insertDelayedAutoDownloadJob(q, {1, a_due, 2});
+    taiga::insertDelayedAutoDownloadJob(q, {2, b_due, 2});
+    taiga::insertDelayedAutoDownloadJob(q, {3, c_due, 2});
+
+    const std::int64_t cycle1 = taiga::nextDelayedAutoDownloadCycleAt(q, 0, gap);
+    QCOMPARE(cycle1, a_due);
+    taiga::takeDueDelayedAutoDownloadJobs(q, cycle1);
+
+    const std::int64_t cycle2 = taiga::nextDelayedAutoDownloadCycleAt(q, cycle1, gap);
+    QCOMPARE(cycle2, b_due);
+    taiga::takeDueDelayedAutoDownloadJobs(q, cycle2);
+
+    const std::int64_t cycle3 = taiga::nextDelayedAutoDownloadCycleAt(q, cycle2, gap);
+    QCOMPARE(cycle3, cycle2 + gap);
+    QVERIFY(cycle3 >= c_due);
+    QCOMPARE(int(taiga::takeDueDelayedAutoDownloadJobs(q, cycle3).size()), 1);
+  }
+
+  void cycle_gap_batches_jobs_already_past_due_into_one_cycle() {
+    // Both dues elapsed while the app was busy: one cycle covers both, neither is pushed further.
+    std::vector<taiga::DelayedAutoDownloadJob> q;
+    taiga::insertDelayedAutoDownloadJob(q, {1, 10'000, 2});
+    taiga::insertDelayedAutoDownloadJob(q, {2, 10'300, 3});
+    const auto taken = taiga::takeDueDelayedAutoDownloadJobs(q, 11'000);
+    QCOMPARE(int(taken.size()), 2);
+    QVERIFY(q.empty());
+  }
 };
 
 }  // namespace taiga::test

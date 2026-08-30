@@ -349,6 +349,10 @@ void Session::setTorrentPanelResultFilter(const QString& text) const {
   setValue("torrentPanel.resultFilter", text);
 }
 
+QString Session::delayedAutoDownloadSchedule() const {
+  return value("torrentPanel.delayedAutoDownloadSchedule", QString{}).toString();
+}
+
 void Session::setTorrentCatalogSeenFingerprints(const QStringList& keys) const {
   QJsonArray a;
   for (const QString& k : keys) {
@@ -356,6 +360,10 @@ void Session::setTorrentCatalogSeenFingerprints(const QStringList& keys) const {
   }
   setValue("torrentPanel.catalogSeenFingerprints",
            QString::fromUtf8(QJsonDocument(a).toJson(QJsonDocument::Compact)));
+}
+
+void Session::setDelayedAutoDownloadSchedule(const QString& json) const {
+  setValue("torrentPanel.delayedAutoDownloadSchedule", json);
 }
 
 void Session::setTorrentRssTableHeaderState(const QByteArray& state) const {
