@@ -294,6 +294,29 @@ private slots:
     QVERIFY(!taiga::pendingDelayedAutoDownloadDueAt(q, 3).has_value());
   }
 
+  void retry_after_rss_miss_until_cap() {
+    taiga::DelayedAutoDownloadJob job{.anime_id = 7, .due_at_secs = 1000, .aired_episode = 9};
+    const auto first = taiga::retryDelayedAutoDownloadJob(job, 5000, 3600);
+    QVERIFY(first.has_value());
+    QCOMPARE(first->rss_attempts, 1);
+    QCOMPARE(first->due_at_secs, 8600);
+    QCOMPARE(first->aired_episode, 9);
+
+    taiga::DelayedAutoDownloadJob at_cap = *first;
+    at_cap.rss_attempts = 3;
+    QVERIFY(!taiga::retryDelayedAutoDownloadJob(at_cap, 9000, 3600).has_value());
+  }
+
+  void upsert_replaces_same_anime() {
+    std::vector<taiga::DelayedAutoDownloadJob> q;
+    taiga::insertDelayedAutoDownloadJob(q, {1, 1000, 8});
+    taiga::upsertDelayedAutoDownloadJob(q, {1, 5000, 9, 1});
+    QCOMPARE(int(q.size()), 1);
+    QCOMPARE(q.front().due_at_secs, 5000);
+    QCOMPARE(q.front().rss_attempts, 1);
+    QCOMPARE(q.front().aired_episode, 9);
+  }
+
   void detect_first_poll_lookback_catches_air_inside_delay() {
     const std::int64_t now = 10'000;
     const std::int64_t delay = 3600;

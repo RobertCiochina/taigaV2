@@ -1,6 +1,7 @@
 #include <QTest>
 
 #include "track/recognition_normalize.hpp"
+#include "track/recognition_titles.hpp"
 
 namespace track::recognition::test {
 
@@ -70,6 +71,14 @@ private slots:
     QString s = QStringLiteral("UPPERCASE");
     normalizeUnicode(s);
     QCOMPARE(s, QStringLiteral("uppercase"));
+  }
+
+  void torrent_search_folds_curly_apostrophe() {
+    const QString curly =
+        QStringLiteral("The Insipid Prince") + QChar(0x2019) + QStringLiteral("s Furtive Grab");
+    const QStringList v = torrentSearchPunctuationVariants(curly);
+    QVERIFY(v.contains(QStringLiteral("The Insipid Prince's Furtive Grab")));
+    QVERIFY(v.contains(QStringLiteral("The Insipid Princes Furtive Grab")));
   }
 };
 

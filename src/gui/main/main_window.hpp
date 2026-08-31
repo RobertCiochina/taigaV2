@@ -336,6 +336,7 @@ private:
   };
   std::optional<PendingAutoDownloadRun> m_queued_autodl_;
   std::vector<taiga::DelayedAutoDownloadJob> m_delayed_autodl_queue_;
+  QHash<int, taiga::DelayedAutoDownloadJob> m_in_flight_delayed_rss_;
   QHash<int, qint64> m_delayed_autodl_seen_air_at_;
   QHash<int, qint64> m_delayed_autodl_last_next_time_;
   qint64 m_last_release_event_trigger_secs_ = 0;

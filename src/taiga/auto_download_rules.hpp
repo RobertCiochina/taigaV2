@@ -21,6 +21,9 @@ inline constexpr std::int64_t kDelayedAutoDownloadMinCycleGapSeconds = 20 * 60;
 /// shutdown; the airing is either long since downloaded or no longer worth chasing).
 inline constexpr std::int64_t kDelayedAutoDownloadMaxRestoreAgeSeconds = 24 * 60 * 60;
 
+/// Original delayed RSS attempt plus this many follow-ups after a miss (4 total).
+inline constexpr int kDelayedAutoDownloadMaxRssAttempts = 4;
+
 /// Best-effort upper bound for "episodes that have aired" for auto-download.
 /// Conservative by design: avoids guessing that future episodes aired when schedule metadata is
 /// missing.
@@ -63,7 +66,17 @@ struct DelayedAutoDownloadJob {
   int anime_id = 0;
   std::int64_t due_at_secs = 0;
   int aired_episode = 0;
+  int rss_attempts = 0;
 };
+
+/// Re-queue after a delayed RSS miss. Empty when `rss_attempts` already hit the cap.
+std::optional<DelayedAutoDownloadJob> retryDelayedAutoDownloadJob(
+    const DelayedAutoDownloadJob& job, std::int64_t now_secs, std::int64_t delay_secs,
+    int max_attempts = kDelayedAutoDownloadMaxRssAttempts);
+
+/// Drop any existing jobs for `job.anime_id`, then insert.
+void upsertDelayedAutoDownloadJob(std::vector<DelayedAutoDownloadJob>& queue,
+                                  DelayedAutoDownloadJob job);
 
 /// Soonest due time for this anime in the delayed FIFO, if any.
 std::optional<std::int64_t> pendingDelayedAutoDownloadDueAt(

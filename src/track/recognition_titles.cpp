@@ -115,16 +115,41 @@ bool isFranchiseOnlySearchTitle(const QString& title) {
   return false;
 }
 
+QString foldTorrentSearchPunctuation(QString title) {
+  title.replace(QChar(0x2018), QLatin1Char('\''));
+  title.replace(QChar(0x2019), QLatin1Char('\''));
+  title.replace(QChar(0x201B), QLatin1Char('\''));
+  title.replace(QChar(0x2032), QLatin1Char('\''));
+  title.replace(QChar(0x201C), QLatin1Char('"'));
+  title.replace(QChar(0x201D), QLatin1Char('"'));
+  title.replace(QChar(0x2013), QLatin1Char('-'));
+  title.replace(QChar(0x2014), QLatin1Char('-'));
+  return title;
+}
+
+QStringList torrentSearchPunctuationVariants(const QString& title) {
+  QStringList out;
+  addUniqueQ(out, title);
+  const QString folded = foldTorrentSearchPunctuation(title);
+  addUniqueQ(out, folded);
+  QString stripped = folded;
+  stripped.remove(QLatin1Char('\''));
+  addUniqueQ(out, stripped.simplified());
+  return out;
+}
+
 QStringList searchTitleVariantsFromOfficialTitles(const QString& english, const QString& romaji) {
   QStringList out;
   for (const QString& src : {english, romaji}) {
     if (src.trimmed().isEmpty()) continue;
-    addUniqueQ(out, src);
+    for (const QString& v : torrentSearchPunctuationVariants(src)) addUniqueQ(out, v);
     const QString stripped = stripEpisodeNumberMarkers(src);
-    addUniqueQ(out, stripped);
+    for (const QString& v : torrentSearchPunctuationVariants(stripped)) addUniqueQ(out, v);
     QString no_colon = stripped;
     no_colon.replace(QLatin1Char(':'), QLatin1Char(' '));
-    addUniqueQ(out, no_colon.simplified());
+    for (const QString& v : torrentSearchPunctuationVariants(no_colon.simplified())) {
+      addUniqueQ(out, v);
+    }
   }
   return out;
 }

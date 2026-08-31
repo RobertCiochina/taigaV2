@@ -20,6 +20,7 @@
 #include <QFrame>
 #include <QGuiApplication>
 #include <QHBoxLayout>
+#include <QHash>
 #include <QHeaderView>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -73,11 +74,13 @@
 #include "track/recognition_titles.hpp"
 #include "track/scanner.hpp"
 
+
 namespace gui {
 
 namespace {
 constexpr int kCatalogFingerprintCap = 100;
 constexpr int kManualSearchSynonymCap = 6;
+constexpr int kRssVariantGapMs = 2000;
 
 bool isMovieOrSpecial(const track::Episode& ep, const QString& title_full) {
   // Anitomy (Qt port) does not expose the v1-style AnimeType element, so use robust heuristics:
@@ -213,6 +216,20 @@ QString fingerprintForItem(const rss::Item& it) {
     return QString::fromStdString(it.link);
   }
   return QString::fromStdString(it.title) + QChar(0x1E) + QString::fromStdString(it.pub_date);
+}
+
+QString dedupeKeyForMergedFeedItem(const rss::Item& it) {
+  if (const auto m = it.namespace_elements.find(kTorrentFeedMagnetKey);
+      m != it.namespace_elements.end() && !m->second.empty()) {
+    return QStringLiteral("m:") + QString::fromStdString(m->second);
+  }
+  if (!it.enclosure.url.empty()) {
+    return QStringLiteral("t:") + QString::fromStdString(it.enclosure.url);
+  }
+  if (!it.link.empty()) {
+    return QStringLiteral("p:") + QString::fromStdString(it.link);
+  }
+  return QStringLiteral("x:") + fingerprintForItem(it);
 }
 
 QString rowTextForItem(const rss::Item& it) {
@@ -1848,19 +1865,21 @@ static QStringList buildTitleVariants(const QString& english, const QString& rom
 
   const auto consider = [&](const QString& raw) {
     if (track::recognition::isFranchiseOnlySearchTitle(raw)) return;
-    const QString t = raw.trimmed();
-    if (t.isEmpty()) return;
-    if (const QString sq = nyaaSeasonQualifiedTitle(t); !sq.isEmpty()) {
-      addIfNew(season_qualified, sq);
+    for (const QString& t : track::recognition::torrentSearchPunctuationVariants(raw)) {
+      if (t.trimmed().isEmpty()) continue;
+      if (track::recognition::isFranchiseOnlySearchTitle(t)) continue;
+      if (const QString sq = nyaaSeasonQualifiedTitle(t); !sq.isEmpty()) {
+        addIfNew(season_qualified, sq);
+      }
+      addIfNew(bare, t);
+      const QString stripped = stripTitleSubtitle(t);
+      if (stripped.compare(t, Qt::CaseInsensitive) == 0) continue;
+      if (track::recognition::isFranchiseOnlySearchTitle(stripped)) continue;
+      if (const QString sq = nyaaSeasonQualifiedTitle(stripped); !sq.isEmpty()) {
+        addIfNew(season_qualified, sq);
+      }
+      addIfNew(bare, stripped);
     }
-    addIfNew(bare, t);
-    const QString stripped = stripTitleSubtitle(t);
-    if (stripped.compare(t, Qt::CaseInsensitive) == 0) return;
-    if (track::recognition::isFranchiseOnlySearchTitle(stripped)) return;
-    if (const QString sq = nyaaSeasonQualifiedTitle(stripped); !sq.isEmpty()) {
-      addIfNew(season_qualified, sq);
-    }
-    addIfNew(bare, stripped);
   };
 
   // Official titles / No.N+1 stripped forms, then explicit english + romaji.
@@ -1998,7 +2017,6 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
                                                     const QString& folder_name,
                                                     std::function<void(int downloaded)> on_done,
                                                     const int min_last_aired) {
-  // Build variant list (cache first, then generated).
   QStringList variants;
   if (anime_id > 0) {
     const QString cached = taiga::settings.torrentSearchTitleForAnime(anime_id);
@@ -2017,23 +2035,195 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
     return;
   }
 
-  const auto variantIdx = std::make_shared<int>(0);
-  const auto try_fn = std::make_shared<std::function<void()>>();
+  struct MergeState {
+    QStringList variants;
+    int idx = 0;
+    rss::Feed merged;
+    QSet<QString> seen;
+    QHash<QString, QString> key_to_variant;
+  };
+  auto st = std::make_shared<MergeState>();
+  st->variants = variants;
+  st->seen.reserve(2000);
 
-  *try_fn = [this, variants, folder_name, on_done, variantIdx, try_fn, anime_id, min_last_aired]() {
-    const int idx = *variantIdx;
-    if (idx >= variants.size()) {
+  const auto cache_title_for_item = [anime_id, st](const rss::Item* item) {
+    if (anime_id <= 0 || !item) return;
+    const QString key = dedupeKeyForMergedFeedItem(*item);
+    const QString title = st->key_to_variant.value(key);
+    if (title.isEmpty() || track::recognition::isFranchiseOnlySearchTitle(title)) return;
+    taiga::settings.setTorrentSearchTitleForAnime(anime_id, title);
+  };
+
+  const auto finish = [this, st, folder_name, on_done, anime_id, min_last_aired,
+                       cache_title_for_item]() {
+    m_bg_rss_op_ = BgRssOp::None;
+    m_bg_batch_on_done_ = {};
+    const QList<const rss::Item*> filtered = filterRssItemsBySettings(st->merged, anime_id);
+    if (taiga::settings.cacheDiagnosticsEnabled()) {
+      track::appendLibraryEpisodeIndexCacheDebugLine(
+          QStringLiteral("autodl: rss merged items=%1 filtered=%2 aid=%3 variants=%4")
+              .arg(static_cast<int>(st->merged.items.size()))
+              .arg(filtered.size())
+              .arg(anime_id)
+              .arg(st->variants.size()));
+    }
+    if (filtered.isEmpty()) {
       if (on_done) on_done(0);
       return;
     }
-    ++(*variantIdx);
-    const QString title = variants[idx];
 
+    const auto* item_db = anime::db.item(anime_id);
+    const auto* entry_db = anime::db.entry(anime_id);
+    QList<int> missing;
+    if (item_db && entry_db) {
+      const qint64 now_secs = QDateTime::currentSecsSinceEpoch();
+      int raw_last = taiga::computeLastAiredEpisodeForAutoDownload(
+          *item_db, entry_db->watched_episodes, now_secs);
+      if (min_last_aired > 0) {
+        raw_last = taiga::lastAiredForDelayedAutoDownload(raw_last, min_last_aired);
+      }
+      const int last_aired = track::toListLastAiredEpisode(*item_db, raw_last);
+      const int watched = entry_db->watched_episodes;
+      for (int ep = watched + 1; ep <= last_aired; ++ep) {
+        if (!track::libraryHasLocalEpisode(anime_id, ep)) missing.append(ep);
+      }
+    }
+    if (missing.isEmpty()) {
+      if (on_done) on_done(0);
+      return;
+    }
+
+    const QMap<int, const rss::Item*> best_ep = selectBestPerEpisode(filtered);
+    const int effective_last = [&]() {
+      if (!item_db || !entry_db) return 0;
+      const qint64 now_secs = QDateTime::currentSecsSinceEpoch();
+      int raw_last = taiga::computeLastAiredEpisodeForAutoDownload(
+          *item_db, entry_db->watched_episodes, now_secs);
+      if (min_last_aired > 0) {
+        raw_last = taiga::lastAiredForDelayedAutoDownload(raw_last, min_last_aired);
+      }
+      return track::toListLastAiredEpisode(*item_db, raw_last);
+    }();
+
+    const auto enqueue_batch = [&](const rss::Item* batch) -> bool {
+      if (!batch) return false;
+      const QString batch_url = bestUrlForItem(batch);
+      if (batch_url.isEmpty()) return false;
+      cache_title_for_item(batch);
+      const QString save_path = resolvedTorrentDownloadDirForSavedTorrent(folder_name);
+      if (taiga::settings.torrentQBitApiEnabled()) {
+        addTorrentViaQBitApi(
+            batch_url, save_path,
+            [on_done](bool ok, const QString& err) {
+              if (!err.isEmpty())
+                taiga::userFeedback(QStringLiteral("qBittorrent Web API error: ") + err, true);
+              if (on_done) on_done(ok ? 1 : 0);
+            },
+            /*interactive=*/false);
+      } else {
+        if (const auto u = httpUrlFromUserString(batch_url)) {
+          enqueueSaveTorrent(*u, folder_name);
+          startNextQueuedSave();
+        } else {
+          openPrimaryTorrentUrl(batch_url);
+        }
+        if (on_done) on_done(1);
+      }
+      return true;
+    };
+
+    int local_ep_count = 0;
+    if (item_db && item_db->episode_count > 0) {
+      for (int ep = 1; ep <= item_db->episode_count; ++ep) {
+        if (track::libraryHasLocalEpisode(anime_id, ep)) ++local_ep_count;
+      }
+    }
+    const int ep_count = item_db ? item_db->episode_count : 0;
+    if (taiga::allowSeasonPackAutoDownload(local_ep_count, missing.size(), effective_last,
+                                           ep_count)) {
+      if (enqueue_batch(best_ep.value(-1, nullptr))) return;
+    }
+
+    struct DownloadItem {
+      int ep = 0;
+      QString url;
+      const rss::Item* item = nullptr;
+    };
+    QList<DownloadItem> targets;
+    for (const int list_ep : missing) {
+      const int release_ep = track::toReleaseEpisode(anime_id, list_ep);
+      if (const auto* best = best_ep.value(release_ep, nullptr)) {
+        const QString ep_url = bestUrlForItem(best);
+        if (!ep_url.isEmpty()) targets.append({list_ep, ep_url, best});
+      }
+    }
+    if (targets.isEmpty()) {
+      if (taiga::settings.cacheDiagnosticsEnabled()) {
+        QStringList keys;
+        for (auto it = best_ep.cbegin(); it != best_ep.cend(); ++it) {
+          keys.push_back(QString::number(it.key()));
+        }
+        QStringList miss;
+        for (int ep : missing) miss.push_back(QString::number(ep));
+        track::appendLibraryEpisodeIndexCacheDebugLine(
+            QStringLiteral(
+                "autodl: no per-episode match, skip batch fallback aid=%1 missing=%2 keys=%3")
+                .arg(anime_id)
+                .arg(miss.join(u','))
+                .arg(keys.join(u',')));
+      }
+      if (on_done) on_done(0);
+      return;
+    }
+
+    cache_title_for_item(targets.front().item);
+
+    if (taiga::settings.torrentQBitApiEnabled()) {
+      const QString save_path = resolvedTorrentDownloadDirForSavedTorrent(folder_name);
+      const int total = targets.size();
+      const auto downloaded = std::make_shared<int>(0);
+      const auto done_count = std::make_shared<int>(0);
+      const auto reported_err = std::make_shared<bool>(false);
+      for (const auto& t : targets) {
+        addTorrentViaQBitApi(
+            t.url, save_path,
+            [downloaded, done_count, total, on_done, reported_err](bool ok, const QString& err) {
+              if (!err.isEmpty() && !*reported_err) {
+                *reported_err = true;
+                taiga::userFeedback(QStringLiteral("qBittorrent Web API error: ") + err, true);
+              }
+              if (ok) ++(*downloaded);
+              if (++(*done_count) >= total) {
+                if (on_done) on_done(*downloaded);
+              }
+            },
+            /*interactive=*/false);
+      }
+    } else {
+      for (const auto& t : targets) {
+        if (const auto u = httpUrlFromUserString(t.url)) {
+          enqueueSaveTorrent(*u, folder_name);
+        } else {
+          openPrimaryTorrentUrl(t.url);
+        }
+      }
+      startNextQueuedSave();
+      if (on_done) on_done(static_cast<int>(targets.size()));
+    }
+  };
+
+  const auto step = std::make_shared<std::function<void()>>();
+  *step = [this, st, step, finish, on_done]() {
+    if (st->idx >= st->variants.size()) {
+      finish();
+      return;
+    }
+    const QString title = st->variants[st->idx++];
     abortBackgroundRss(/*notify_aborted=*/false);
     const QString tmpl = QString::fromStdString(taiga::settings.torrentDiscoverySearchUrl());
     const QUrl url = taiga::torrentDiscoveryFeedFetchUrl(tmpl, title);
     if (!url.isValid()) {
-      (*try_fn)();
+      QTimer::singleShot(0, this, [step]() { (*step)(); });
       return;
     }
 
@@ -2042,182 +2232,37 @@ void TorrentFeedWidget::downloadAllEpisodesForAnime(const int anime_id,
     m_bg_rss_op_ = BgRssOp::BatchEpisodes;
     m_bg_batch_on_done_ = on_done;
     m_bg_fetch_reply_ = taiga::network()->get(req);
-
-    connect(m_bg_fetch_reply_, &QNetworkReply::finished, this,
-            [this, title, folder_name, on_done, try_fn, anime_id, min_last_aired]() {
-              auto* reply = m_bg_fetch_reply_;
-              m_bg_fetch_reply_ = nullptr;
-              m_bg_rss_op_ = BgRssOp::None;
-              m_bg_batch_on_done_ = {};
-              if (!reply) {
-                if (on_done) on_done(0);
-                return;
-              }
-              reply->deleteLater();
-              if (reply->error() != QNetworkReply::NoError) {
-                (*try_fn)();
-                return;
-              }
-
-              const rss::Feed feed =
-                  gui::parseSyndicationFeed(reply->readAll()).value_or(rss::Feed{});
-              const QList<const rss::Item*> filtered = filterRssItemsBySettings(feed, anime_id);
-              if (filtered.isEmpty()) {
-                (*try_fn)();
-                return;
-              }
-
-              // Determine which episodes are missing (list-relative numbers).
-              const auto* item_db = anime::db.item(anime_id);
-              const auto* entry_db = anime::db.entry(anime_id);
-              QList<int> missing;
-              if (item_db && entry_db) {
-                const qint64 now_secs = QDateTime::currentSecsSinceEpoch();
-                int raw_last = taiga::computeLastAiredEpisodeForAutoDownload(
-                    *item_db, entry_db->watched_episodes, now_secs);
-                if (min_last_aired > 0) {
-                  raw_last = taiga::lastAiredForDelayedAutoDownload(raw_last, min_last_aired);
-                }
-                const int last_aired = track::toListLastAiredEpisode(*item_db, raw_last);
-                const int watched = entry_db->watched_episodes;
-                for (int ep = watched + 1; ep <= last_aired; ++ep) {
-                  if (!track::libraryHasLocalEpisode(anime_id, ep)) missing.append(ep);
-                }
-              }
-              if (missing.isEmpty()) {
-                if (on_done) on_done(0);
-                return;
-              }
-
-              // Build best-per-episode map from filtered feed (keys are release/file episode nos).
-              const QMap<int, const rss::Item*> best_ep = selectBestPerEpisode(filtered);
-
-              const int effective_last = [&]() {
-                if (!item_db || !entry_db) return 0;
-                const qint64 now_secs = QDateTime::currentSecsSinceEpoch();
-                int raw_last = taiga::computeLastAiredEpisodeForAutoDownload(
-                    *item_db, entry_db->watched_episodes, now_secs);
-                if (min_last_aired > 0) {
-                  raw_last = taiga::lastAiredForDelayedAutoDownload(raw_last, min_last_aired);
-                }
-                return track::toListLastAiredEpisode(*item_db, raw_last);
-              }();
-
-              // Cache only after we actually queue a download (below).
-
-              const auto enqueue_batch = [&](const rss::Item* batch) -> bool {
-                if (!batch) return false;
-                const QString batch_url = bestUrlForItem(batch);
-                if (batch_url.isEmpty()) return false;
-                if (anime_id > 0 && !track::recognition::isFranchiseOnlySearchTitle(title)) {
-                  taiga::settings.setTorrentSearchTitleForAnime(anime_id, title);
-                }
-                const QString save_path = resolvedTorrentDownloadDirForSavedTorrent(folder_name);
-                if (taiga::settings.torrentQBitApiEnabled()) {
-                  addTorrentViaQBitApi(
-                      batch_url, save_path,
-                      [on_done](bool ok, const QString& err) {
-                        if (!err.isEmpty())
-                          taiga::userFeedback(QStringLiteral("qBittorrent Web API error: ") + err,
-                                              true);
-                        if (on_done) on_done(ok ? 1 : 0);
-                      },
-                      /*interactive=*/false);
-                } else {
-                  if (const auto u = httpUrlFromUserString(batch_url)) {
-                    enqueueSaveTorrent(*u, folder_name);
-                    startNextQueuedSave();
-                  } else {
-                    openPrimaryTorrentUrl(batch_url);
-                  }
-                  if (on_done) on_done(1);
-                }
-                return true;
-              };
-
-              // How many episodes of this cour are already on disk (any list ep)?
-              int local_ep_count = 0;
-              if (item_db && item_db->episode_count > 0) {
-                for (int ep = 1; ep <= item_db->episode_count; ++ep) {
-                  if (track::libraryHasLocalEpisode(anime_id, ep)) ++local_ep_count;
-                }
-              }
-
-              // ── Batch preference: only when catching up a whole cour with nothing local ─
-              // Otherwise a season pack sends episodes the user never asked to download
-              // (e.g. missing only the newly aired ep, feed has a pack but not ep N yet).
-              const int ep_count = item_db ? item_db->episode_count : 0;
-              if (taiga::allowSeasonPackAutoDownload(local_ep_count, missing.size(), effective_last,
-                                                     ep_count)) {
-                if (enqueue_batch(best_ep.value(-1, nullptr))) return;
-              }
-
-              // ── Individual episode downloads ──────────────────────────────────
-              struct DownloadItem {
-                int ep;
-                QString url;
-              };
-              QList<DownloadItem> targets;
-              for (const int list_ep : missing) {
-                const int release_ep = track::toReleaseEpisode(anime_id, list_ep);
-                if (const auto* best = best_ep.value(release_ep, nullptr)) {
-                  const QString ep_url = bestUrlForItem(best);
-                  if (!ep_url.isEmpty()) targets.append({list_ep, ep_url});
-                }
-              }
-              if (targets.isEmpty()) {
-                if (taiga::settings.cacheDiagnosticsEnabled()) {
-                  track::appendLibraryEpisodeIndexCacheDebugLine(
-                      QStringLiteral(
-                          "autodl: no per-episode match, skip batch fallback aid=%1 missing=%2")
-                          .arg(anime_id)
-                          .arg(missing.size()));
-                }
-                (*try_fn)();
-                return;
-              }
-
-              if (anime_id > 0 && !track::recognition::isFranchiseOnlySearchTitle(title)) {
-                taiga::settings.setTorrentSearchTitleForAnime(anime_id, title);
-              }
-
-              if (taiga::settings.torrentQBitApiEnabled()) {
-                const QString save_path = resolvedTorrentDownloadDirForSavedTorrent(folder_name);
-                const int total = targets.size();
-                const auto downloaded = std::make_shared<int>(0);
-                const auto done_count = std::make_shared<int>(0);
-                const auto reported_err = std::make_shared<bool>(false);
-                for (const auto& t : targets) {
-                  addTorrentViaQBitApi(
-                      t.url, save_path,
-                      [downloaded, done_count, total, on_done, reported_err](bool ok,
-                                                                             const QString& err) {
-                        if (!err.isEmpty() && !*reported_err) {
-                          *reported_err = true;
-                          taiga::userFeedback(QStringLiteral("qBittorrent Web API error: ") + err,
-                                              true);
-                        }
-                        if (ok) ++(*downloaded);
-                        if (++(*done_count) >= total) {
-                          if (on_done) on_done(*downloaded);
-                        }
-                      },
-                      /*interactive=*/false);
-                }
-              } else {
-                for (const auto& t : targets) {
-                  if (const auto u = httpUrlFromUserString(t.url)) {
-                    enqueueSaveTorrent(*u, folder_name);
-                  } else {
-                    openPrimaryTorrentUrl(t.url);
-                  }
-                }
-                startNextQueuedSave();
-                if (on_done) on_done(static_cast<int>(targets.size()));
-              }
-            });
+    connect(m_bg_fetch_reply_, &QNetworkReply::finished, this, [this, st, step, title]() {
+      auto* reply = m_bg_fetch_reply_;
+      m_bg_fetch_reply_ = nullptr;
+      if (!reply) {
+        QTimer::singleShot(0, this, [step]() { (*step)(); });
+        return;
+      }
+      reply->deleteLater();
+      rss::Feed feed;
+      if (reply->error() == QNetworkReply::NoError) {
+        feed = gui::parseSyndicationFeed(reply->readAll()).value_or(rss::Feed{});
+        if (st->merged.channel.title.empty()) st->merged.channel = feed.channel;
+        for (const rss::Item& it : feed.items) {
+          const QString key = dedupeKeyForMergedFeedItem(it);
+          if (key.isEmpty() || st->seen.contains(key)) continue;
+          st->seen.insert(key);
+          st->key_to_variant.insert(key, title);
+          st->merged.items.push_back(it);
+        }
+      }
+      if (taiga::settings.cacheDiagnosticsEnabled()) {
+        track::appendLibraryEpisodeIndexCacheDebugLine(
+            QStringLiteral("autodl: rss title='%1' items=%2 merged=%3")
+                .arg(title.left(80))
+                .arg(static_cast<int>(feed.items.size()))
+                .arg(static_cast<int>(st->merged.items.size())));
+      }
+      QTimer::singleShot(kRssVariantGapMs, this, [step]() { (*step)(); });
+    });
   };
-  (*try_fn)();
+  (*step)();
 }
 
 static QString bestMatchCoalesceKey(const QUrl& url, const QString& folder_name,
@@ -2722,21 +2767,6 @@ std::optional<qint64> publishedMsForRssItem(const rss::Item& it) {
   return std::nullopt;
 }
 
-QString dedupeKeyForMergedFeedItem(const rss::Item& it) {
-  // Prefer stable download identifiers when available.
-  if (const auto m = it.namespace_elements.find(kTorrentFeedMagnetKey);
-      m != it.namespace_elements.end() && !m->second.empty()) {
-    return QStringLiteral("m:") + QString::fromStdString(m->second);
-  }
-  if (!it.enclosure.url.empty()) {
-    return QStringLiteral("t:") + QString::fromStdString(it.enclosure.url);
-  }
-  if (!it.link.empty()) {
-    return QStringLiteral("p:") + QString::fromStdString(it.link);
-  }
-  return QStringLiteral("x:") + fingerprintForItem(it);
-}
-
 void TorrentFeedWidget::setSearchFallback(const QString& fallback) {
   m_search_fallback_title_ = fallback.trimmed();
 }
@@ -2933,7 +2963,7 @@ void TorrentFeedWidget::runSearchInternal() {
       }
 
       // Inter-request delay to avoid hammering indexers.
-      QTimer::singleShot(2000, this, [step]() { (*step)(); });
+      QTimer::singleShot(kRssVariantGapMs, this, [step]() { (*step)(); });
     });
   };
 

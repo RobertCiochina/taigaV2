@@ -119,6 +119,28 @@ void insertDelayedAutoDownloadJob(std::vector<DelayedAutoDownloadJob>& queue,
   queue.insert(it, std::move(job));
 }
 
+void upsertDelayedAutoDownloadJob(std::vector<DelayedAutoDownloadJob>& queue,
+                                  DelayedAutoDownloadJob job) {
+  queue.erase(std::remove_if(queue.begin(), queue.end(),
+                             [id = job.anime_id](const DelayedAutoDownloadJob& j) {
+                               return j.anime_id == id;
+                             }),
+              queue.end());
+  insertDelayedAutoDownloadJob(queue, std::move(job));
+}
+
+std::optional<DelayedAutoDownloadJob> retryDelayedAutoDownloadJob(const DelayedAutoDownloadJob& job,
+                                                                  const std::int64_t now_secs,
+                                                                  const std::int64_t delay_secs,
+                                                                  const int max_attempts) {
+  if (job.anime_id <= 0) return std::nullopt;
+  if (job.rss_attempts + 1 >= std::max(1, max_attempts)) return std::nullopt;
+  DelayedAutoDownloadJob next = job;
+  next.rss_attempts = job.rss_attempts + 1;
+  next.due_at_secs = delayedAutoDownloadDueAt(now_secs, delay_secs);
+  return next;
+}
+
 std::vector<DelayedAutoDownloadJob> takeNextDelayedAutoDownloadJobs(
     std::vector<DelayedAutoDownloadJob>& queue, const std::int64_t now_secs) {
   std::vector<DelayedAutoDownloadJob> taken;

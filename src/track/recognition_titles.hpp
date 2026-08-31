@@ -38,6 +38,12 @@ std::string stripSeasonNoiseFromNormalized(std::string normalized);
 /// True when a stripped subtitle-only / franchise-only search variant is too weak to use.
 bool isFranchiseOnlySearchTitle(const QString& title);
 
+/// Fold curly quotes/dashes to ASCII so Nyaa queries match common fansub titles.
+QString foldTorrentSearchPunctuation(QString title);
+
+/// Unique search strings: original, ASCII-folded, and apostrophes removed.
+QStringList torrentSearchPunctuationVariants(const QString& title);
+
 /// Generate extra torrent search variants from AniList-style `No. N+1` titles.
 QStringList searchTitleVariantsFromOfficialTitles(const QString& english, const QString& romaji);
 

@@ -1299,6 +1299,7 @@ void MainWindow::initToolbar() {
         m_auto_download_running_ = false;
         if (m_autodl_watchdog_timer_) m_autodl_watchdog_timer_->stop();
         logAutoDownloadDiag(QStringLiteral("run finished sent=%1 anime=%2").arg(sent).arg(total));
+        m_in_flight_delayed_rss_.clear();
         dispatchQueuedAutoDownload();
       });
     }
@@ -2399,7 +2400,8 @@ void MainWindow::runAutoDownload(const bool silent, const QHash<int, int>& bump_
   QStringList skipped_twice_today_labels;
   // The "skip after two failures today" throttle is only meant to reduce background noise.
   // Manual auto-download should always attempt every candidate.
-  const bool skip_failed = silent && taiga::settings.torrentAutoDownloadSkipAfterTwoFailuresToday();
+  const bool skip_failed = silent && bump_aired_episodes.isEmpty() &&
+                           taiga::settings.torrentAutoDownloadSkipAfterTwoFailuresToday();
   const QDate today = QDate::currentDate();
   if (skip_failed) {
     if (!m_auto_download_fail_day_.isValid() || m_auto_download_fail_day_ != today) {
@@ -2535,10 +2537,12 @@ void MainWindow::runAutoDownload(const bool silent, const QHash<int, int>& bump_
     QList<Candidate> queue;
     int total = 0;
     int found = 0;
+    bool skip_failed = false;
   };
   auto state = std::make_shared<State>();
   state->queue = candidates;
   state->total = candidates.size();
+  state->skip_failed = skip_failed;
   logAutoDownloadDiag(QStringLiteral("run processing candidates=%1").arg(state->total));
 
   auto step_fn = std::make_shared<std::function<void()>>();
@@ -2568,7 +2572,7 @@ void MainWindow::runAutoDownload(const bool silent, const QHash<int, int>& bump_
           state->found += count;
           const bool due_title =
               bump_aired_episodes.isEmpty() || bump_aired_episodes.contains(anime_id);
-          if (due_title && taiga::settings.torrentAutoDownloadSkipAfterTwoFailuresToday()) {
+          if (due_title && state->skip_failed) {
             const QDate cur = QDate::currentDate();
             if (!m_auto_download_fail_day_.isValid() || m_auto_download_fail_day_ != cur) {
               m_auto_download_fail_day_ = cur;
@@ -2593,8 +2597,28 @@ void MainWindow::runAutoDownload(const bool silent, const QHash<int, int>& bump_
             }
           }
           if (count > 0) {
-            // Per-anime status feedback.
+            m_in_flight_delayed_rss_.remove(anime_id);
             enqueueStatusMessage(tr("Sent %1 episode(s) for %2.").arg(count).arg(label), false);
+          } else if (m_in_flight_delayed_rss_.contains(anime_id)) {
+            const taiga::DelayedAutoDownloadJob taken = m_in_flight_delayed_rss_.take(anime_id);
+            const qint64 now = QDateTime::currentSecsSinceEpoch();
+            const qint64 delay_secs =
+                static_cast<qint64>(
+                    std::max(1, taiga::settings.torrentAutoDownloadReleaseEventDelayMinutes())) *
+                60;
+            if (const auto retry = taiga::retryDelayedAutoDownloadJob(taken, now, delay_secs)) {
+              taiga::upsertDelayedAutoDownloadJob(m_delayed_autodl_queue_, *retry);
+              saveDelayedAutoDownloadSchedule();
+              logAutoDownloadDiag(QStringLiteral("rss miss, retry aid=%1 attempt=%2/%3 due_at=%4")
+                                      .arg(retry->anime_id)
+                                      .arg(retry->rss_attempts)
+                                      .arg(taiga::kDelayedAutoDownloadMaxRssAttempts)
+                                      .arg(retry->due_at_secs));
+            } else {
+              logAutoDownloadDiag(QStringLiteral("rss miss, give up aid=%1 attempts=%2")
+                                      .arg(taken.anime_id)
+                                      .arg(taken.rss_attempts + 1));
+            }
           }
           // Small delay to avoid hammering the RSS server.
           QTimer::singleShot(2000, this, [step_fn]() { (*step_fn)(); });
@@ -3238,9 +3262,19 @@ void MainWindow::onAutoDownloadWatchdogTimeout() {
   // flag would stay set for the rest of the session and every later delayed job would be swallowed.
   m_auto_download_running_ = false;
   LOGW("autodl: run stalled with no progress; watchdog cleared the running flag");
-  // Always-on: a dropped completion callback is a real fault, not routine tracing.
   track::appendLibraryEpisodeIndexCacheDebugLine(
       QStringLiteral("autodl: run stalled, watchdog cleared flag"));
+  const qint64 now = QDateTime::currentSecsSinceEpoch();
+  const qint64 delay_secs = static_cast<qint64>(std::max(
+                                1, taiga::settings.torrentAutoDownloadReleaseEventDelayMinutes())) *
+                            60;
+  for (auto it = m_in_flight_delayed_rss_.cbegin(); it != m_in_flight_delayed_rss_.cend(); ++it) {
+    if (const auto retry = taiga::retryDelayedAutoDownloadJob(it.value(), now, delay_secs)) {
+      taiga::upsertDelayedAutoDownloadJob(m_delayed_autodl_queue_, *retry);
+    }
+  }
+  m_in_flight_delayed_rss_.clear();
+  saveDelayedAutoDownloadSchedule();
   dispatchQueuedAutoDownload();
 }
 
@@ -3261,6 +3295,7 @@ void MainWindow::saveDelayedAutoDownloadSchedule() const {
     o[QStringLiteral("id")] = job.anime_id;
     o[QStringLiteral("due")] = static_cast<qint64>(job.due_at_secs);
     o[QStringLiteral("ep")] = job.aired_episode;
+    o[QStringLiteral("tries")] = job.rss_attempts;
     jobs.append(o);
   }
   // The seen-airing map has to travel with the queue, otherwise a restored job would be detected as
@@ -3295,6 +3330,7 @@ void MainWindow::restoreDelayedAutoDownloadSchedule() {
     const int anime_id = o.value(QStringLiteral("id")).toInt();
     const qint64 due = o.value(QStringLiteral("due")).toVariant().toLongLong();
     const int ep = o.value(QStringLiteral("ep")).toInt();
+    const int tries = o.value(QStringLiteral("tries")).toInt();
     if (anime_id <= 0 || due <= 0) continue;
     // Stale jobs from a long shutdown are not worth chasing.
     if (now - due > taiga::kDelayedAutoDownloadMaxRestoreAgeSeconds) {
@@ -3302,9 +3338,10 @@ void MainWindow::restoreDelayedAutoDownloadSchedule() {
       continue;
     }
     taiga::insertDelayedAutoDownloadJob(
-        m_delayed_autodl_queue_,
-        taiga::DelayedAutoDownloadJob{
-            .anime_id = anime_id, .due_at_secs = due, .aired_episode = ep});
+        m_delayed_autodl_queue_, taiga::DelayedAutoDownloadJob{.anime_id = anime_id,
+                                                               .due_at_secs = due,
+                                                               .aired_episode = ep,
+                                                               .rss_attempts = std::max(0, tries)});
     ++restored;
   }
 
@@ -3431,9 +3468,15 @@ void MainWindow::startDelayedAutoDownloadRss() {
     return;
   }
 
+  m_in_flight_delayed_rss_.clear();
   QHash<int, int> bumps;
   for (const auto& job : jobs) {
     bumps.insert(job.anime_id, std::max(bumps.value(job.anime_id, 0), job.aired_episode));
+    const auto existing = m_in_flight_delayed_rss_.value(job.anime_id);
+    if (!m_in_flight_delayed_rss_.contains(job.anime_id) ||
+        job.rss_attempts >= existing.rss_attempts) {
+      m_in_flight_delayed_rss_.insert(job.anime_id, job);
+    }
   }
   m_last_delayed_autodl_cycle_secs_ = now;
   saveDelayedAutoDownloadSchedule();
