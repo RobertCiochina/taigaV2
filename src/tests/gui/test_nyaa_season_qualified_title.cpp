@@ -78,6 +78,9 @@ private slots:
     QCOMPARE(gui::seasonNumberFromTitleText(QStringLiteral("Foo Season 3")).value_or(0), 3);
     QCOMPARE(gui::seasonNumberFromTitleText(QStringLiteral("Foo Part 2")).value_or(0), 2);
     QVERIFY(!gui::seasonNumberFromTitleText(QStringLiteral("Reikenzan - Eichi e no Shikaku - 09")));
+    // Manga part in the middle of a synonym is not an anime season.
+    QVERIFY(!gui::seasonNumberFromTitleText(
+        QStringLiteral("JoJo's Bizarre Adventure: Part 7–Steel Ball Run")));
   }
 
   void expected_season_unmarked_is_one_marked_uses_token() {
@@ -151,6 +154,44 @@ private slots:
         anime::kUnknownId));
     QVERIFY(!gui::rssItemBelongsToAnime(rssTitle("[Group] Reikenzan - 01 [720p].mkv"), s2,
                                         anime::kUnknownId));
+  }
+
+  void steel_ball_run_cour_keeps_shared_title_and_franchise_s06() {
+    auto cour = tvShow(210482, "JoJo no Kimyou na Bouken: Steel Ball Run - 2nd & 3rd STAGE",
+                       "STEEL BALL RUN JoJo's Bizarre Adventure 2nd - 3rd STAGE");
+    cour.episode_count = 11;
+    cour.titles.synonyms.push_back("JoJo's Bizarre Adventure: Part 7–Steel Ball Run");
+    cour.date_started =
+        FuzzyDate{std::chrono::year{2026}, std::chrono::month{9}, std::chrono::day{25}};
+    QCOMPARE(gui::expectedTorrentSeasonForAnime(cour), 1);
+
+    QVERIFY(gui::rssItemBelongsToAnime(
+        rssTitle("[Erai-raws] JoJo no Kimyou na Bouken: Steel Ball Run - 02 [1080p NF WEBRip "
+                 "HEVC AAC][MultiSub][B0BBA80E]"),
+        cour, anime::kUnknownId));
+    QVERIFY(gui::rssItemBelongsToAnime(
+        rssTitle("[anon] JoJo no Kimyou na Bouken - Steel Ball Run - 02 [1080p]"), cour,
+        anime::kUnknownId));
+    QVERIFY(gui::rssItemBelongsToAnime(
+        rssTitle("[ToonsHub] JoJos Bizarre Adventure S06E02 1080p NF WEB-DL MULTi AAC2.0 H.264 "
+                 "(JoJo no Kimyou na Bouken: Steel Ball Run - 2nd - 3rd STAGE, Multi-Audio, "
+                 "Multi-Subs)"),
+        cour, 999));
+    QVERIFY(gui::rssItemBelongsToAnime(
+        rssTitle("[Feibanyama] JoJos Bizarre Adventure S06E02 [NF WebRip 1080p H265] "
+                 "(Steel Ball Run: JoJo no Kimyou na Bouken)"),
+        cour, anime::kUnknownId));
+
+    auto first = tvShow(190327, "JoJo no Kimyou na Bouken: Steel Ball Run - 1st STAGE",
+                        "STEEL BALL RUN JoJo's Bizarre Adventure 1st STAGE");
+    first.episode_count = 1;
+    QVERIFY(!gui::rssItemBelongsToAnime(
+        rssTitle("[Erai-raws] JoJo no Kimyou na Bouken: Steel Ball Run - 02 [1080p]"), first,
+        anime::kUnknownId));
+    QVERIFY(!gui::rssItemBelongsToAnime(
+        rssTitle("[ToonsHub] JoJos Bizarre Adventure S06E02 (JoJo no Kimyou na Bouken: Steel Ball "
+                 "Run - 2nd - 3rd STAGE)"),
+        first, anime::kUnknownId));
   }
 
   void year_token_far_from_start_is_rejected() {

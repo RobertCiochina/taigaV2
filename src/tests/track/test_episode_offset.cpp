@@ -1,4 +1,5 @@
 #include <QTest>
+#include <vector>
 
 #include "media/anime.hpp"
 #include "track/episode_offset.hpp"
@@ -54,6 +55,36 @@ private slots:
     const auto stripped = track::recognition::stripSeasonNoiseFromNormalized(full);
     const auto target = track::recognition::normalize("Boku no Hero Academia More");
     QCOMPARE(stripped, target);
+  }
+
+  void cour_stage_suffix_and_earlier_cour_offset() {
+    QCOMPARE(track::recognition::stripCourStageSuffix(QStringLiteral(
+                 "JoJo no Kimyou na Bouken: Steel Ball Run - 2nd & 3rd STAGE")),
+             QStringLiteral("JoJo no Kimyou na Bouken: Steel Ball Run"));
+    QCOMPARE(track::recognition::stripCourStageSuffix(
+                 QStringLiteral("JoJo no Kimyou na Bouken: Steel Ball Run - 2nd - 3rd STAGE")),
+             QStringLiteral("JoJo no Kimyou na Bouken: Steel Ball Run"));
+    QCOMPARE(track::recognition::courStageKey(
+                 QStringLiteral("Steel Ball Run - 2nd - 3rd STAGE, Multi-Audio")),
+             QStringLiteral("2-3"));
+    QCOMPARE(track::recognition::courStageKey(QStringLiteral("Show - 1st STAGE")),
+             QStringLiteral("1"));
+
+    anime::Details first;
+    first.id = 1;
+    first.episode_count = 1;
+    first.titles.romaji = "Example Show - 1st STAGE";
+    first.date_started =
+        FuzzyDate{std::chrono::year{2026}, std::chrono::month{3}, std::chrono::day{19}};
+    anime::Details second;
+    second.id = 2;
+    second.episode_count = 11;
+    second.titles.romaji = "Example Show - 2nd & 3rd STAGE";
+    second.date_started =
+        FuzzyDate{std::chrono::year{2026}, std::chrono::month{9}, std::chrono::day{25}};
+    const std::vector<const anime::Details*> catalog{&first, &second};
+    QCOMPARE(track::earlierCourStageOffset(second, catalog), 1);
+    QCOMPARE(track::earlierCourStageOffset(first, catalog), 0);
   }
 
   void franchise_only_title_rejected() {

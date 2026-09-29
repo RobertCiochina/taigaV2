@@ -31,6 +31,12 @@ namespace track::recognition {
 /// Bounded synthetic synonyms derived from AniList titles (e.g. strip `No. 170+1:`).
 std::vector<std::string> syntheticTitleSynonyms(const anime::Details& item);
 
+/// Drop a trailing cour marker (` - 1st STAGE`, ` - 2nd & 3rd STAGE`). Empty when absent.
+QString stripCourStageSuffix(const QString& title);
+
+/// `1` or `2-3` when `title` contains an `Nth STAGE` cour marker (anywhere). Empty otherwise.
+QString courStageKey(const QString& title);
+
 /// Remove season-noise tokens from an already-normalized title key so
 /// `…finalseasonmore` can match `…more` (Erai "Final Season - More" vs AniList "…: More").
 std::string stripSeasonNoiseFromNormalized(std::string normalized);

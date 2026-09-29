@@ -107,7 +107,7 @@ QString stripTitleSubtitle(const QString& s) {
 bool titleHasNyaaSeasonToken(const QString& s) {
   static const QRegularExpression re(
       QStringLiteral(
-          R"(\b(?:\d+(?:st|nd|rd|th)\s+[Ss]eason|[Ss]eason\s+\d+|Part\s+\d+|S\d{1,2})\b)"),
+          R"(\b(?:\d+(?:st|nd|rd|th)\s+[Ss]eason|[Ss]eason\s+\d+|Part\s+\d+(?!\s*\S)|S\d{1,2})\b)"),
       QRegularExpression::CaseInsensitiveOption);
   return re.match(s).hasMatch();
 }
@@ -132,7 +132,8 @@ QString toNyaaSeasonCodeTitle(const QString& s) {
               QStringLiteral("S%1").arg(m.captured(1).toInt(), 2, 10, QChar('0')));
     return r.trimmed();
   }
-  const QRegularExpression re_p(QStringLiteral("\\bPart\\s+(\\d+)\\b"),
+  // "Part N" only when it ends the title. "Part 7–Steel Ball Run" is a manga part, not season 7.
+  const QRegularExpression re_p(QStringLiteral("\\bPart\\s+(\\d+)\\b(?!\\s*\\S)"),
                                 QRegularExpression::CaseInsensitiveOption);
   m = re_p.match(s);
   if (m.hasMatch()) {
@@ -788,7 +789,7 @@ std::optional<int> seasonNumberFromTitleText(const QString& s) {
     const int n = m.captured(1).toInt();
     if (n > 0) return n;
   }
-  static const QRegularExpression re_p(QStringLiteral(R"(\bPart\s+(\d+)\b)"),
+  static const QRegularExpression re_p(QStringLiteral(R"(\bPart\s+(\d+)\b(?!\s*\S))"),
                                        QRegularExpression::CaseInsensitiveOption);
   if (const auto m = re_p.match(t); m.hasMatch()) {
     const int n = m.captured(1).toInt();
@@ -889,7 +890,46 @@ bool rssItemBelongsToAnime(const rss::Item& it, const anime::Details& item,
       if (const auto n = seasonNumberFromTitleText(title_full)) release_season = *n;
     }
     if (release_season > 0 && release_season != expectedTorrentSeasonForAnime(item)) {
-      return false;
+      // S02 on "Boku no Hero Academia" applies to that title. JoJo S06 is the franchise
+      // season on a shorter name; the cour title is only in parentheses, so ignore Sxx.
+      QString series_q = QString::fromStdString(ep.element(anitomy::ElementKind::Title));
+      series_q.remove(QRegularExpression(QStringLiteral(R"(\([^)]*\))")));
+      series_q = series_q.trimmed();
+      if (series_q.isEmpty() ||
+          rssFragmentCoversAnimeTitle(series_q.toStdString(), item)) {
+        return false;
+      }
+    }
+  }
+
+  {
+    QString item_stage;
+    for (const QString& t :
+         {QString::fromStdString(item.titles.romaji), QString::fromStdString(item.titles.english),
+          QString::fromStdString(item.titles.japanese)}) {
+      item_stage = track::recognition::courStageKey(t);
+      if (!item_stage.isEmpty()) break;
+    }
+    if (item_stage.isEmpty()) {
+      for (const auto& syn : item.titles.synonyms) {
+        item_stage = track::recognition::courStageKey(QString::fromStdString(syn));
+        if (!item_stage.isEmpty()) break;
+      }
+    }
+    if (!item_stage.isEmpty()) {
+      const QString release_stage = track::recognition::courStageKey(title_full);
+      if (!release_stage.isEmpty() && release_stage != item_stage) return false;
+      if (release_stage.isEmpty() && item.episode_count > 0) {
+        const QString ep_str = QString::fromStdString(ep.element(anitomy::ElementKind::Episode));
+        if (!ep_str.contains(QLatin1Char('-'))) {
+          bool ok = false;
+          const int ep_no = ep_str.toInt(&ok);
+          if (ok && ep_no > 0) {
+            const int list_ep = track::toListEpisode(item, ep_no);
+            if (list_ep < 1 || list_ep > item.episode_count) return false;
+          }
+        }
+      }
     }
   }
 

@@ -18,9 +18,13 @@
 
 #include "episode_offset.hpp"
 
+#include <vector>
+
 #include "media/anime.hpp"
 #include "media/anime_db.hpp"
 #include "taiga/settings.hpp"
+#include "track/recognition_normalize.hpp"
+#include "track/recognition_titles.hpp"
 
 namespace track {
 namespace {
@@ -29,14 +33,56 @@ int clampNonNegative(const int v) {
   return v > 0 ? v : 0;
 }
 
+QString stageTitleOf(const anime::Details& item) {
+  if (!item.titles.romaji.empty()) return QString::fromStdString(item.titles.romaji);
+  if (!item.titles.english.empty()) return QString::fromStdString(item.titles.english);
+  return QString::fromStdString(item.titles.japanese);
+}
+
 }  // namespace
 
 int inferredEpisodeOffset(const anime::Details& item) {
   // Absolute last_aired above this cour's episode_count implies a multi-cour offset
   // (e.g. 54 - 14 = 40), whether the cour is still airing or already finished.
-  if (item.episode_count < 1) return 0;
-  if (item.last_aired_episode <= item.episode_count) return 0;
-  return item.last_aired_episode - item.episode_count;
+  int from_aired = 0;
+  if (item.episode_count >= 1 && item.last_aired_episode > item.episode_count) {
+    from_aired = item.last_aired_episode - item.episode_count;
+  }
+
+  std::vector<const anime::Details*> catalog;
+  if (!recognition::courStageKey(stageTitleOf(item)).isEmpty()) {
+    const auto& items = anime::db.items();
+    catalog.reserve(static_cast<size_t>(items.size()));
+    // QMap::asKeyValueRange() yields pairs by value. Pointers into that copy dangle.
+    for (auto it = items.cbegin(); it != items.cend(); ++it) {
+      catalog.push_back(&(*it));
+    }
+  }
+  const int from_cour = earlierCourStageOffset(item, catalog);
+  return from_aired > from_cour ? from_aired : from_cour;
+}
+
+int earlierCourStageOffset(const anime::Details& item,
+                           const std::vector<const anime::Details*>& catalog) {
+  const QString mine = stageTitleOf(item);
+  if (recognition::courStageKey(mine).isEmpty()) return 0;
+  const QString base = recognition::stripCourStageSuffix(mine);
+  if (base.isEmpty() || item.date_started.empty()) return 0;
+  const std::string base_key = recognition::normalize(base.toStdString());
+  if (base_key.empty()) return 0;
+
+  int sum = 0;
+  for (const anime::Details* other : catalog) {
+    if (!other || other->id == item.id) continue;
+    if (other->episode_count < 1 || other->date_started.empty()) continue;
+    if (!(other->date_started < item.date_started)) continue;
+    const QString other_title = stageTitleOf(*other);
+    if (recognition::courStageKey(other_title).isEmpty()) continue;
+    const QString other_base = recognition::stripCourStageSuffix(other_title);
+    if (recognition::normalize(other_base.toStdString()) != base_key) continue;
+    sum += other->episode_count;
+  }
+  return sum;
 }
 
 bool hasManualEpisodeOffset(const int anime_id) {

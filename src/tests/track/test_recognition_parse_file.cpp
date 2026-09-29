@@ -42,6 +42,17 @@ private slots:
     }
     QVERIFY2(found_library_folder, "expected library folder title hint");
   }
+
+  void parenthetical_alternate_title_is_kept() {
+    const auto ep = parse(
+        "[ToonsHub] JoJos Bizarre Adventure S06E02 1080p NF WEB-DL "
+        "(JoJo no Kimyou na Bouken: Steel Ball Run - 2nd - 3rd STAGE, Multi-Audio, Multi-Subs)");
+    bool found = false;
+    for (const auto& t : ep.allElements(anitomy::ElementKind::Title)) {
+      if (QString::fromStdString(t).contains(QStringLiteral("Steel Ball Run"))) found = true;
+    }
+    QVERIFY(found);
+  }
 };
 
 }  // namespace track::recognition::test

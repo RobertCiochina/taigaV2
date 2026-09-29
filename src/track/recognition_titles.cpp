@@ -63,7 +63,49 @@ int significantTokenCount(const QString& title) {
   return n;
 }
 
+/// `A: B` → `B: A` when both sides are real titles. Fansubs swap Steel Ball Run's colon order.
+QString swapColonTitleHalves(const QString& title) {
+  const int idx = title.indexOf(QStringLiteral(": "));
+  if (idx <= 0) return {};
+  const QString left = title.left(idx).trimmed();
+  const QString right = title.mid(idx + 2).trimmed();
+  if (left.isEmpty() || right.isEmpty() || right.contains(QStringLiteral(": "))) return {};
+  if (significantTokenCount(left) < 2 || significantTokenCount(right) < 2) return {};
+  return right + QStringLiteral(": ") + left;
+}
+
 }  // namespace
+
+QString stripCourStageSuffix(const QString& title) {
+  const QString t = title.trimmed();
+  if (t.isEmpty()) return {};
+  // AniList cours: "… Steel Ball Run - 1st STAGE", "… - 2nd & 3rd STAGE".
+  static const QRegularExpression re(
+      QStringLiteral(
+          R"((?:\s+-\s+|\s+)((?:\d+(?:st|nd|rd|th)\s*(?:&|and|-)\s*)*\d+(?:st|nd|rd|th)\s+stage)\s*$)"),
+      QRegularExpression::CaseInsensitiveOption);
+  const auto m = re.match(t);
+  if (!m.hasMatch()) return {};
+  const QString base = t.left(m.capturedStart()).trimmed();
+  if (base.size() < 4) return {};
+  return base;
+}
+
+QString courStageKey(const QString& title) {
+  const QString t = title.trimmed();
+  if (t.isEmpty()) return {};
+  static const QRegularExpression re(
+      QStringLiteral(
+          R"(\b((?:\d+(?:st|nd|rd|th)\s*(?:&|and|-)\s*)*\d+(?:st|nd|rd|th))\s+stage\b)"),
+      QRegularExpression::CaseInsensitiveOption);
+  const auto m = re.match(t);
+  if (!m.hasMatch()) return {};
+  static const QRegularExpression ord(QStringLiteral(R"(\d+)"));
+  QStringList nums;
+  auto it = ord.globalMatch(m.captured(1));
+  while (it.hasNext()) nums.push_back(it.next().captured(0));
+  return nums.join(QLatin1Char('-'));
+}
 
 std::vector<std::string> syntheticTitleSynonyms(const anime::Details& item) {
   std::vector<std::string> out;
@@ -91,6 +133,21 @@ std::vector<std::string> syntheticTitleSynonyms(const anime::Details& item) {
   derive(item.titles.romaji);
   derive(item.titles.english);
   for (const auto& syn : item.titles.synonyms) derive(syn);
+
+  // "… - 2nd & 3rd STAGE" releases are often filed under the shared series name, and some
+  // groups swap the colon halves (`Steel Ball Run: JoJo no Kimyou na Bouken`).
+  const auto deriveCourBase = [&](const std::string& title) {
+    if (title.empty()) return;
+    const QString base = stripCourStageSuffix(QString::fromStdString(title));
+    if (base.isEmpty()) return;
+    addUnique(out, seen, base);
+    if (const QString swapped = swapColonTitleHalves(base); !swapped.isEmpty()) {
+      addUnique(out, seen, swapped);
+    }
+  };
+  deriveCourBase(item.titles.romaji);
+  deriveCourBase(item.titles.english);
+  for (const auto& syn : item.titles.synonyms) deriveCourBase(syn);
 
   return out;
 }

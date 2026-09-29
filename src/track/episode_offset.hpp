@@ -18,6 +18,8 @@
 
 #pragma once
 
+#include <vector>
+
 namespace anime {
 struct Details;
 }
@@ -35,6 +37,11 @@ int episodeOffset(const anime::Details& item);
 
 /// Inferred offset only (ignores manual override). 0 when ambiguous.
 int inferredEpisodeOffset(const anime::Details& item);
+
+/// Episode offset implied by earlier `Nth STAGE` cours that share `item`'s base title.
+/// `catalog` is every loaded anime (production passes the database; tests pass a fixture).
+int earlierCourStageOffset(const anime::Details& item,
+                           const std::vector<const anime::Details*>& catalog);
 
 /// True when a manual first-episode / offset override is stored for this anime.
 bool hasManualEpisodeOffset(int anime_id);

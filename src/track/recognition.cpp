@@ -113,6 +113,40 @@ void inferSeasonZeroFromFilename(Episode& episode, const std::string& fileName) 
 /// genuine specials carry an explicit `S00` season — and it blocks identification of movies and
 /// single-file releases (`isValidMatch` rejects any episode value < 1). Drop it so such files fall
 /// back to the "no episode number" path, which maps single-episode anime (movies) to episode 1.
+/// Parentheses often hold the real series name (`JoJos … S06E02 (JoJo no Kimyou na Bouken: …)`).
+/// Anitomy leaves those enclosed, so identification never sees them.
+void addParentheticalAlternateTitles(Episode& episode, const std::string& raw) {
+  static const QRegularExpression re(QStringLiteral(R"(\(([^)]{8,})\))"));
+  static const QRegularExpression tech(
+      QStringLiteral(
+          R"(^(?:multi[- ]?(?:subs?|audio)|dual[- ]?audio|weekly|batch|\d{3,4}p)$)"),
+      QRegularExpression::CaseInsensitiveOption);
+  auto it = re.globalMatch(QString::fromStdString(raw));
+  while (it.hasNext()) {
+    QString inside = it.next().captured(1).trimmed();
+    const int comma = inside.indexOf(QLatin1Char(','));
+    if (comma > 0) inside = inside.left(comma).trimmed();
+    if (inside.size() < 8 || tech.match(inside).hasMatch()) continue;
+    bool letter = false;
+    for (const QChar c : inside) {
+      if (c.isLetter()) {
+        letter = true;
+        break;
+      }
+    }
+    if (!letter) continue;
+    const std::string value = inside.toStdString();
+    bool dup = false;
+    for (const auto& existing : episode.allElements(anitomy::ElementKind::Title)) {
+      if (normalize(existing) == normalize(value)) {
+        dup = true;
+        break;
+      }
+    }
+    if (!dup) episode.addElement(anitomy::ElementKind::Title, value);
+  }
+}
+
 void dropSpuriousZeroEpisode(Episode& episode) {
   const auto numbers = episode.allElements(anitomy::ElementKind::Episode);
   if (numbers.size() != 1) return;  // leave multi-episode ranges (e.g. `00-12`) untouched
@@ -132,6 +166,7 @@ Episode parse(std::string_view input, const anitomy::Options options) {
   auto elements = anitomy::parse(work, options);
   episode.setElements(elements);
   dropSpuriousZeroEpisode(episode);
+  addParentheticalAlternateTitles(episode, work);
 
   return episode;
 }
@@ -298,6 +333,25 @@ int identify(Episode& episode) {
             mergeMatch(id, match.weight * kFolderTitleBaseWeight + kSeasonBoost);
           }
         }
+      }
+    }
+  }
+
+  // "… - 2nd & 3rd STAGE" vs fansub "… - 2nd - 3rd STAGE": the shared series name (stage
+  // stripped) is the cache key. A longer base must beat a short franchise title (JoJo S06).
+  for (const auto& raw : episode.allElements(anitomy::ElementKind::Title)) {
+    const QString stripped = stripCourStageSuffix(QString::fromStdString(raw));
+    if (stripped.isEmpty()) continue;
+    const auto base = normalize(stripped.toStdString());
+    if (base.empty() || base == normalizedTitle) continue;
+    if (const auto data = cache()->find(base)) {
+      for (const auto& [id, match] : data->matches) {
+        float w = match.weight;
+        if (base.size() > normalizedTitle.size()) {
+          constexpr float kSpecificTitleBoost = 0.45f;
+          w += kSpecificTitleBoost;
+        }
+        mergeMatch(id, w);
       }
     }
   }
