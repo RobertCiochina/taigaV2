@@ -117,7 +117,6 @@
 #include "track/scanner.hpp"
 #include "ui_main_window.h"
 
-
 #ifdef Q_OS_WINDOWS
 #include "gui/platforms/windows.hpp"
 #endif
@@ -2914,8 +2913,6 @@ void MainWindow::refreshHomeDashboard() {
       int anime_id = 0;
       bool on_disk = false;
       int hits = 0;
-      qint64 last_check = 0;
-      bool checking = false;
     };
     QList<MovieHomeRow> movieRows;
     for (const auto& entry : anime::db.entries()) {
@@ -2928,8 +2925,7 @@ void MainWindow::refreshHomeDashboard() {
       const MovieTorrentSnapshot snap = MovieTorrentWatch::instance()->snapshot(item->id);
       movieRows.push_back({QString::fromStdString(anime::preferredListTitleString(
                                *item, anime::TitleLanguage::English)),
-                           item->id, snap.onDisk, snap.hitCount, snap.lastCheckSecs,
-                           snap.checking});
+                           item->id, snap.onDisk, snap.hitCount});
     }
     std::sort(movieRows.begin(), movieRows.end(), [](const MovieHomeRow& a, const MovieHomeRow& b) {
       return a.title.toLower() < b.title.toLower();
@@ -2942,18 +2938,6 @@ void MainWindow::refreshHomeDashboard() {
       empty->setTextFormat(Qt::RichText);
       vl->addWidget(empty);
     } else {
-      const auto checkedLabel = [](const qint64 last_check) {
-        if (last_check <= 0) return QString();
-        const qint64 age = QDateTime::currentSecsSinceEpoch() - last_check;
-        if (age < 90) return QCoreApplication::translate("MainWindow", "Checked just now");
-        if (age < 3600) {
-          return QCoreApplication::translate("MainWindow", "Checked %1 min ago").arg(age / 60);
-        }
-        if (age < 86400) {
-          return QCoreApplication::translate("MainWindow", "Checked %1 h ago").arg(age / 3600);
-        }
-        return QCoreApplication::translate("MainWindow", "Checked %1 d ago").arg(age / 86400);
-      };
       for (int i = 0; i < movieRows.size(); ++i) {
         const auto& rowData = movieRows[i];
         auto* row = new QWidget(m_homeMoviesContainer);
@@ -2964,28 +2948,17 @@ void MainWindow::refreshHomeDashboard() {
         auto* titleLbl = new QLabel(rowData.title.toHtmlEscaped(), row);
         titleLbl->setTextFormat(Qt::RichText);
         titleLbl->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-        QString status;
-        if (rowData.on_disk) {
-          status = tr("In library");
-        } else if (rowData.checking) {
-          status = tr("Checking…");
-        } else if (rowData.hits > 0) {
-          status = tr("%1 found").arg(rowData.hits);
-        } else if (rowData.last_check > 0) {
-          status = checkedLabel(rowData.last_check);
-        } else {
-          status = tr("Not checked yet");
-        }
-        auto* statusLbl = new QLabel(status.toHtmlEscaped(), row);
-        statusLbl->setTextFormat(Qt::RichText);
-        auto* action = new QPushButton(row);
-        action->setCursor(Qt::PointingHandCursor);
+        rl->addWidget(titleLbl);
         const int aid = rowData.anime_id;
         if (rowData.on_disk) {
-          action->setText(tr("Play"));
+          auto* action = new QPushButton(tr("Play"), row);
+          action->setCursor(Qt::PointingHandCursor);
           connect(action, &QPushButton::clicked, this, [aid]() { track::playNextEpisode(aid); });
+          rl->addWidget(action);
         } else if (rowData.hits > 0) {
-          action->setText(tr("View torrents"));
+          auto* statusLbl = new QLabel(tr("%1 found").arg(rowData.hits), row);
+          auto* action = new QPushButton(tr("View torrents"), row);
+          action->setCursor(Qt::PointingHandCursor);
           connect(action, &QPushButton::clicked, this, [this, aid]() {
             const auto* item = anime::db.item(aid);
             if (!item) return;
@@ -2999,14 +2972,9 @@ void MainWindow::refreshHomeDashboard() {
             }
             openTorrentSearchInApp(primary, fallback, aid);
           });
-        } else {
-          action->setText(tr("Check now"));
-          connect(action, &QPushButton::clicked, this,
-                  [aid]() { MovieTorrentWatch::instance()->checkNow(aid); });
+          rl->addWidget(statusLbl);
+          rl->addWidget(action);
         }
-        rl->addWidget(titleLbl);
-        rl->addWidget(statusLbl);
-        rl->addWidget(action);
         vl->addWidget(row);
         if (i != movieRows.size() - 1) addHomeDivider(vl, m_homeMoviesContainer);
       }
