@@ -83,6 +83,7 @@ public:
   void emitTitleColumnDataChanged();
   /// Repaint progress column after list progress bar display settings change or library scan.
   void emitProgressColumnDataChanged();
+  void emitMovieTorrentColumnDataChanged();
   void emitNewEpisodeHighlightDataChanged();
   /// List page: rebuild row order (next-on-disk pin + last_updated) and repaint; Search: repaint only.
   void refreshNewEpisodeHighlightDisplay();

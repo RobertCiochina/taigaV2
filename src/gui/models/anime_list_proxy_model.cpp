@@ -118,6 +118,11 @@ void AnimeListProxyModel::setTypeFilter(std::optional<int> type) {
   invalidateRowsFilter();
 }
 
+void AnimeListProxyModel::setExcludeMovies(const bool exclude) {
+  m_filter.excludeMovies = exclude;
+  invalidateRowsFilter();
+}
+
 void AnimeListProxyModel::setStatusFilter(std::optional<int> status) {
   m_filter.status = status;
   invalidateRowsFilter();
@@ -162,6 +167,8 @@ bool AnimeListProxyModel::filterAcceptsRow(int row, const QModelIndex& parent) c
     const anime::Season season{anime->date_started};
     if (static_cast<int>(season.name) != *m_filter.season) return false;
   }
+
+  if (m_filter.excludeMovies && anime->type == anime::Type::Movie) return false;
 
   // Type
   if (m_filter.type) {

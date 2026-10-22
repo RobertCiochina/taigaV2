@@ -175,6 +175,15 @@ public:
   std::string torrentDiscoveryFeedSourceUrl() const;
   /// Legacy: `rss/torrent/options/autocheck` — periodic catalog RSS fetch while Taiga runs.
   bool torrentDiscoveryAutoCheckEnabled() const;
+  /// Background Nyaa check for Watching movies that are not on disk yet. On by default.
+  bool movieTorrentWatchEnabled() const;
+  void setMovieTorrentWatchEnabled(bool enabled) const;
+  /// When true, send a found movie magnet/.torrent to qBittorrent. Off by default.
+  bool movieTorrentWatchAutoAdd() const;
+  void setMovieTorrentWatchAutoAdd(bool enabled) const;
+  /// JSON map of per-movie torrent check state. Empty when nothing has been checked.
+  QString movieTorrentWatchState() const;
+  void setMovieTorrentWatchState(const QString& json) const;
   /// Legacy: `rss/torrent/options/checkinterval` — minutes between automatic catalog checks.
   int torrentDiscoveryAutoCheckIntervalMinutes() const;
   /// Legacy: `rss/torrent/options/newaction` — notify (1) vs intended auto-download (2); download

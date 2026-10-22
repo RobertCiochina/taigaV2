@@ -67,12 +67,19 @@ public:
   /// Sidebar-driven list status filter (for restoring navigation after modal dialogs).
   AnimeListStatusFilter currentListSidebarFilter() const;
 
+  /// True when the sidebar Movies tree is the active list scope.
+  bool moviesScope() const;
+  void refreshMovieTorrentColumn();
+
 private:
   void initToolbar();
   void initViewMenu();
   void initMoreMenu();
   void initColorLegend();
   void applyWatchOrderPanelSession();
+  void applyListScope(bool movies, anime::list::Status status);
+  void applyMovieScopeColumns();
+  void syncScopeFromNavigation();
   void onWatchOrderPanelToggled(bool visible);
   void pinSelectedForWatchOrderPanel();
 
@@ -86,6 +93,7 @@ private:
   QAction* m_showWatchOrderPanelAction = nullptr;
   QAction* m_pinWatchOrderAction = nullptr;
   ListViewMode m_viewMode = ListViewMode::List;
+  bool m_moviesScope = false;
   QMenu* m_viewMenu = nullptr;
   QMenu* m_moreMenu = nullptr;
   QWidget* m_colorLegend = nullptr;

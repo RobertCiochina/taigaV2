@@ -148,6 +148,9 @@ QVector<PlanningPickerRow> sortedPlanningPickerRows() {
     const ListEntry& e = it.value();
     if (e.status != anime::list::Status::PlanToWatch) continue;
     const int aid = e.anime_id;
+    if (const Anime* movie = anime::db.item(aid); movie && movie->type == anime::Type::Movie) {
+      continue;
+    }
     if (const Anime* a = anime::db.item(aid)) {
       rows.push_back({animeDisplayTitle(a, aid), aid});
     } else {
@@ -947,7 +950,13 @@ void WatchNextDialog::randomizeFromPlanning() {
 
   for (auto it = anime::db.entries().cbegin(); it != anime::db.entries().cend(); ++it) {
     const ListEntry& e = it.value();
-    if (e.status == anime::list::Status::PlanToWatch) candidates.push_back(e.anime_id);
+    if (e.status == anime::list::Status::PlanToWatch) {
+      if (const Anime* movie = anime::db.item(e.anime_id);
+          movie && movie->type == anime::Type::Movie) {
+        continue;
+      }
+      candidates.push_back(e.anime_id);
+    }
   }
 
   if (candidates.isEmpty()) {

@@ -1179,6 +1179,19 @@ void SettingsDialog::buildDownloadsPage() {
     row->addStretch();
     layout->addLayout(row);
   }
+  m_movie_watch_ = new QCheckBox(tr("Check Watching movies for torrents automatically"), page);
+  m_movie_watch_->setToolTip(
+      tr("Looks up Nyaa for movies on your Watching list that are not in the library yet. "
+         "Plan to Watch is not checked. The first look is a couple of minutes after a movie "
+         "enters Watching, then slows down when nothing is found."));
+  m_movie_watch_->setChecked(taiga::settings.movieTorrentWatchEnabled());
+  layout->addWidget(m_movie_watch_);
+  m_movie_auto_add_ = new QCheckBox(
+      tr("Add a found Watching movie to qBittorrent automatically"), page);
+  m_movie_auto_add_->setToolTip(
+      tr("Off by default. Requires the qBittorrent Web API. Plan to Watch movies are never added."));
+  m_movie_auto_add_->setChecked(taiga::settings.movieTorrentWatchAutoAdd());
+  layout->addWidget(m_movie_auto_add_);
   // Sort options row
   {
     auto* row = new QHBoxLayout();
@@ -1464,6 +1477,9 @@ void SettingsDialog::saveDownloadsPage() {
         m_rss_feed_url_->text().trimmed().toStdString());
   if (m_rss_autocheck_)
     taiga::settings.setTorrentDiscoveryAutoCheckEnabled(m_rss_autocheck_->isChecked());
+  if (m_movie_watch_) taiga::settings.setMovieTorrentWatchEnabled(m_movie_watch_->isChecked());
+  if (m_movie_auto_add_)
+    taiga::settings.setMovieTorrentWatchAutoAdd(m_movie_auto_add_->isChecked());
   if (m_rss_autocheck_mins_)
     taiga::settings.setTorrentDiscoveryAutoCheckIntervalMinutes(m_rss_autocheck_mins_->value());
   if (m_rss_sort_by_)

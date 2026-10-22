@@ -78,6 +78,7 @@
 #include "gui/media/media_dialog.hpp"
 #include "gui/search/search_widget.hpp"
 #include "gui/settings/settings_dialog.hpp"
+#include "gui/torrent/movie_torrent_watch.hpp"
 #include "gui/torrent/torrent_auto_cleanup.hpp"
 #include "gui/torrent/torrent_feed_widget.hpp"
 #include "gui/utils/table_view_defaults.hpp"
@@ -115,6 +116,7 @@
 #include "track/recognition_cache.hpp"
 #include "track/scanner.hpp"
 #include "ui_main_window.h"
+
 
 #ifdef Q_OS_WINDOWS
 #include "gui/platforms/windows.hpp"
@@ -425,6 +427,21 @@ void MainWindow::initUi(const bool startup_blocking) {
   connect(m_catalog_autocheck_timer_, &QTimer::timeout, this,
           &MainWindow::onTorrentCatalogAutocheckTimer);
   refreshTorrentCatalogAutocheckTimer();
+
+  MovieTorrentWatch::instance()->start();
+  connect(MovieTorrentWatch::instance(), &MovieTorrentWatch::updated, this, [this](int) {
+    if (m_listWidget) m_listWidget->refreshMovieTorrentColumn();
+    if (m_activePage == MainWindowPage::Home) refreshHomeDashboard();
+  });
+  connect(MovieTorrentWatch::instance(), &MovieTorrentWatch::addRequested, this,
+          [this](const int animeId, const QString& link, const QString& folder) {
+            initPage(MainWindowPage::Torrents);
+            if (!m_torrentFeedWidget) return;
+            m_torrentFeedWidget->addTorrentUrlSilently(
+                link, folder, [animeId, link](const bool ok, const QString&) {
+                  if (ok) MovieTorrentWatch::instance()->noteAutoAdded(animeId, link);
+                });
+          });
 
   initAnnouncedRelatedRefresh();
 
@@ -843,26 +860,28 @@ void MainWindow::initNavigation() {
 
   connect(m_navigationWidget, &NavigationWidget::currentPageChanged, this, &MainWindow::setPage);
   connect(m_navigationWidget, &NavigationWidget::currentListStatusChanged, this,
-          [this](anime::list::Status) { updateToolbarSearchPlaceholder(); });
+          [this](anime::list::Status, bool) { updateToolbarSearchPlaceholder(); });
   connect(m_navigationWidget, &NavigationWidget::watchNextRequested, this, [this]() {
     // Defer so we are not inside `QTreeWidget::currentItemChanged` while showing the modal, and so
     // AniList-driven DB updates can safely skip sidebar refresh until the modal closes.
     QTimer::singleShot(0, this, [this]() {
       const MainWindowPage saved_page = m_activePage;
       std::optional<anime::list::Status> saved_list_status;
+      bool saved_movies = false;
       if (saved_page == MainWindowPage::List && m_listWidget) {
+        saved_movies = m_listWidget->moviesScope();
         const auto lf = m_listWidget->currentListSidebarFilter();
         if (!lf.anyStatus && lf.status.has_value()) {
           saved_list_status = static_cast<anime::list::Status>(*lf.status);
         }
       }
 
-      const auto restore_watch_next_nav = [this, saved_page, saved_list_status]() {
+      const auto restore_watch_next_nav = [this, saved_page, saved_list_status, saved_movies]() {
         if (!m_navigationWidget) return;
         m_navHistorySuppress = true;
         {
           const QSignalBlocker blocker(m_navigationWidget);
-          m_navigationWidget->setCurrentNavigationPage(saved_page, saved_list_status);
+          m_navigationWidget->setCurrentNavigationPage(saved_page, saved_list_status, saved_movies);
         }
         applyMainPage(saved_page);
         m_navHistorySuppress = false;
@@ -988,6 +1007,21 @@ void MainWindow::initPage(MainWindowPage page) {
         upNextContainer->layout()->setSpacing(2);
         m_homeUpNextContainer = upNextContainer;
         lay->addWidget(upNextContainer);
+
+        lay->addSpacing(12);
+        auto* moviesHeader = new QLabel(tr("<span style=\"font-size:large\"><b>Movies — Watching, "
+                                           "not in the library yet</b></span>"),
+                                        body);
+        moviesHeader->setTextFormat(Qt::RichText);
+        m_homeMoviesHeader = moviesHeader;
+        lay->addWidget(moviesHeader);
+
+        auto* moviesContainer = new QWidget(body);
+        moviesContainer->setLayout(new QVBoxLayout());
+        moviesContainer->layout()->setContentsMargins(0, 4, 0, 0);
+        moviesContainer->layout()->setSpacing(2);
+        m_homeMoviesContainer = moviesContainer;
+        lay->addWidget(moviesContainer);
 
         // ── Section: Upcoming & recently aired ──────────────────────────────
         lay->addSpacing(12);
@@ -1536,6 +1570,14 @@ void MainWindow::goBackNavigation() {
   m_navHistorySuppress = true;
   QSignalBlocker blocker(m_navigationWidget);
   navigateTo(page);
+  if (page == MainWindowPage::List && m_listWidget && m_listWidget->moviesScope()) {
+    std::optional<anime::list::Status> list_status;
+    const AnimeListStatusFilter lf = m_listWidget->currentListSidebarFilter();
+    if (!lf.anyStatus && lf.status.has_value()) {
+      list_status = static_cast<anime::list::Status>(*lf.status);
+    }
+    m_navigationWidget->setCurrentNavigationPage(page, list_status, true);
+  }
   applyMainPage(page);
   m_navHistorySuppress = false;
   updateNavHistoryActions();
@@ -1548,6 +1590,14 @@ void MainWindow::goForwardNavigation() {
   m_navHistorySuppress = true;
   QSignalBlocker blocker(m_navigationWidget);
   navigateTo(page);
+  if (page == MainWindowPage::List && m_listWidget && m_listWidget->moviesScope()) {
+    std::optional<anime::list::Status> list_status;
+    const AnimeListStatusFilter lf = m_listWidget->currentListSidebarFilter();
+    if (!lf.anyStatus && lf.status.has_value()) {
+      list_status = static_cast<anime::list::Status>(*lf.status);
+    }
+    m_navigationWidget->setCurrentNavigationPage(page, list_status, true);
+  }
   applyMainPage(page);
   m_navHistorySuppress = false;
   updateNavHistoryActions();
@@ -1607,14 +1657,16 @@ void MainWindow::refreshNavigationSidebar() {
 
   const MainWindowPage page = m_activePage;
   std::optional<anime::list::Status> list_status;
+  bool movies = false;
   if (page == MainWindowPage::List && m_listWidget) {
+    movies = m_listWidget->moviesScope();
     const AnimeListStatusFilter lf = m_listWidget->currentListSidebarFilter();
     if (!lf.anyStatus && lf.status.has_value()) {
       list_status = static_cast<anime::list::Status>(*lf.status);
     }
   }
 
-  refreshNavigationSidebarPreserving(m_navigationWidget, page, list_status);
+  refreshNavigationSidebarPreserving(m_navigationWidget, page, list_status, movies);
 }
 
 void MainWindow::refreshAnimeListProgressDecorations() {
@@ -2648,15 +2700,26 @@ void MainWindow::refreshHomeDashboard() {
                            ? tr("%1 / 10").arg(QString::number(
                                  static_cast<double>(st.mean_score_0_100) / 10.0, 'f', 1))
                            : tr("—");
+  int seriesOnList = 0;
+  int moviesOnList = 0;
+  for (const auto& entry : anime::db.entries()) {
+    const anime::Details* item = anime::db.item(entry.anime_id);
+    if (item && item->type == anime::Type::Movie) {
+      ++moviesOnList;
+    } else {
+      ++seriesOnList;
+    }
+  }
   m_homeBodyLabel->setText(tr("<span style=\"font-size:large; font-weight:600\">"
-                              "%1 titles on list"
+                              "%1 series · %2 movies on list"
                               "</span>"
                               "<span style=\"color:#888; font-size:medium\">"
-                              " &nbsp;·&nbsp; %2 in database"
-                              " &nbsp;·&nbsp; Time spent: <b>%3</b>"
-                              " &nbsp;·&nbsp; Mean score: <b>%4</b>"
+                              " &nbsp;·&nbsp; %3 in database"
+                              " &nbsp;·&nbsp; Time spent: <b>%4</b>"
+                              " &nbsp;·&nbsp; Mean score: <b>%5</b>"
                               "</span>")
-                               .arg(anime::db.entries().size())
+                               .arg(seriesOnList)
+                               .arg(moviesOnList)
                                .arg(anime::db.items().size())
                                .arg(spent)
                                .arg(mean));
@@ -2728,7 +2791,7 @@ void MainWindow::refreshHomeDashboard() {
         const int next_ep = entry.watched_episodes + 1;
         if (!track::libraryHasLocalEpisode(entry.anime_id, next_ep)) continue;
         const auto* item = anime::db.item(entry.anime_id);
-        if (!item) continue;
+        if (!item || item->type == anime::Type::Movie) continue;
         if (hideMatureCatalogRow(item)) continue;
         upNext.push_back({QString::fromStdString(anime::preferredListTitleString(
                               *item, anime::TitleLanguage::English)),
@@ -2843,6 +2906,113 @@ void MainWindow::refreshHomeDashboard() {
     }
   }
 
+  if (m_homeMoviesContainer) {
+    clearContainer(m_homeMoviesContainer);
+    auto* vl = qobject_cast<QVBoxLayout*>(m_homeMoviesContainer->layout());
+    struct MovieHomeRow {
+      QString title;
+      int anime_id = 0;
+      bool on_disk = false;
+      int hits = 0;
+      qint64 last_check = 0;
+      bool checking = false;
+    };
+    QList<MovieHomeRow> movieRows;
+    for (const auto& entry : anime::db.entries()) {
+      if (entry.status != anime::list::Status::Watching) continue;
+      const auto* item = anime::db.item(entry.anime_id);
+      if (!item || item->type != anime::Type::Movie) continue;
+      if (hideMatureCatalogRow(item)) continue;
+      const int total = item->episode_count > 0 ? item->episode_count : 1;
+      if (entry.watched_episodes >= total) continue;
+      const MovieTorrentSnapshot snap = MovieTorrentWatch::instance()->snapshot(item->id);
+      movieRows.push_back({QString::fromStdString(anime::preferredListTitleString(
+                               *item, anime::TitleLanguage::English)),
+                           item->id, snap.onDisk, snap.hitCount, snap.lastCheckSecs,
+                           snap.checking});
+    }
+    std::sort(movieRows.begin(), movieRows.end(), [](const MovieHomeRow& a, const MovieHomeRow& b) {
+      return a.title.toLower() < b.title.toLower();
+    });
+    if (m_homeMoviesHeader) m_homeMoviesHeader->setVisible(true);
+    if (movieRows.isEmpty()) {
+      auto* empty = new QLabel(tr("<span style=\"color:#888\">No Watching movies waiting for a "
+                                  "file.</span>"),
+                               m_homeMoviesContainer);
+      empty->setTextFormat(Qt::RichText);
+      vl->addWidget(empty);
+    } else {
+      const auto checkedLabel = [](const qint64 last_check) {
+        if (last_check <= 0) return QString();
+        const qint64 age = QDateTime::currentSecsSinceEpoch() - last_check;
+        if (age < 90) return QCoreApplication::translate("MainWindow", "Checked just now");
+        if (age < 3600) {
+          return QCoreApplication::translate("MainWindow", "Checked %1 min ago").arg(age / 60);
+        }
+        if (age < 86400) {
+          return QCoreApplication::translate("MainWindow", "Checked %1 h ago").arg(age / 3600);
+        }
+        return QCoreApplication::translate("MainWindow", "Checked %1 d ago").arg(age / 86400);
+      };
+      for (int i = 0; i < movieRows.size(); ++i) {
+        const auto& rowData = movieRows[i];
+        auto* row = new QWidget(m_homeMoviesContainer);
+        auto* rl = new QHBoxLayout(row);
+        rl->setContentsMargins(0, 0, 0, 0);
+        rl->setSpacing(8);
+        applyHomeRowChrome(row, rl);
+        auto* titleLbl = new QLabel(rowData.title.toHtmlEscaped(), row);
+        titleLbl->setTextFormat(Qt::RichText);
+        titleLbl->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        QString status;
+        if (rowData.on_disk) {
+          status = tr("In library");
+        } else if (rowData.checking) {
+          status = tr("Checking…");
+        } else if (rowData.hits > 0) {
+          status = tr("%1 found").arg(rowData.hits);
+        } else if (rowData.last_check > 0) {
+          status = checkedLabel(rowData.last_check);
+        } else {
+          status = tr("Not checked yet");
+        }
+        auto* statusLbl = new QLabel(status.toHtmlEscaped(), row);
+        statusLbl->setTextFormat(Qt::RichText);
+        auto* action = new QPushButton(row);
+        action->setCursor(Qt::PointingHandCursor);
+        const int aid = rowData.anime_id;
+        if (rowData.on_disk) {
+          action->setText(tr("Play"));
+          connect(action, &QPushButton::clicked, this, [aid]() { track::playNextEpisode(aid); });
+        } else if (rowData.hits > 0) {
+          action->setText(tr("View torrents"));
+          connect(action, &QPushButton::clicked, this, [this, aid]() {
+            const auto* item = anime::db.item(aid);
+            if (!item) return;
+            const QString primary = QString::fromStdString(item->titles.romaji).trimmed().isEmpty()
+                                        ? QString::fromStdString(item->titles.english)
+                                        : QString::fromStdString(item->titles.romaji);
+            QString fallback;
+            const QString english = QString::fromStdString(item->titles.english);
+            if (!english.isEmpty() && english.compare(primary, Qt::CaseInsensitive) != 0) {
+              fallback = english;
+            }
+            openTorrentSearchInApp(primary, fallback, aid);
+          });
+        } else {
+          action->setText(tr("Check now"));
+          connect(action, &QPushButton::clicked, this,
+                  [aid]() { MovieTorrentWatch::instance()->checkNow(aid); });
+        }
+        rl->addWidget(titleLbl);
+        rl->addWidget(statusLbl);
+        rl->addWidget(action);
+        vl->addWidget(row);
+        if (i != movieRows.size() - 1) addHomeDivider(vl, m_homeMoviesContainer);
+      }
+    }
+  }
+
   // ── "Upcoming & recently aired" section ─────────────────────────────────
   if (m_homeRecentContainer) {
     m_home_upcoming_countdowns_.clear();
@@ -2872,7 +3042,8 @@ void MainWindow::refreshHomeDashboard() {
           entry.status != anime::list::Status::PlanToWatch)
         continue;
       const auto* item = anime::db.item(entry.anime_id);
-      if (!item || item->next_episode_time <= now_secs) continue;
+      if (!item || item->type == anime::Type::Movie || item->next_episode_time <= now_secs)
+        continue;
       if (hideMatureCatalogRow(item)) continue;
       const qint64 secs_until = item->next_episode_time - now_secs;
       if (secs_until > 7LL * 86400) continue;
@@ -2979,7 +3150,7 @@ void MainWindow::refreshHomeDashboard() {
     for (const auto& entry : anime::db.entries()) {
       if (entry.status == anime::list::Status::Completed) continue;
       const auto* item = anime::db.item(entry.anime_id);
-      if (!item || item->date_finished.empty()) continue;
+      if (!item || item->type == anime::Type::Movie || item->date_finished.empty()) continue;
       if (hideMatureCatalogRow(item)) continue;
       const int yr = item->date_finished.year();
       const int mo = item->date_finished.month();

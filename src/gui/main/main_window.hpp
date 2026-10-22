@@ -300,6 +300,8 @@ private:
   QLabel* m_homeBodyLabel = nullptr;
   QWidget* m_homeUpNextContainer = nullptr;
   QLabel* m_homeUpNextHeader = nullptr;
+  QWidget* m_homeMoviesContainer = nullptr;
+  QLabel* m_homeMoviesHeader = nullptr;
   QWidget* m_homeRecentContainer = nullptr;
   QLabel* m_homeRecentHeader = nullptr;
   QWidget* m_homeAnnouncedBannerHost = nullptr;

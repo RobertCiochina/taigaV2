@@ -36,6 +36,7 @@
 #include "gui/utils/format.hpp"
 #include "gui/utils/image_provider.hpp"
 #include "gui/utils/list_commit.hpp"
+#include "gui/torrent/movie_torrent_watch.hpp"
 #include "gui/utils/ui_title.hpp"
 #include "media/anime_db.hpp"
 #include "media/anime_season.hpp"
@@ -214,6 +215,30 @@ QVariant AnimeListModel::data(const QModelIndex& index, int role) const {
         case COLUMN_WATCH_ORDER_GUIDE:
           return QCoreApplication::translate("AnimeListModel",
                                              "Open the watch order guide for this title");
+        case COLUMN_MOVIE_TORRENTS: {
+          if (anime->type != anime::Type::Movie) return {};
+          const MovieTorrentSnapshot snap = MovieTorrentWatch::instance()->snapshot(anime->id);
+          if (snap.onDisk) {
+            return QCoreApplication::translate("AnimeListModel", "Play the file in your library");
+          }
+          if (!snap.watching) {
+            return QCoreApplication::translate("AnimeListModel", "Search torrents…");
+          }
+          if (snap.checking) {
+            return QCoreApplication::translate("AnimeListModel", "Checking for torrents…");
+          }
+          if (snap.hitCount > 0) {
+            return QCoreApplication::translate("AnimeListModel", "%1 torrent(s). %2")
+                .arg(snap.hitCount)
+                .arg(snap.bestTitle);
+          }
+          if (snap.lastCheckSecs > 0) {
+            return QCoreApplication::translate("AnimeListModel",
+                                               "No torrent yet. Click to search.");
+          }
+          return QCoreApplication::translate("AnimeListModel",
+                                             "Not checked yet. Click to search.");
+        }
       }
       break;
 
@@ -338,6 +363,13 @@ void AnimeListModel::emitTitleColumnDataChanged() {
   emit dataChanged(top_left, bottom_right, {Qt::DisplayRole, Qt::ToolTipRole});
 }
 
+void AnimeListModel::emitMovieTorrentColumnDataChanged() {
+  if (m_ids.isEmpty()) return;
+  const int last = m_ids.size() - 1;
+  emit dataChanged(index(0, COLUMN_MOVIE_TORRENTS), index(last, COLUMN_MOVIE_TORRENTS),
+                   {Qt::DisplayRole, Qt::ToolTipRole});
+}
+
 void AnimeListModel::emitProgressColumnDataChanged() {
   if (m_ids.isEmpty()) return;
   const int last = m_ids.size() - 1;
@@ -379,7 +411,7 @@ QVariant AnimeListModel::headerData(int section, Qt::Orientation orientation, in
         case COLUMN_LAST_UPDATED: return tr("Last updated");
         case COLUMN_NOTES: return tr("Notes");
         case COLUMN_WATCH_ORDER_GUIDE: return tr("Guide");
-        case COLUMN_MOVIE_TORRENTS: return tr("RSS");
+        case COLUMN_MOVIE_TORRENTS: return tr("Torrents");
       }
       // clang-format on
       break;
@@ -390,7 +422,8 @@ QVariant AnimeListModel::headerData(int section, Qt::Orientation orientation, in
         return tr("Open the watch order guide for this title");
       }
       if (orientation == Qt::Horizontal && section == COLUMN_MOVIE_TORRENTS) {
-        return tr("Search torrents in-app (movies only; Watching)");
+        return tr("Movie torrent check. Click a result count to search, or play when the file is "
+                  "already in the library.");
       }
       break;
     }

@@ -62,8 +62,10 @@ NavigationWidget::NavigationWidget(QWidget* parent) : QTreeWidget(parent) {
     if (page != MainWindowPage::List) return;
 
     constexpr auto statusRole = static_cast<int>(NavigationItemDataRole::ListStatus);
+    constexpr auto moviesRole = static_cast<int>(NavigationItemDataRole::ListMovies);
     const auto status = current->data(0, statusRole).value<anime::list::Status>();
-    emit currentListStatusChanged(status);
+    const bool movies = current->data(0, moviesRole).toBool();
+    emit currentListStatusChanged(status, movies);
   });
 }
 
@@ -91,22 +93,35 @@ void NavigationWidget::refresh() {
   listItem->setExpanded(true);
   setItemData(listItem, NavigationItemDataRole::HasChildren, true);
 
-  const auto statusCounts = []() {
+  const auto statusCountsFor = [](const bool movies) {
     QMap<anime::list::Status, int> statuses;
     for (const auto& entry : anime::db.entries()) {
+      const anime::Details* item = anime::db.item(entry.anime_id);
+      const bool isMovie = item && item->type == anime::Type::Movie;
+      if (isMovie != movies) continue;
       statuses[entry.status] += 1;
     }
     return statuses;
-  }();
-  for (const auto status : anime::list::kStatuses) {
-    auto item = addChildItem(listItem, formatListStatus(status));
-    // Child rows navigate to the same page as the parent list (was missing → Home by default).
-    setItemData(item, NavigationItemDataRole::PageIndex, static_cast<int>(MainWindowPage::List));
-    setItemData(item, NavigationItemDataRole::IsLastChild,
-                status == anime::list::Status::PlanToWatch);
-    setItemData(item, NavigationItemDataRole::ListStatus, static_cast<int>(status));
-    setItemData(item, NavigationItemDataRole::Counter, statusCounts[status]);
-  }
+  };
+  const auto addStatusChildren = [&](QTreeWidgetItem* parent, const bool movies) {
+    setItemData(parent, NavigationItemDataRole::ListMovies, movies);
+    const auto statusCounts = statusCountsFor(movies);
+    for (const auto status : anime::list::kStatuses) {
+      auto item = addChildItem(parent, formatListStatus(status));
+      setItemData(item, NavigationItemDataRole::PageIndex, static_cast<int>(MainWindowPage::List));
+      setItemData(item, NavigationItemDataRole::IsLastChild,
+                  status == anime::list::Status::PlanToWatch);
+      setItemData(item, NavigationItemDataRole::ListStatus, static_cast<int>(status));
+      setItemData(item, NavigationItemDataRole::ListMovies, movies);
+      setItemData(item, NavigationItemDataRole::Counter, statusCounts[status]);
+    }
+  };
+  addStatusChildren(listItem, false);
+
+  auto moviesItem = addItem(tr("Movies"), "play_arrow", MainWindowPage::List);
+  moviesItem->setExpanded(true);
+  setItemData(moviesItem, NavigationItemDataRole::HasChildren, true);
+  addStatusChildren(moviesItem, true);
 
   addItem(tr("History"), "history", MainWindowPage::History);
   addSeparator();
@@ -178,11 +193,26 @@ void NavigationWidget::setItemData(QTreeWidgetItem* item, NavigationItemDataRole
 }
 
 void NavigationWidget::setCurrentNavigationPage(
-    const MainWindowPage page, const std::optional<anime::list::Status> listStatusForListPage) {
+    const MainWindowPage page, const std::optional<anime::list::Status> listStatusForListPage,
+    const bool moviesList) {
   constexpr auto statusRole = static_cast<int>(NavigationItemDataRole::ListStatus);
+  constexpr auto moviesRole = static_cast<int>(NavigationItemDataRole::ListMovies);
 
   if (page == MainWindowPage::List) {
-    QTreeWidgetItem* const listParent = findItemByPage(MainWindowPage::List);
+    QTreeWidgetItem* listParent = nullptr;
+    for (int i = 0; i < topLevelItemCount(); ++i) {
+      QTreeWidgetItem* const item = topLevelItem(i);
+      if (item->data(0, static_cast<int>(NavigationItemDataRole::PageIndex)).toInt() !=
+          static_cast<int>(MainWindowPage::List)) {
+        continue;
+      }
+      if (item->data(0, static_cast<int>(NavigationItemDataRole::IsActionWatchNext)).toBool()) {
+        continue;
+      }
+      if (item->data(0, moviesRole).toBool() != moviesList) continue;
+      listParent = item;
+      break;
+    }
     if (!listParent) return;
     if (listStatusForListPage.has_value()) {
       for (int i = 0; i < listParent->childCount(); ++i) {

@@ -37,6 +37,8 @@ struct AnimeListProxyModelFilter {
   std::optional<int> year;
   std::optional<int> season;
   std::optional<int> type;
+  /// When true, drop `anime::Type::Movie` (Anime List). Movies view uses `type` instead.
+  bool excludeMovies = false;
   std::optional<int> status;
   AnimeListStatusFilter listStatus;
   QString text;
@@ -56,6 +58,7 @@ public:
   void setYearFilter(std::optional<int> year);
   void setSeasonFilter(std::optional<int> season);
   void setTypeFilter(std::optional<int> type);
+  void setExcludeMovies(bool exclude);
   void setStatusFilter(std::optional<int> status);
   void setListStatusFilter(AnimeListStatusFilter filter);
   void setTextFilter(const QString& text);

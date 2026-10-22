@@ -91,6 +91,10 @@ public:
                                  std::function<void(bool found)> on_done,
                                  const QString& fallback_title = {});
 
+  /// Queue a magnet or .torrent URL on the qBittorrent Web API without dialogs.
+  void addTorrentUrlSilently(const QString& url, const QString& folder_name,
+                             std::function<void(bool ok, QString error)> on_done);
+
   /// Higher-level auto-download: builds multiple title variants (season-qualified `SNN` first,
   /// then bare English/romaji), tries them sequentially until RSS results are found, and saves the
   /// winning title to settings so future calls for the same anime use it directly.

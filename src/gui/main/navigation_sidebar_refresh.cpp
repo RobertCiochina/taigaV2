@@ -18,11 +18,12 @@
 namespace gui {
 
 void refreshNavigationSidebarPreserving(NavigationWidget* nav, const MainWindowPage page,
-                                        const std::optional<anime::list::Status>& list_status) {
+                                        const std::optional<anime::list::Status>& list_status,
+                                        const bool movies_list) {
   if (!nav) return;
   const QSignalBlocker blocker(nav);
   nav->refresh();
-  nav->setCurrentNavigationPage(page, list_status);
+  nav->setCurrentNavigationPage(page, list_status, movies_list);
 }
 
 }  // namespace gui

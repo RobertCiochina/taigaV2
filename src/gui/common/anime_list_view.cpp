@@ -106,7 +106,8 @@ ListView::ListView(QWidget* parent, AnimeListModel* model, AnimeListProxyModel* 
   header()->setCascadingSectionResizes(false);
   header()->setSectionResizeMode(QHeaderView::Interactive);
   header()->resizeSection(AnimeListModel::COLUMN_WATCH_ORDER_GUIDE, 42);
-  header()->resizeSection(AnimeListModel::COLUMN_MOVIE_TORRENTS, 42);
+  header()->resizeSection(AnimeListModel::COLUMN_MOVIE_TORRENTS, 52);
+  header()->hideSection(AnimeListModel::COLUMN_MOVIE_TORRENTS);
   positionAnimeListGuideColumnAfterTitle(header());
   applyAnimeListHorizontalStretch(header());
 

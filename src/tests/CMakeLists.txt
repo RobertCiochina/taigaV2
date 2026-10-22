@@ -102,6 +102,9 @@ target_sources(taiga.tests.ui_strings PRIVATE gui/test_ui_strings.cpp)
 taiga_add_qttest(taiga.tests.nyaa_season_qualified_title)
 target_sources(taiga.tests.nyaa_season_qualified_title PRIVATE gui/test_nyaa_season_qualified_title.cpp)
 
+taiga_add_qttest(taiga.tests.movie_torrent_match)
+target_sources(taiga.tests.movie_torrent_match PRIVATE gui/test_movie_torrent_match.cpp)
+
 add_custom_target(taiga_all_tests)
 add_dependencies(
   taiga_all_tests
@@ -129,4 +132,5 @@ add_dependencies(
   taiga.tests.announced_related_refresh
   taiga.tests.version
   taiga.tests.ui_strings
-  taiga.tests.nyaa_season_qualified_title)
+  taiga.tests.nyaa_season_qualified_title
+  taiga.tests.movie_torrent_match)

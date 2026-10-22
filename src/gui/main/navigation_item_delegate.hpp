@@ -30,6 +30,8 @@ enum class NavigationItemDataRole {
   IsSeparator,
   IsActionWatchNext,
   ListStatus,
+  /// True on the Movies tree (parent and status rows). Anime List rows leave this false.
+  ListMovies,
   Counter,
   HasDot,
 };

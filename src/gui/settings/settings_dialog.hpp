@@ -70,6 +70,8 @@ private:
   QLineEdit* m_rss_search_url_ = nullptr;
   QLineEdit* m_rss_feed_url_ = nullptr;
   QCheckBox* m_rss_autocheck_ = nullptr;
+  QCheckBox* m_movie_watch_ = nullptr;
+  QCheckBox* m_movie_auto_add_ = nullptr;
   QSpinBox*  m_rss_autocheck_mins_ = nullptr;
   QComboBox* m_rss_sort_by_ = nullptr;
   QComboBox* m_rss_sort_order_ = nullptr;

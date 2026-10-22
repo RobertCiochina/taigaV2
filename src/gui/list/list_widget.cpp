@@ -38,6 +38,7 @@
 #include <QSplitter>
 #include <QToolBar>
 #include <QToolButton>
+#include <QTreeWidget>
 #include <QVBoxLayout>
 #include <format>
 
@@ -50,6 +51,7 @@
 #include "gui/main/navigation_widget.hpp"
 #include "gui/models/anime_list_model.hpp"
 #include "gui/models/anime_list_proxy_model.hpp"
+#include "gui/torrent/movie_torrent_watch.hpp"
 #include "gui/utils/format.hpp"
 #include "gui/utils/theme.hpp"
 #include "gui/utils/ui_strings.hpp"
@@ -103,20 +105,70 @@ ListWidget::ListWidget(QWidget* parent)
   connect(m_viewMenu, &QMenu::aboutToShow, this, &ListWidget::initViewMenu);
   connect(m_moreMenu, &QMenu::aboutToShow, this, &ListWidget::initMoreMenu);
 
-  // Sidebar status selection controls the list status filter.
   connect(mainWindow()->navigation(), &NavigationWidget::currentListStatusChanged, this,
-          [this](anime::list::Status status) {
-            m_proxyModel->setListStatusFilter({
-                .status = static_cast<int>(status),
-                .anyStatus = !static_cast<int>(status),
-            });
+          [this](const anime::list::Status status, const bool movies) {
+            applyListScope(movies, status);
           });
+  connect(MovieTorrentWatch::instance(), &MovieTorrentWatch::updated, this,
+          [this](int) { refreshMovieTorrentColumn(); });
 
-  // Default to "All" until the sidebar selection is applied.
+  syncScopeFromNavigation();
+}
+
+void ListWidget::applyListScope(const bool movies, const anime::list::Status status) {
+  m_moviesScope = movies;
+  if (movies) {
+    m_proxyModel->setExcludeMovies(false);
+    m_proxyModel->setTypeFilter(static_cast<int>(anime::Type::Movie));
+  } else {
+    m_proxyModel->setTypeFilter(std::nullopt);
+    m_proxyModel->setExcludeMovies(true);
+  }
   m_proxyModel->setListStatusFilter({
-      .status = static_cast<int>(anime::list::Status::NotInList),
-      .anyStatus = true,
+      .status = static_cast<int>(status),
+      .anyStatus = !static_cast<int>(status),
   });
+  applyMovieScopeColumns();
+}
+
+void ListWidget::applyMovieScopeColumns() {
+  if (!m_listView) return;
+  QHeaderView* const header = m_listView->header();
+  if (m_moviesScope) {
+    header->hideSection(AnimeListModel::COLUMN_TYPE);
+    header->showSection(AnimeListModel::COLUMN_MOVIE_TORRENTS);
+    header->resizeSection(AnimeListModel::COLUMN_MOVIE_TORRENTS, 52);
+  } else {
+    header->showSection(AnimeListModel::COLUMN_TYPE);
+    header->hideSection(AnimeListModel::COLUMN_MOVIE_TORRENTS);
+  }
+}
+
+void ListWidget::syncScopeFromNavigation() {
+  NavigationWidget* const nav = mainWindow() ? mainWindow()->navigation() : nullptr;
+  QTreeWidgetItem* const current = nav ? nav->currentItem() : nullptr;
+  const bool onList =
+      current &&
+      current->data(0, static_cast<int>(NavigationItemDataRole::PageIndex)).toInt() ==
+          static_cast<int>(MainWindowPage::List) &&
+      !current->data(0, static_cast<int>(NavigationItemDataRole::IsActionWatchNext)).toBool();
+  if (!onList) {
+    applyListScope(false, anime::list::Status::NotInList);
+    return;
+  }
+  const bool movies =
+      current->data(0, static_cast<int>(NavigationItemDataRole::ListMovies)).toBool();
+  const auto status = current->data(0, static_cast<int>(NavigationItemDataRole::ListStatus))
+                          .value<anime::list::Status>();
+  applyListScope(movies, status);
+}
+
+bool ListWidget::moviesScope() const {
+  return m_moviesScope;
+}
+
+void ListWidget::refreshMovieTorrentColumn() {
+  if (m_model) m_model->emitMovieTorrentColumnDataChanged();
 }
 
 AnimeListStatusFilter ListWidget::currentListSidebarFilter() const {
@@ -163,6 +215,7 @@ void ListWidget::setViewMode(ListViewMode mode) {
       positionAnimeListGuideColumnAfterTitle(v->header());
       applyAnimeListHorizontalStretch(v->header());
       m_listView = v;
+      applyMovieScopeColumns();
       m_listViewCards = nullptr;
       center = v;
       break;

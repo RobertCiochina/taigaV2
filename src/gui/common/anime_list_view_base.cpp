@@ -18,6 +18,7 @@
 
 #include "anime_list_view_base.hpp"
 
+#include <QPalette>
 #include <QDesktopServices>
 #include <QEvent>
 #include <QListView>
@@ -35,9 +36,11 @@
 #include "gui/media/media_menu.hpp"
 #include "gui/models/anime_list_model.hpp"
 #include "gui/models/anime_list_proxy_model.hpp"
+#include "gui/torrent/movie_torrent_watch.hpp"
 #include "gui/utils/format.hpp"
 #include "gui/utils/ui_strings.hpp"
 #include "media/anime.hpp"
+#include "track/play.hpp"
 #include "media/anime_list.hpp"
 #include "sync/service.hpp"
 #include "taiga/settings.hpp"
@@ -107,10 +110,13 @@ bool ListViewBase::eventFilter(QObject* watched, QEvent* event) {
         const auto mapped = m_proxyModel->mapToSource(proxy);
         const auto* anime = m_model->getAnime(mapped);
         const auto* entry = m_model->getListEntry(mapped);
-        if (!anime || !entry) return true;
-        const bool show = anime->type == anime::Type::Movie &&
-                          entry->status == anime::list::Status::Watching;
-        if (!show) return true;
+        if (!anime || anime->type != anime::Type::Movie) return true;
+        const MovieTorrentSnapshot snap = MovieTorrentWatch::instance()->snapshot(anime->id);
+        if (snap.onDisk) {
+          track::playNextEpisode(anime->id);
+          return true;
+        }
+        if (snap.watching) MovieTorrentWatch::instance()->checkNow(anime->id);
         if (auto* mw = mainWindow()) {
           const QString primary = QString::fromStdString(anime->titles.romaji).trimmed().isEmpty()
                                       ? QString::fromStdString(anime->titles.english)

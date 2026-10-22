@@ -61,6 +61,25 @@ private slots:
              anime::list::Status::Watching);
   }
 
+  void refresh_preserving_movies_watching_row_survives() {
+    QWidget host;
+    NavigationWidget nav(&host);
+    nav.refresh();
+
+    constexpr auto moviesRole = static_cast<int>(NavigationItemDataRole::ListMovies);
+    constexpr auto statusRole = static_cast<int>(NavigationItemDataRole::ListStatus);
+    nav.setCurrentNavigationPage(MainWindowPage::List, anime::list::Status::Watching, true);
+    QVERIFY(nav.currentItem()->data(0, moviesRole).toBool());
+
+    QSignalSpy spy(&nav, &NavigationWidget::currentPageChanged);
+    refreshNavigationSidebarPreserving(&nav, MainWindowPage::List, anime::list::Status::Watching,
+                                       true);
+    QCOMPARE(spy.count(), 0);
+    QVERIFY(nav.currentItem()->data(0, moviesRole).toBool());
+    QCOMPARE(nav.currentItem()->data(0, statusRole).value<anime::list::Status>(),
+             anime::list::Status::Watching);
+  }
+
   void refresh_preserving_can_move_selection_without_emitting() {
     QWidget host;
     NavigationWidget nav(&host);

@@ -25,6 +25,7 @@ enum class MainWindowPage;
 /// Rebuilds sidebar counts while keeping the logical page (and optional list status row) selected,
 /// without emitting `currentPageChanged` during the refresh (avoids jumping the stacked widget).
 void refreshNavigationSidebarPreserving(NavigationWidget* nav, MainWindowPage page,
-                                        const std::optional<anime::list::Status>& list_status);
+                                        const std::optional<anime::list::Status>& list_status,
+                                        bool movies_list = false);
 
 }  // namespace gui

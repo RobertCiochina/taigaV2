@@ -21,12 +21,14 @@
 #include <QComboBox>
 #include <QFontMetrics>
 #include <QPainter>
+#include <QPalette>
 #include <QStyle>
 #include <QStyleOptionButton>
 #include <QTreeView>
 #include <limits>
 
 #include "gui/models/anime_list_model.hpp"
+#include "gui/torrent/movie_torrent_watch.hpp"
 #include "gui/utils/painter_state_saver.hpp"
 #include "gui/utils/painters.hpp"
 #include "gui/utils/theme.hpp"
@@ -107,17 +109,28 @@ void ListItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
   if (index.column() == AnimeListModel::COLUMN_MOVIE_TORRENTS) {
     const auto anime =
         index.data(static_cast<int>(AnimeListItemDataRole::Anime)).value<const Anime*>();
-    const auto entry =
-        index.data(static_cast<int>(AnimeListItemDataRole::ListEntry)).value<const ListEntry*>();
-    const bool show = anime && entry && anime->type == anime::Type::Movie &&
-                      entry->status == anime::list::Status::Watching;
-    if (!show) return;
+    if (!anime || anime->type != anime::Type::Movie) return;
 
     const PainterStateSaver painterStateSaver(painter);
     if (index.column() > 0) {
       painter->setPen(theme.isDark() ? QColor{255, 255, 255, 8} : QColor{0, 0, 0, 8});
       painter->drawLine(option.rect.topLeft(), option.rect.bottomLeft());
     }
+    const MovieTorrentSnapshot snap = MovieTorrentWatch::instance()->snapshot(anime->id);
+    QString label;
+    QIcon icon;
+    if (snap.onDisk) {
+      icon = theme.getIcon("play_arrow");
+    } else if (snap.watching && snap.hitCount > 0) {
+      label = QString::number(snap.hitCount);
+    } else if (snap.watching && snap.checking) {
+      label = QStringLiteral("…");
+    } else if (snap.watching && snap.lastCheckSecs > 0) {
+      label = QStringLiteral("0");
+    } else {
+      icon = theme.getIcon("cloud_download");
+    }
+
     QStyleOptionViewItem opt = option;
     initStyleOption(&opt, index);
     opt.text.clear();
@@ -135,11 +148,15 @@ void ListItemDelegate::paint(QPainter* painter, const QStyleOptionViewItem& opti
     if (opt.state & QStyle::State_MouseOver) btn.state |= QStyle::State_MouseOver;
     if (opt.state & QStyle::State_Sunken) btn.state |= QStyle::State_Sunken;
     st->drawPrimitive(QStyle::PE_PanelButtonCommand, &btn, painter, w);
-    const QIcon icon = theme.getIcon("cloud_download");
-    const QSize iconSize(18, 18);
-    const QRect iconRect(
-        QPoint(inner.center() - QPoint(iconSize.width() / 2, iconSize.height() / 2)), iconSize);
-    icon.paint(painter, iconRect, Qt::AlignCenter);
+    if (!icon.isNull()) {
+      const QSize iconSize(18, 18);
+      const QRect iconRect(
+          QPoint(inner.center() - QPoint(iconSize.width() / 2, iconSize.height() / 2)), iconSize);
+      icon.paint(painter, iconRect, Qt::AlignCenter);
+    } else if (!label.isEmpty()) {
+      painter->setPen(opt.palette.color(QPalette::ButtonText));
+      painter->drawText(inner, Qt::AlignCenter, label);
+    }
     return;
   }
 

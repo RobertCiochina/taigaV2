@@ -77,6 +77,8 @@ target_sources(taiga-gui PRIVATE
 	search/search_widget.cpp
 	search/search_widget.hpp
 
+	torrent/movie_torrent_watch.cpp
+	torrent/movie_torrent_watch.hpp
 	torrent/torrent_feed_widget.cpp
 	torrent/torrent_feed_widget.hpp
 	torrent/torrent_auto_cleanup.cpp

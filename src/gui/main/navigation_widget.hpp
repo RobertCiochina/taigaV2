@@ -43,14 +43,15 @@ public:
   /// Updates the sidebar selection without emitting signals (caller should use `QSignalBlocker`).
   /// For `List`, pass a status to select a status tab; `std::nullopt` selects the parent row (all).
   void setCurrentNavigationPage(MainWindowPage page,
-                                  std::optional<anime::list::Status> listStatusForListPage = {});
+                                  std::optional<anime::list::Status> listStatusForListPage = {},
+                                  bool moviesList = false);
 
 public slots:
   void refresh();
 
 signals:
   void currentPageChanged(MainWindowPage page);
-  void currentListStatusChanged(anime::list::Status status);
+  void currentListStatusChanged(anime::list::Status status, bool movies);
   void watchNextRequested();
 
 protected:

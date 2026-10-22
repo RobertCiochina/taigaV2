@@ -799,6 +799,30 @@ void Settings::setTorrentDiscoveryAutoCheckEnabled(const bool enabled) const {
   setValue("torrent.discovery.autoCheck", enabled);
 }
 
+bool Settings::movieTorrentWatchEnabled() const {
+  return value("movieTorrent.watchEnabled", true).toBool();
+}
+
+void Settings::setMovieTorrentWatchEnabled(const bool enabled) const {
+  setValue("movieTorrent.watchEnabled", enabled);
+}
+
+bool Settings::movieTorrentWatchAutoAdd() const {
+  return value("movieTorrent.autoAdd", false).toBool();
+}
+
+void Settings::setMovieTorrentWatchAutoAdd(const bool enabled) const {
+  setValue("movieTorrent.autoAdd", enabled);
+}
+
+QString Settings::movieTorrentWatchState() const {
+  return value("movieTorrent.state").toString();
+}
+
+void Settings::setMovieTorrentWatchState(const QString& json) const {
+  setValue("movieTorrent.state", json);
+}
+
 void Settings::setTorrentDiscoveryAutoCheckIntervalMinutes(const int minutes) const {
   setValue("torrent.discovery.autoCheckIntervalMinutes", std::clamp(minutes, 5, 24 * 60));
 }

@@ -1646,6 +1646,17 @@ TorrentFeedWidget::TorrentFeedWidget(QLineEdit* toolbar_query_edit, QWidget* par
   wire_view(m_view_batches_);
 }
 
+void TorrentFeedWidget::addTorrentUrlSilently(
+    const QString& url, const QString& folder_name,
+    std::function<void(bool ok, QString error)> on_done) {
+  if (!taiga::settings.torrentQBitApiEnabled() || url.trimmed().isEmpty()) {
+    if (on_done) on_done(false, QStringLiteral("qBittorrent API is off"));
+    return;
+  }
+  const QString save_path = resolvedTorrentDownloadDirForSavedTorrent(folder_name);
+  addTorrentViaQBitApi(url, save_path, std::move(on_done), false);
+}
+
 void TorrentFeedWidget::addTorrentViaQBitApi(const QString& torrent_url, const QString& save_path,
                                              std::function<void(bool ok, QString error)> on_done,
                                              const bool interactive) {
